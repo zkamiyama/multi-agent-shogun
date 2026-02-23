@@ -47,12 +47,9 @@ if [ -z "$AGENT_ID" ]; then
     exit 0
 fi
 
-# ─── Shogun: always approve (human-controlled) ───
-if [ "$AGENT_ID" = "shogun" ]; then
-    exit 0
-fi
-
 # ─── Analyze last_assistant_message (v2.1.47+) ───
+# Shogun skips karo notification (shogun doesn't report to karo)
+# but still falls through to inbox check below.
 LAST_MSG=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('last_assistant_message', ''))" 2>/dev/null || echo "")
 
 if [ -n "$LAST_MSG" ]; then
@@ -70,7 +67,8 @@ if [ -n "$LAST_MSG" ]; then
     fi
 
     # Send notification to karo (background, non-blocking)
-    if [ -n "$NOTIFY_TYPE" ]; then
+    # Shogun doesn't report to karo — skip notification
+    if [ -n "$NOTIFY_TYPE" ] && [ "$AGENT_ID" != "shogun" ]; then
         bash "$SCRIPT_DIR/scripts/inbox_write.sh" karo \
             "$NOTIFY_CONTENT" \
             "$NOTIFY_TYPE" "$AGENT_ID" &

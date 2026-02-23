@@ -190,20 +190,13 @@ should_throttle_nudge() {
     if [[ "$effective_cli" == "codex" ]]; then
         cooldown_sec="${NUDGE_COOLDOWN_SEC_CODEX:-300}"
     elif [[ "$effective_cli" == "claude" ]]; then
-        # Claude Code: Stop hook is the primary inbox delivery mechanism.
-        # Normal nudges are only a safety net — throttle aggressively (5 min).
-        cooldown_sec="${NUDGE_COOLDOWN_SEC_CLAUDE:-300}"
+        # Claude Code: same cooldown as default (60s).
+        # Stop hook is supplementary, not primary — nudge immediately.
+        cooldown_sec="${NUDGE_COOLDOWN_SEC_CLAUDE:-60}"
     fi
 
-    # Claude Code: throttle regardless of count change.
-    # Stop hook catches new messages at turn end, so count-change bypass is unnecessary.
-    if [[ "$effective_cli" == "claude" ]] && [ "${LAST_NUDGE_TS:-0}" -gt 0 ]; then
-        local age=$((now - LAST_NUDGE_TS))
-        if [ "$age" -lt "${cooldown_sec}" ]; then
-            echo "[$(date)] [SKIP] Throttling nudge for $AGENT_ID: inbox${unread_count} (${age}s < ${cooldown_sec}s, cli=$effective_cli, stop-hook-primary)" >&2
-            return 0
-        fi
-    elif [ "${LAST_NUDGE_COUNT:-}" = "$unread_count" ] && [ "${LAST_NUDGE_TS:-0}" -gt 0 ]; then
+    # Standard throttle: skip if same count within cooldown window.
+    if [ "${LAST_NUDGE_COUNT:-}" = "$unread_count" ] && [ "${LAST_NUDGE_TS:-0}" -gt 0 ]; then
         local age=$((now - LAST_NUDGE_TS))
         if [ "$age" -lt "${cooldown_sec}" ]; then
             echo "[$(date)] [SKIP] Throttling nudge for $AGENT_ID: inbox${unread_count} (${age}s < ${cooldown_sec}s, cli=$effective_cli)" >&2
@@ -738,8 +731,9 @@ send_wakeup() {
     fi
 
     # 優先度2: Agent busy — nudge送信するとEnterが消失するためスキップ
-    # Claude Code agents: Stop hook handles delivery, no nudge needed at all.
-    if agent_is_busy; then
+    # Claude Code: Stop hook catches unread at turn end. Skip nudge to avoid Enter loss.
+    # Exception: shogun — ntfy must be delivered immediately regardless of busy state.
+    if agent_is_busy && [[ "$AGENT_ID" != "shogun" ]]; then
         local busy_cli_wakeup
         busy_cli_wakeup=$(get_effective_cli_type)
         if [[ "$busy_cli_wakeup" == "claude" ]]; then
@@ -754,14 +748,8 @@ send_wakeup() {
         return 0
     fi
 
-    # Shogun: if the pane is focused AND a human is attached, never inject keys
-    # (it can clobber the Lord's input). Show a tmux message instead.
-    # If session is detached, no human is watching — safe to send-keys normally.
-    if [ "$AGENT_ID" = "shogun" ] && pane_is_active && session_has_client; then
-        echo "[$(date)] [DISPLAY] shogun pane is active + attached — showing nudge: inbox${unread_count}" >&2
-        timeout 2 tmux display-message -t "$PANE_TARGET" -d 5000 "inbox${unread_count}" 2>/dev/null || true
-        return 0
-    fi
+    # Shogun: deliver nudge via send-keys like other agents.
+    # ntfy messages must reach Claude Code directly.
 
     # 優先度3: tmux send-keys（テキストとEnterを分離 — Codex TUI対策）
     echo "[$(date)] [SEND-KEYS] Sending nudge to $PANE_TARGET for $AGENT_ID" >&2
@@ -953,7 +941,8 @@ for s in data.get('specials', []):
         # When the agent is busy/thinking, do NOT escalate. Interrupting with Escape or /clear
         # can terminate the current thought. Also pause the escalation timer while busy so we
         # don't immediately jump to Phase 2/3 once it becomes idle.
-        if agent_is_busy; then
+        # Exception: shogun — ntfy must be delivered immediately.
+        if agent_is_busy && [[ "$AGENT_ID" != "shogun" ]]; then
             local busy_cli
             busy_cli=$(get_effective_cli_type)
             if [[ "$busy_cli" == "claude" ]]; then
