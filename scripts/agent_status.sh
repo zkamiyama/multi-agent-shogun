@@ -105,7 +105,7 @@ if $STANDALONE; then
         done
     else
         # List all panes across all windows in the session
-        mapfile -t PANE_TARGETS < <(tmux list-panes -s -t "$SESSION_NAME" -F '#{session_name}:#{window_name}.#{pane_index}' 2>/dev/null)
+        while IFS= read -r line; do PANE_TARGETS+=("$line"); done < <(tmux list-panes -s -t "$SESSION_NAME" -F '#{session_name}:#{window_name}.#{pane_index}' 2>/dev/null)
     fi
 
     # Header
