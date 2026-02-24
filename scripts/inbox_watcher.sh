@@ -70,6 +70,9 @@ if [ "${__INBOX_WATCHER_TESTING__:-}" != "1" ]; then
             exit 1
         fi
         WATCH_BACKEND="fswatch"
+        if ! command -v gtimeout &>/dev/null; then
+            echo "[inbox_watcher] WARN: gtimeout not found. Using sleep-based fallback (higher CPU). Recommended: brew install coreutils" >&2
+        fi
     else
         # Linux: use inotifywait
         if ! command -v inotifywait &>/dev/null; then
@@ -515,7 +518,12 @@ send_cli_command() {
         sleep 0.5
     fi
     timeout 5 tmux send-keys -t "$PANE_TARGET" "$actual_cmd" 2>/dev/null || true
-    sleep 0.3
+    # /clear needs longer gap before Enter — CLI prompt may not be ready at 0.3s
+    if [[ "$actual_cmd" == "/clear" || "$actual_cmd" == "/new" ]]; then
+        sleep 1.0
+    else
+        sleep 0.3
+    fi
     timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
 
     # /clear needs extra wait time before follow-up
@@ -616,7 +624,8 @@ send_context_reset() {
     # Non-Codex CLIs: send /clear and wait for idle
     # Send the command (text and Enter separated for TUI compatibility)
     timeout 5 tmux send-keys -t "$PANE_TARGET" "$reset_cmd" 2>/dev/null || true
-    sleep 0.3
+    # Longer gap for /clear — CLI prompt rendering needs time
+    sleep 1.0
     timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
     # Mark /clear timestamp so agent_is_busy() treats it as busy during processing
     if [[ "$reset_cmd" == "/clear" ]]; then
@@ -1087,7 +1096,7 @@ while true; do
             FSWATCH_PID=$!
             WAITED=0
             while [ "$WAITED" -lt "$INOTIFY_TIMEOUT" ] && kill -0 "$FSWATCH_PID" 2>/dev/null; do
-                sleep 1
+                sleep 2
                 WAITED=$((WAITED + 1))
             done
             if kill -0 "$FSWATCH_PID" 2>/dev/null; then
