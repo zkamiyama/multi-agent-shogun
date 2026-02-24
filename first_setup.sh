@@ -350,12 +350,25 @@ else
     HAS_ERROR=true
 fi
 
+# --- Bash version check (macOS ships with bash 3.2) ---
+if [ "$SETUP_OS" = "Darwin" ]; then
+    if [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
+        log_warn "bash 3.2 detected (macOS default)."
+        log_warn "This tool requires bash 4.0+."
+        log_warn "Install: brew install bash"
+        log_warn "Then reopen terminal and retry."
+        HAS_ERROR=true
+    else
+        log_success "bash ${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]} detected"
+    fi
+fi
+
 # --- coreutils (recommended for macOS) ---
 if [ "$SETUP_OS" = "Darwin" ]; then
     if ! command -v gtimeout &>/dev/null; then
         log_warn "GNU coreutils not found. inbox_watcher will use bash fallback for timeout."
-        log_warn "For better performance: brew install coreutils"
-        log_warn "(Not required — the system works without it)"
+        log_warn "Recommended: brew install coreutils"
+        RESULTS+=("coreutils: 未インストール (brew install coreutils)")
     else
         log_success "GNU coreutils detected (gtimeout available)"
     fi
