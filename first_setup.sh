@@ -626,6 +626,16 @@ else
     log_info "config/projects.yaml は既に存在します"
 fi
 
+# memory/MEMORY.md（Shogun 永続メモリ — 既存ファイルは上書きしない）
+if [ ! -f "$SCRIPT_DIR/memory/MEMORY.md" ]; then
+    log_info "memory/MEMORY.md を作成中..."
+    cp "$SCRIPT_DIR/memory/MEMORY.md.sample" "$SCRIPT_DIR/memory/MEMORY.md"
+    log_success "memory/MEMORY.md を作成しました（MEMORY.md.sample からコピー）"
+    log_info "memory/MEMORY.md を編集して、あなたの情報を記入してください"
+else
+    log_info "memory/MEMORY.md は既に存在します（スキップ）"
+fi
+
 # memory/global_context.md（システム全体のコンテキスト）
 if [ ! -f "$SCRIPT_DIR/memory/global_context.md" ]; then
     log_info "memory/global_context.md を作成中..."
