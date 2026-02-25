@@ -30,6 +30,28 @@ Run 10 AI coding agents in parallel — **Claude Code, OpenAI Codex, GitHub Copi
 
 ---
 
+## Quick Start
+
+**Requirements:** tmux, bash 4+, at least one of: [Claude Code](https://claude.ai/code) / Codex / Copilot / Kimi
+
+```bash
+git clone https://github.com/yohey-w/multi-agent-shogun
+cd multi-agent-shogun
+bash first_setup.sh          # one-time setup: config, dependencies, MCP
+bash shutsujin_departure.sh  # launch all agents
+```
+
+Type a command in the Shogun pane:
+
+> "Build a REST API for user authentication"
+
+Shogun delegates → Karo breaks it down → 7 Ashigaru execute in parallel.
+You watch the dashboard. That's it.
+
+> **Want to go deeper?** The rest of this README covers architecture, configuration, memory design, and multi-CLI setup.
+
+---
+
 ## What is this?
 
 **multi-agent-shogun** is a system that runs multiple AI coding CLI instances simultaneously, orchestrating them like a feudal Japanese army. Supports **Claude Code**, **OpenAI Codex**, **GitHub Copilot**, and **Kimi Code**.

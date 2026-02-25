@@ -30,6 +30,28 @@
 
 ---
 
+## クイックスタート
+
+**必要なもの:** tmux、bash 4+、以下のいずれか: [Claude Code](https://claude.ai/code) / Codex / Copilot / Kimi
+
+```bash
+git clone https://github.com/yohey-w/multi-agent-shogun
+cd multi-agent-shogun
+bash first_setup.sh          # 初回セットアップ: 設定・依存関係・MCP
+bash shutsujin_departure.sh  # 全エージェント起動
+```
+
+将軍ペインに命令を入力：
+
+> 「ユーザー認証の REST API を作って」
+
+将軍が委譲 → 家老が分解 → 足軽7体が並列実行。
+あとはダッシュボードを眺めるだけ。
+
+> **もっと詳しく知りたい方へ:** 以降のセクションでアーキテクチャ・設定・メモリ設計・Multi-CLI対応を解説しています。
+
+---
+
 ## これは何？
 
 **multi-agent-shogun** は、複数のAIコーディングCLIインスタンスを同時に実行し、戦国時代の軍制のように統率するシステムです。**Claude Code**、**OpenAI Codex**、**GitHub Copilot**、**Kimi Code** の4CLIに対応。
