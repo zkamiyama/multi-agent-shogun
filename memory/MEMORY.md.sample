@@ -1,0 +1,31 @@
+# Shogun Memory — Persistent Agent Context
+
+This file persists across sessions and is read by the Shogun agent at startup.
+Copy this file to `memory/MEMORY.md` and fill in your own content.
+
+`memory/MEMORY.md` is gitignored — your private data never enters the OSS repo.
+
+---
+
+## Lord's Basic Info
+
+- **X (Twitter)**: @your_handle
+- **GitHub**: your-username
+
+## Agent Principles (read every session)
+
+<!-- Add stable behavioral rules discovered through use -->
+
+## CLI Notes
+
+| CLI | Config file | Reset cmd | Notes |
+|-----|------------|-----------|-------|
+| Claude Code | CLAUDE.md | /clear | Stop hook for inbox delivery |
+
+## Project Index
+
+<!-- List active projects and their YAML paths -->
+
+## TODO
+
+<!-- Persistent backlog items -->

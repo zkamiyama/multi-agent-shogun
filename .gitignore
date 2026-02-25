@@ -105,6 +105,10 @@
 
 # Reports (private — not tracked)
 
+# Memory (MEMORY.md is private; only the sample template is OSS)
+!memory/
+!memory/MEMORY.md.sample
+
 # Docs
 !docs/
 !docs/philosophy.md
