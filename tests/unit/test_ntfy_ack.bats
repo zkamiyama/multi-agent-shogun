@@ -41,8 +41,14 @@ YAML
     # 本物のntfy_auth.shをコピー
     cp "$PROJECT_ROOT/lib/ntfy_auth.sh" "$MOCK_PROJECT/lib/"
 
-    # python3シンボリックリンク
-    ln -sf "$PROJECT_ROOT/.venv/bin/python3" "$MOCK_PROJECT/.venv/bin/python3"
+    # python3 wrapper (exec to project venv so pyvenv.cfg is found → PyYAML available)
+    # Note: a symlink chain breaks venv detection on macOS — argv[0] would point to
+    # $MOCK_PROJECT/.venv/bin/python3 but pyvenv.cfg only exists in $PROJECT_ROOT/.venv/
+    cat > "$MOCK_PROJECT/.venv/bin/python3" << WRAPPER
+#!/bin/sh
+exec "$PROJECT_ROOT/.venv/bin/python3" "\$@"
+WRAPPER
+    chmod +x "$MOCK_PROJECT/.venv/bin/python3"
 
     # ntfy_inbox初期化
     echo "inbox:" > "$MOCK_PROJECT/queue/ntfy_inbox.yaml"
