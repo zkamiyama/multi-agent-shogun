@@ -31,13 +31,28 @@
 agent_is_busy_check() {
     local pane_target="$1"
     local pane_tail
+
+    # Pane existence check — independent of capture-pane result.
+    # capture-pane on a TUI app (e.g. Claude Code) often returns only trailing
+    # blank lines when pane height > visible content, making pane_tail empty
+    # even when the pane exists and is healthy. Use display-message instead.
+    if ! tmux display-message -t "$pane_target" -p '#{pane_id}' &>/dev/null; then
+        return 2  # pane truly absent
+    fi
+
+    # capture-pane -p outputs the full pane height including trailing blank lines.
+    # Piping directly to `tail -5` captures those blank lines → empty result.
+    # Fix: store in a variable first so command-substitution strips trailing newlines,
+    # then pipe to tail.
+    local full_capture
+    full_capture=$(timeout 2 tmux capture-pane -t "$pane_target" -p 2>/dev/null)
     # Only check the bottom 5 lines. Old busy markers linger in scroll-back
     # and cause false-busy if we scan too many lines.
-    pane_tail=$(timeout 2 tmux capture-pane -t "$pane_target" -p 2>/dev/null | tail -5)
+    pane_tail=$(echo "$full_capture" | tail -5)
 
-    # Pane doesn't exist or empty capture
+    # Pane exists but capture is empty → treat as idle, not absent
     if [[ -z "$pane_tail" ]]; then
-        return 2
+        return 1
     fi
 
     # ── Status bar check (last non-empty line = most reliable) ──
