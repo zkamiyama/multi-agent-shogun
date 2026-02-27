@@ -690,11 +690,14 @@ agent_is_busy() {
         return 0  # busy — /clear still processing
     fi
 
-    if type agent_is_busy_check &>/dev/null; then
-        agent_is_busy_check "$PANE_TARGET"
+    local effective_cli
+    effective_cli=$(get_effective_cli_type)
+    if [[ "$effective_cli" == "claude" ]]; then
+        # フラグファイル方式: フラグなし=busy(return 0)、あり=idle(return 1)
+        [ ! -f "${IDLE_FLAG_DIR:-/tmp}/shogun_idle_${AGENT_ID}" ]
     else
-        # Fallback: if shared library not loaded, assume idle
-        return 1
+        # 従来のpane解析（Codex等フォールバック）
+        agent_is_busy_check "$PANE_TARGET"
     fi
 }
 
@@ -778,6 +781,7 @@ send_wakeup() {
     if timeout 5 tmux send-keys -t "$PANE_TARGET" "$nudge" 2>/dev/null; then
         sleep 0.3
         timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+        rm -f "${IDLE_FLAG_DIR:-/tmp}/shogun_idle_${AGENT_ID}"
         echo "[$(date)] Wake-up sent to $AGENT_ID (${unread_count} unread)" >&2
         return 0
     fi

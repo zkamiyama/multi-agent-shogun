@@ -652,6 +652,10 @@ if [ "$SETUP_ONLY" = false ]; then
         fi
     fi
 
+    # 前セッションのstaleフラグをクリア
+    rm -f /tmp/shogun_idle_*
+    echo "idle flags cleared"
+
     log_war "👑 全軍に Claude Code を召喚中..."
 
     # 将軍: CLI Adapter経由でコマンド構築
