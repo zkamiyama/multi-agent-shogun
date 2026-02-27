@@ -338,6 +338,32 @@ Meanings and allowed/forbidden actions (short):
   - Allowed: read-only (history)
   - Forbidden: continuing work under this cmd (use a new cmd instead)
 
+### Archive Rule
+
+The active queue file (`queue/shogun_to_karo.yaml`) must only contain
+`pending` and `in_progress` entries. All other statuses are archived.
+
+When a cmd reaches a terminal status (`done`, `cancelled`, `paused`),
+Karo must move the entire YAML entry to `queue/shogun_to_karo_archive.yaml`.
+
+| Status | In active file? | Action |
+|--------|----------------|--------|
+| pending | YES | Keep |
+| in_progress | YES | Keep |
+| done | NO | Move to archive |
+| cancelled | NO | Move to archive |
+| paused | NO | Move to archive (restore to active when resumed) |
+
+**Canonical statuses (exhaustive list — do NOT invent others)**:
+- `pending` — not started
+- `in_progress` — acknowledged, being worked
+- `done` — complete (covers former "completed", "superseded", "active")
+- `cancelled` — intentionally stopped, will not resume
+- `paused` — stopped by Lord's decision, may resume later
+
+Any other status value (e.g., `completed`, `active`, `superseded`) is
+forbidden. If found during archive, normalize to the canonical set above.
+
 **Karo rule (ack fast)**:
 - The moment Karo starts processing a cmd (after reading it), update that cmd status:
   - `pending` → `in_progress`

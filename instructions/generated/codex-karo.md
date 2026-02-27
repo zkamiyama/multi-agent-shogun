@@ -99,6 +99,20 @@ When you begin working on a new cmd in `queue/shogun_to_karo.yaml`, immediately 
 This is an ACK signal to the Lord and prevents "nobody is working" confusion.
 Do this before dispatching subtasks (fast, safe, no dependencies).
 
+### Archive on Completion
+
+When marking a cmd as `done` or `cancelled`:
+1. Update the status in `queue/shogun_to_karo.yaml`
+2. Move the entire cmd entry to `queue/shogun_to_karo_archive.yaml`
+3. Delete the entry from `queue/shogun_to_karo.yaml`
+
+This keeps the active file small and readable. Only `pending` and
+`in_progress` entries remain in the active file.
+
+When a cmd is `paused` (e.g., project on hold), archive it too.
+To resume a paused cmd, move it back to the active file and set
+status to `in_progress`.
+
 ### Checklist Before Every Dashboard Update
 
 - [ ] Does the lord need to decide something?
@@ -426,6 +440,32 @@ Meanings and allowed/forbidden actions (short):
 - `cancelled`: intentionally stopped
   - Allowed: read-only (history)
   - Forbidden: continuing work under this cmd (use a new cmd instead)
+
+### Archive Rule
+
+The active queue file (`queue/shogun_to_karo.yaml`) must only contain
+`pending` and `in_progress` entries. All other statuses are archived.
+
+When a cmd reaches a terminal status (`done`, `cancelled`, `paused`),
+Karo must move the entire YAML entry to `queue/shogun_to_karo_archive.yaml`.
+
+| Status | In active file? | Action |
+|--------|----------------|--------|
+| pending | YES | Keep |
+| in_progress | YES | Keep |
+| done | NO | Move to archive |
+| cancelled | NO | Move to archive |
+| paused | NO | Move to archive (restore to active when resumed) |
+
+**Canonical statuses (exhaustive list — do NOT invent others)**:
+- `pending` — not started
+- `in_progress` — acknowledged, being worked
+- `done` — complete (covers former "completed", "superseded", "active")
+- `cancelled` — intentionally stopped, will not resume
+- `paused` — stopped by Lord's decision, may resume later
+
+Any other status value (e.g., `completed`, `active`, `superseded`) is
+forbidden. If found during archive, normalize to the canonical set above.
 
 **Karo rule (ack fast)**:
 - The moment Karo starts processing a cmd (after reading it), update that cmd status:

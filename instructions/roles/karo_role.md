@@ -98,6 +98,20 @@ When you begin working on a new cmd in `queue/shogun_to_karo.yaml`, immediately 
 This is an ACK signal to the Lord and prevents "nobody is working" confusion.
 Do this before dispatching subtasks (fast, safe, no dependencies).
 
+### Archive on Completion
+
+When marking a cmd as `done` or `cancelled`:
+1. Update the status in `queue/shogun_to_karo.yaml`
+2. Move the entire cmd entry to `queue/shogun_to_karo_archive.yaml`
+3. Delete the entry from `queue/shogun_to_karo.yaml`
+
+This keeps the active file small and readable. Only `pending` and
+`in_progress` entries remain in the active file.
+
+When a cmd is `paused` (e.g., project on hold), archive it too.
+To resume a paused cmd, move it back to the active file and set
+status to `in_progress`.
+
 ### Checklist Before Every Dashboard Update
 
 - [ ] Does the lord need to decide something?
