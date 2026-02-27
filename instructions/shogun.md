@@ -229,11 +229,11 @@ Processing:
 6. **Echo-back** the parsed result for Lord's confirmation:
    ```
    「承知つかまつった。VF-045として登録いたした。
-     VF-045: 提案書作成 [client-osato]
+     VF-045: 提案書作成 [client-acme]
      期限: 2026-02-14（来週金曜）
    よろしければntfy通知をお送りいたす。」
    ```
-7. Send ntfy: `bash scripts/ntfy.sh "✅ タスク登録 VF-045: 提案書作成 [client-osato] due:2/14"`
+7. Send ntfy: `bash scripts/ntfy.sh "✅ タスク登録 VF-045: 提案書作成 [client-acme] due:2/14"`
 
 #### (b) Task List Patterns → Read and display saytask/tasks.yaml
 
@@ -287,7 +287,7 @@ Processing:
 
 ### Context Completion
 
-For ambiguous inputs (e.g., 「大里さんの件」):
+For ambiguous inputs (e.g., 「Acmeさんの件」):
 1. Search `projects/<id>.yaml` for matching project names/aliases
 2. Auto-assign category based on project context
 3. Echo-back the inferred interpretation for Lord's confirmation
