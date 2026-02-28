@@ -141,7 +141,7 @@ STARTUP_PROMPT_SENT=${STARTUP_PROMPT_SENT:-0}
 #   1 = self-watch base (compatible)
 #   2 = disable normal nudge by default
 #   3 = FINAL_ESCALATION_ONLY (send-keys is fallback only)
-ASW_PHASE=${ASW_PHASE:-1}
+ASW_PHASE=${ASW_PHASE:-2}
 ASW_DISABLE_NORMAL_NUDGE=${ASW_DISABLE_NORMAL_NUDGE:-$([ "${ASW_PHASE}" -ge 2 ] && echo 1 || echo 0)}
 ASW_FINAL_ESCALATION_ONLY=${ASW_FINAL_ESCALATION_ONLY:-$([ "${ASW_PHASE}" -ge 3 ] && echo 1 || echo 0)}
 FINAL_ESCALATION_ONLY=${FINAL_ESCALATION_ONLY:-$ASW_FINAL_ESCALATION_ONLY}
@@ -185,7 +185,16 @@ EOF
 }
 
 disable_normal_nudge() {
-    [ "${ASW_DISABLE_NORMAL_NUDGE:-0}" = "1" ]
+    # Phase 2+: suppress nudge ONLY when agent is busy.
+    # If agent is idle, nudge is needed (stop hook won't fire for idle agents).
+    if [ "${ASW_DISABLE_NORMAL_NUDGE:-0}" != "1" ]; then
+        return 1  # Phase 1: never suppress
+    fi
+    # Phase 2+: check if agent is idle via flag file
+    if [ -f "${IDLE_FLAG_DIR:-/tmp}/shogun_idle_${AGENT_ID}" ]; then
+        return 1  # Agent is IDLE → don't suppress, send nudge
+    fi
+    return 0  # Agent is BUSY → suppress, stop hook will deliver
 }
 
 should_throttle_nudge() {

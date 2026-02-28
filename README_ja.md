@@ -566,13 +566,33 @@ Step 3: エージェントが自分のinboxを読む
 | 優先順位 | 方式 | 何が起きるか | いつ使われるか |
 |----------|------|-------------|---------------|
 | 1番 | **自己監視** | エージェントが自分のinboxファイルを監視 — 自力で起床、nudge不要 | エージェント自身が `inotifywait` を実行中 |
-| 2番 | **tmux send-keys** | `tmux send-keys` で短いnudgeを送信（テキストとEnterを分離送信、Codex CLI対応） | 自己監視が反応しない場合のフォールバック |
+| 2番 | **Stop Hook** | Claude Codeエージェントがターン終了時にinboxをチェック（`.claude/settings.json` Stop hook経由） | Claude Codeエージェントのみ |
+| 3番 | **tmux send-keys** | `tmux send-keys` で短いnudgeを送信（テキストとEnterを分離送信、Codex CLI対応） | フォールバック — ASW Phase 2以上では無効 |
 
-**3段階エスカレーション（v3.2）** — エージェントがnudgeに反応しない場合:
+**Agent Self-Watch (ASW) フェーズ** — `tmux send-keys` nudgeの使用をどこまで抑制するかを制御:
+
+| ASWフェーズ | nudge動作 | 配信方式 | 推奨場面 |
+|------------|----------|---------|---------|
+| **Phase 1** | 通常nudge有効 | self-watch + send-keys | 初期セットアップ、混在CLI環境 |
+| **Phase 2** | **busy→抑止、idle→nudge** | busy: stop hookがターン終了時に配信。idle: nudge（不可避） | Claude Codeエージェント＋stop hook環境（推奨） |
+| **Phase 3** | `FINAL_ESCALATION_ONLY` | 最終リカバリ時のみsend-keys | 完全に安定した環境 |
+
+Phase 2はidleフラグファイル（`/tmp/shogun_idle_{agent}`）でbusy/idle状態を判定する。Stop hookがターン境界でフラグを作成/削除する。作業中のnudge割り込みを排除しつつ、idle時の起床は維持する。
+
+> **なぜnudge完全撲滅できないのか？** Claude CodeのStop hookはターン終了時にしか発火しない。idleのエージェント（プロンプトで待機中）はターンが終了しないため、inboxチェックを発火させるhookがない。将来 `Notification` hookの `idle_prompt` タイプがブロック対応になるか、定期タイマーhookが追加されれば解決可能。
+
+`config/settings.yaml` で設定:
+```yaml
+asw_phase: 2   # Claude Code環境では推奨
+```
+
+または `scripts/inbox_watcher.sh` の `ASW_PHASE` 変数を直接変更。変更後はinbox_watcherプロセスの再起動が必要。
+
+**3段階エスカレーション（v3.2）** — エージェントが応答しない場合:
 
 | フェーズ | タイミング | アクション |
 |---------|----------|-----------|
-| Phase 1 | 0-2分 | 標準nudge（`inbox3` テキスト + Enter） |
+| Phase 1 | 0-2分 | 標準nudge（`inbox3` テキスト + Enter） — *ASW Phase 2以上ではbusyエージェントはスキップ* |
 | Phase 2 | 2-4分 | Escape×2 + C-c でカーソルリセット、その後nudge |
 | Phase 3 | 4分以上 | `/clear` 送信でセッション強制リセット（5分間に最大1回） |
 

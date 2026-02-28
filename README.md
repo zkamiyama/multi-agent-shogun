@@ -574,13 +574,33 @@ Step 3: Agent reads its own inbox
 | Priority | Method | What happens | When used |
 |----------|--------|-------------|-----------|
 | 1st | **Self-Watch** | Agent watches its own inbox file — wakes itself, no nudge needed | Agent has its own `inotifywait` running |
-| 2nd | **tmux send-keys** | Sends short nudge via `tmux send-keys` (text and Enter sent separately for Codex CLI compatibility) | Default fallback if self-watch misses |
+| 2nd | **Stop Hook** | Claude Code agents check inbox at turn end via `.claude/settings.json` Stop hook | Claude Code agents only |
+| 3rd | **tmux send-keys** | Sends short nudge via `tmux send-keys` (text and Enter sent separately for Codex CLI compatibility) | Fallback — disabled in ASW Phase 2+ |
 
-**3-Phase Escalation (v3.2)** — If agent doesn't respond to nudge:
+**Agent Self-Watch (ASW) Phases** — Controls how aggressively the system uses `tmux send-keys` nudges:
+
+| ASW Phase | Nudge behavior | Delivery method | When to use |
+|-----------|---------------|-----------------|-------------|
+| **Phase 1** | Normal nudges enabled | self-watch + send-keys | Initial setup, mixed CLI environments |
+| **Phase 2** | **Busy → suppressed, Idle → nudge** | busy: stop hook delivers at turn end. idle: nudge (unavoidable) | Claude Code agents with stop hook (recommended) |
+| **Phase 3** | `FINAL_ESCALATION_ONLY` | send-keys only as last-resort recovery | Fully stable environments |
+
+Phase 2 uses the idle flag file (`/tmp/shogun_idle_{agent}`) to distinguish busy vs idle agents. The Stop hook creates/removes this flag at turn boundaries. This eliminates nudge interruptions during active work while still waking idle agents.
+
+> **Why can't nudges be fully eliminated?** Claude Code's Stop hook only fires at turn end. An idle agent (sitting at the prompt) has no turn ending, so there's no hook to trigger inbox checks. A future `Notification` hook with `idle_prompt` blocking support or a periodic timer hook could solve this.
+
+Configure in `config/settings.yaml`:
+```yaml
+asw_phase: 2   # Recommended for Claude Code setups
+```
+
+Or set the default directly in `scripts/inbox_watcher.sh` (`ASW_PHASE` variable). Restart inbox_watcher processes after changing.
+
+**3-Phase Escalation (v3.2)** — If agent doesn't respond:
 
 | Phase | Timing | Action |
 |-------|--------|--------|
-| Phase 1 | 0-2 min | Standard nudge (`inbox3` text + Enter) |
+| Phase 1 | 0-2 min | Standard nudge (`inbox3` text + Enter) — *skipped for busy agents in ASW Phase 2+* |
 | Phase 2 | 2-4 min | Escape×2 + C-c to reset cursor, then nudge |
 | Phase 3 | 4+ min | Send `/clear` to force session reset (max once per 5 min) |
 
