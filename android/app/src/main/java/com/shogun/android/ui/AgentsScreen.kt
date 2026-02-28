@@ -258,7 +258,7 @@ fun PaneFullScreen(
                             speechRecognizer.stopListening()
                             isListening = false
                         } else {
-                            startListening(speechRecognizer) { result ->
+                            startContinuousListening(speechRecognizer) { result ->
                                 commandText = if (commandText.isEmpty()) result else "$commandText $result"
                                 isListening = false
                             }

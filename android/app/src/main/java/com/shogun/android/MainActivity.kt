@@ -1,10 +1,21 @@
 package com.shogun.android
 
+import android.content.Context
+import android.content.Intent
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.lifecycle.lifecycleScope
+import com.shogun.android.ssh.SshManager
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -52,6 +63,44 @@ class MainActivity : ComponentActivity() {
                 ShogunApp()
             }
         }
+        handleShareIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleShareIntent(intent)
+    }
+
+    private fun handleShareIntent(intent: Intent) {
+        if (intent.action != Intent.ACTION_SEND) return
+        val imageUri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        } ?: return
+
+        val sshManager = SshManager.getInstance()
+        if (!sshManager.isConnected()) {
+            Toast.makeText(this, "❌ SSH未接続。設定画面から接続してください", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        Toast.makeText(this, "転送中...", Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            sshManager.uploadScreenshot(this@MainActivity, imageUri).fold(
+                onSuccess = { fileName ->
+                    Toast.makeText(this@MainActivity, "✅ 転送完了: $fileName", Toast.LENGTH_LONG).show()
+                    sshManager.execCommand(
+                        "bash /mnt/c/tools/multi-agent-shogun/scripts/inbox_write.sh shogun " +
+                        "'スクショ到着: queue/screenshots/$fileName' screenshot_received karo"
+                    )
+                },
+                onFailure = { e ->
+                    Toast.makeText(this@MainActivity, "❌ 転送失敗: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            )
+        }
     }
 }
 
@@ -64,13 +113,48 @@ fun ShogunApp() {
 
     // BGM MediaPlayer — lives above NavHost so it survives tab switches
     var isBgmPlaying by remember { mutableStateOf(false) }
+    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val mediaPlayer = remember {
         MediaPlayer.create(context, R.raw.shogun)?.apply {
             isLooping = true
         }
     }
+
+    // AudioFocus: duck BGM during voice input instead of stopping
+    val focusRequest = remember {
+        AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_GAME)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+            )
+            .setOnAudioFocusChangeListener { focusChange ->
+                when (focusChange) {
+                    AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+                    AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                        // Voice input started — duck volume, don't stop
+                        mediaPlayer?.setVolume(0.15f, 0.15f)
+                    }
+                    AudioManager.AUDIOFOCUS_GAIN -> {
+                        // Voice input ended — restore volume
+                        mediaPlayer?.setVolume(1.0f, 1.0f)
+                    }
+                    AudioManager.AUDIOFOCUS_LOSS -> {
+                        // Another app took focus permanently — pause but keep position
+                        mediaPlayer?.pause()
+                        isBgmPlaying = false
+                    }
+                }
+            }
+            .build()
+    }
+
     DisposableEffect(Unit) {
-        onDispose { mediaPlayer?.release() }
+        onDispose {
+            audioManager.abandonAudioFocusRequest(focusRequest)
+            mediaPlayer?.release()
+        }
     }
 
     Scaffold(
@@ -118,8 +202,11 @@ fun ShogunApp() {
                     onBgmToggle = {
                         if (isBgmPlaying) {
                             mediaPlayer?.pause()
+                            audioManager.abandonAudioFocusRequest(focusRequest)
                             isBgmPlaying = false
                         } else {
+                            audioManager.requestAudioFocus(focusRequest)
+                            mediaPlayer?.setVolume(1.0f, 1.0f)
                             mediaPlayer?.start()
                             isBgmPlaying = true
                         }

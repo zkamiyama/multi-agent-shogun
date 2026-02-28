@@ -1,5 +1,8 @@
 package com.shogun.android.ssh
 
+import android.content.Context
+import android.net.Uri
+import com.jcraft.jsch.ChannelSftp
 import com.jcraft.jsch.ChannelShell
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
@@ -7,6 +10,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.OutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.Properties
 
 class SshManager private constructor() {
@@ -194,6 +200,34 @@ class SshManager private constructor() {
         shellChannel = null
         shellOutputStream = null
     }
+
+    suspend fun uploadScreenshot(context: Context, imageUri: Uri): Result<String> =
+        withContext(Dispatchers.IO) {
+            val s = session
+            if (s == null || !s.isConnected) {
+                return@withContext Result.failure(IllegalStateException("SSH not connected"))
+            }
+            try {
+                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                val fileName = "screenshot_$timestamp.png"
+                val remoteDir = "/mnt/c/tools/multi-agent-shogun/queue/screenshots"
+                val remotePath = "$remoteDir/$fileName"
+
+                val channelSftp = s.openChannel("sftp") as ChannelSftp
+                channelSftp.connect(5000)
+                try {
+                    try { channelSftp.mkdir(remoteDir) } catch (_: Exception) { /* already exists */ }
+                    context.contentResolver.openInputStream(imageUri)?.use { inputStream ->
+                        channelSftp.put(inputStream, remotePath)
+                    } ?: return@withContext Result.failure(Exception("Cannot open image URI"))
+                    Result.success(fileName)
+                } finally {
+                    channelSftp.disconnect()
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
 
     fun disconnect() {
         cleanupChannels()
