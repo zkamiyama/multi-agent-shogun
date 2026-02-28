@@ -33,7 +33,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -53,7 +55,7 @@ fun ShogunScreen(
     val isConnected by viewModel.isConnected.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
 
-    var inputText by remember { mutableStateOf("") }
+    var inputTextValue by remember { mutableStateOf(TextFieldValue("")) }
     var isListening by remember { mutableStateOf(false) }
     var isInputExpanded by remember { mutableStateOf(false) }
 
@@ -67,7 +69,8 @@ fun ShogunScreen(
     ) { granted ->
         if (granted) {
             startContinuousListening(speechRecognizer) { result ->
-                inputText = if (inputText.isEmpty()) result else "$inputText $result"
+                val newText = if (inputTextValue.text.isEmpty()) result else "${inputTextValue.text} $result"
+                inputTextValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
             }
             isListening = true
         }
@@ -167,8 +170,8 @@ fun ShogunScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedTextField(
-                value = inputText,
-                onValueChange = { inputText = it },
+                value = inputTextValue,
+                onValueChange = { inputTextValue = it },
                 modifier = Modifier.weight(1f),
                 placeholder = { Text("コマンドを入力", color = Color(0xFF666666)) },
                 singleLine = !isInputExpanded,
@@ -221,7 +224,8 @@ fun ShogunScreen(
                             isListening = false
                         } else {
                             startContinuousListening(speechRecognizer) { result ->
-                                inputText = if (inputText.isEmpty()) result else "$inputText $result"
+                                val newText = if (inputTextValue.text.isEmpty()) result else "${inputTextValue.text} $result"
+                                inputTextValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
                             }
                             isListening = true
                         }
@@ -240,17 +244,17 @@ fun ShogunScreen(
             // Send button
             IconButton(
                 onClick = {
-                    if (inputText.isNotBlank()) {
-                        viewModel.sendCommand(inputText)
-                        inputText = ""
+                    if (inputTextValue.text.isNotBlank()) {
+                        viewModel.sendCommand(inputTextValue.text)
+                        inputTextValue = TextFieldValue("")
                     }
                 },
-                enabled = inputText.isNotBlank() && isConnected && !isListening
+                enabled = inputTextValue.text.isNotBlank() && isConnected && !isListening
             ) {
                 Icon(
                     imageVector = Icons.Default.Send,
                     contentDescription = "送信",
-                    tint = if (inputText.isNotBlank() && isConnected && !isListening) Color(0xFFC9A94E) else Color(0xFF666666)
+                    tint = if (inputTextValue.text.isNotBlank() && isConnected && !isListening) Color(0xFFC9A94E) else Color(0xFF666666)
                 )
             }
         } // Row (buttons)
@@ -323,10 +327,20 @@ fun startContinuousListening(
         override fun onBufferReceived(buffer: ByteArray?) {}
         override fun onEndOfSpeech() {}
         override fun onError(error: Int) {
-            // Auto-restart on recoverable errors (no match, timeout)
-            if (error == SpeechRecognizer.ERROR_NO_MATCH ||
-                error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
-                speechRecognizer.startListening(intent)
+            // Auto-restart on all recoverable errors
+            // Only stop on fatal errors: ERROR_AUDIO, ERROR_INSUFFICIENT_PERMISSIONS
+            when (error) {
+                SpeechRecognizer.ERROR_AUDIO,
+                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
+                    // Fatal — do not restart
+                }
+                else -> {
+                    // Recoverable (NO_MATCH, TIMEOUT, BUSY, CLIENT, NETWORK, etc.)
+                    // Small delay before restart to avoid tight loop
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        try { speechRecognizer.startListening(intent) } catch (_: Exception) {}
+                    }, 300)
+                }
             }
         }
         override fun onResults(results: Bundle?) {

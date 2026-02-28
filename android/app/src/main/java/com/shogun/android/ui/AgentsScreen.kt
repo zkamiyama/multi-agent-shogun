@@ -36,7 +36,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -272,7 +274,7 @@ fun PaneFullScreen(
     onRefresh: () -> Unit
 ) {
     val context = LocalContext.current
-    var commandText by remember { mutableStateOf("") }
+    var commandTextValue by remember { mutableStateOf(TextFieldValue("")) }
     var isListening by remember { mutableStateOf(false) }
     val speechRecognizer = remember { SpeechRecognizer.createSpeechRecognizer(context) }
     val listState = rememberLazyListState()
@@ -287,7 +289,8 @@ fun PaneFullScreen(
     ) { granted ->
         if (granted) {
             startContinuousListening(speechRecognizer) { result ->
-                commandText = if (commandText.isEmpty()) result else "$commandText $result"
+                val newText = if (commandTextValue.text.isEmpty()) result else "${commandTextValue.text} $result"
+                commandTextValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
             }
             isListening = true
         }
@@ -369,8 +372,8 @@ fun PaneFullScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedTextField(
-                value = commandText,
-                onValueChange = { commandText = it },
+                value = commandTextValue,
+                onValueChange = { commandTextValue = it },
                 modifier = Modifier.weight(1f),
                 placeholder = { Text("コマンドを入力") },
                 singleLine = true
@@ -387,8 +390,8 @@ fun PaneFullScreen(
                             isListening = false
                         } else {
                             startContinuousListening(speechRecognizer) { result ->
-                                commandText = if (commandText.isEmpty()) result else "$commandText $result"
-                                isListening = false
+                                val newText = if (commandTextValue.text.isEmpty()) result else "${commandTextValue.text} $result"
+                                commandTextValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
                             }
                             isListening = true
                         }
@@ -406,17 +409,17 @@ fun PaneFullScreen(
             Spacer(modifier = Modifier.width(4.dp))
             IconButton(
                 onClick = {
-                    if (commandText.isNotBlank()) {
-                        onSendCommand(commandText)
-                        commandText = ""
+                    if (commandTextValue.text.isNotBlank()) {
+                        onSendCommand(commandTextValue.text)
+                        commandTextValue = TextFieldValue("")
                     }
                 },
-                enabled = commandText.isNotBlank() && !isListening
+                enabled = commandTextValue.text.isNotBlank() && !isListening
             ) {
                 Icon(
                     imageVector = Icons.Default.Send,
                     contentDescription = "送信",
-                    tint = if (commandText.isNotBlank() && !isListening) Color(0xFFC9A94E) else Color(0xFF666666)
+                    tint = if (commandTextValue.text.isNotBlank() && !isListening) Color(0xFFC9A94E) else Color(0xFF666666)
                 )
             }
         }
