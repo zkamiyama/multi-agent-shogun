@@ -4,7 +4,37 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Japanese castle (tenshu) silhouette -->
+    <!-- Finial -->
     <path
-        android:fillColor="#E0B04B"
-        android:pathData="M54,20 L65,45 L92,45 L70,62 L78,88 L54,72 L30,88 L38,62 L16,45 L43,45 Z"/>
+        android:fillColor="#C9A94E"
+        android:pathData="M52,22 L56,22 L56,26 L52,26 Z"/>
+    <!-- Top roof -->
+    <path
+        android:fillColor="#C9A94E"
+        android:pathData="M42,26 L66,26 L71,30 L37,30 Z"/>
+    <!-- Top floor -->
+    <path
+        android:fillColor="#C9A94E"
+        android:pathData="M44,30 L64,30 L64,38 L44,38 Z"/>
+    <!-- Middle roof -->
+    <path
+        android:fillColor="#C9A94E"
+        android:pathData="M34,38 L74,38 L79,42 L29,42 Z"/>
+    <!-- Middle floor -->
+    <path
+        android:fillColor="#C9A94E"
+        android:pathData="M37,42 L71,42 L71,54 L37,54 Z"/>
+    <!-- Bottom roof -->
+    <path
+        android:fillColor="#C9A94E"
+        android:pathData="M28,54 L80,54 L86,58 L22,58 Z"/>
+    <!-- Bottom floor -->
+    <path
+        android:fillColor="#C9A94E"
+        android:pathData="M31,58 L77,58 L77,72 L31,72 Z"/>
+    <!-- Stone base (ishigaki) -->
+    <path
+        android:fillColor="#C9A94E"
+        android:pathData="M28,72 L80,72 L85,80 L23,80 Z"/>
 </vector>
