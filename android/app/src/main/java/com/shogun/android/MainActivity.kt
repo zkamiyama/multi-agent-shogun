@@ -82,12 +82,16 @@ class MainActivity : ComponentActivity() {
 
         val sshManager = SshManager.getInstance()
         if (!sshManager.isConnected()) {
-            Toast.makeText(this, "❌ SSH未接続。設定画面から接続してください", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "❌ SSH未接続。先にアプリを開いて接続してください", Toast.LENGTH_LONG).show()
             return
         }
 
         val prefs = getSharedPreferences("shogun_prefs", Context.MODE_PRIVATE)
         val projectPath = prefs.getString("project_path", "") ?: ""
+        if (projectPath.isBlank()) {
+            Toast.makeText(this, "❌ 設定画面でプロジェクトパスを設定してください", Toast.LENGTH_LONG).show()
+            return
+        }
         Toast.makeText(this, "転送中...", Toast.LENGTH_SHORT).show()
         lifecycleScope.launch {
             sshManager.uploadScreenshot(this@MainActivity, imageUri, projectPath).fold(
