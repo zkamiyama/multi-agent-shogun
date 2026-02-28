@@ -4,37 +4,25 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Japanese castle (tenshu) silhouette -->
-    <!-- Finial -->
+    <!-- Kabuto (samurai helmet) silhouette -->
+    <!-- Crescent moon ornament (maedate) -->
     <path
         android:fillColor="#C9A94E"
-        android:pathData="M52,22 L56,22 L56,26 L52,26 Z"/>
-    <!-- Top roof -->
+        android:pathData="M22,46 Q54,2 86,46 L80,46 Q54,14 28,46 Z"/>
+    <!-- Helmet dome (hachi) -->
     <path
         android:fillColor="#C9A94E"
-        android:pathData="M42,26 L66,26 L71,30 L37,30 Z"/>
-    <!-- Top floor -->
+        android:pathData="M34,46 Q54,30 74,46 L74,62 L34,62 Z"/>
+    <!-- Neck guard tier 1 (shikoro) -->
     <path
         android:fillColor="#C9A94E"
-        android:pathData="M44,30 L64,30 L64,38 L44,38 Z"/>
-    <!-- Middle roof -->
+        android:pathData="M30,62 L78,62 L82,68 L26,68 Z"/>
+    <!-- Neck guard tier 2 -->
     <path
         android:fillColor="#C9A94E"
-        android:pathData="M34,38 L74,38 L79,42 L29,42 Z"/>
-    <!-- Middle floor -->
+        android:pathData="M26,68 L82,68 L86,74 L22,74 Z"/>
+    <!-- Neck guard tier 3 -->
     <path
         android:fillColor="#C9A94E"
-        android:pathData="M37,42 L71,42 L71,54 L37,54 Z"/>
-    <!-- Bottom roof -->
-    <path
-        android:fillColor="#C9A94E"
-        android:pathData="M28,54 L80,54 L86,58 L22,58 Z"/>
-    <!-- Bottom floor -->
-    <path
-        android:fillColor="#C9A94E"
-        android:pathData="M31,58 L77,58 L77,72 L31,72 Z"/>
-    <!-- Stone base (ishigaki) -->
-    <path
-        android:fillColor="#C9A94E"
-        android:pathData="M28,72 L80,72 L85,80 L23,80 Z"/>
+        android:pathData="M22,74 L86,74 L90,82 L18,82 Z"/>
 </vector>
