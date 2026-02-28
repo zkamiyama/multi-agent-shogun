@@ -94,11 +94,23 @@ private fun rateLimitBarColor(percent: Float): Color = when {
     else           -> Color(0xFF4CAF50)
 }
 
-private fun formatResetTime(resetStr: String): String = if (resetStr.contains('T')) {
-    resetStr.substringAfter('T').take(5)
-} else {
-    val parts = resetStr.split('-')
-    if (parts.size >= 3) "${parts[1].trimStart('0')}/${parts[2].trimStart('0')}" else resetStr
+private fun formatResetTime(resetStr: String): String {
+    val locale = java.util.Locale.getDefault()
+    return try {
+        if (resetStr.contains('T')) {
+            val datePart = resetStr.substringBefore('T')
+            val timePart = resetStr.substringAfter('T').take(5)
+            val ld = java.time.LocalDate.parse(datePart)
+            val dow = ld.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, locale)
+            "${ld.monthValue}/${ld.dayOfMonth}($dow) $timePart"
+        } else {
+            val ld = java.time.LocalDate.parse(resetStr)
+            val dow = ld.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, locale)
+            "${ld.monthValue}/${ld.dayOfMonth}($dow)"
+        }
+    } catch (_: Exception) {
+        resetStr
+    }
 }
 
 @Composable
