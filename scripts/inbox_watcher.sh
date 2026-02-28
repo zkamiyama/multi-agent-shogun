@@ -568,7 +568,7 @@ send_codex_startup_prompt() {
     sleep 0.3
     timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
     sleep 0.3
-    timeout 5 tmux send-keys -t "$PANE_TARGET" "$startup_prompt" 2>/dev/null || true
+    timeout 5 tmux send-keys -l -t "$PANE_TARGET" "$startup_prompt" 2>/dev/null || true
     sleep 0.3
     timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
     STARTUP_PROMPT_SENT=1

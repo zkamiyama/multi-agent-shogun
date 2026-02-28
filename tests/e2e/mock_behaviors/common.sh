@@ -138,8 +138,17 @@ EOF
 
 # Show mock CLI prompt (idle state indicator)
 # Usage: show_prompt <cli_type>
+#
+# For Claude CLI: creates the idle flag file to simulate Claude Code's Stop hook.
+# inbox_watcher uses flag-file-based busy detection for Claude; without this,
+# the watcher always sees the mock as "busy" and never sends nudges.
 show_prompt() {
     local cli_type="${1:-claude}"
+    # Simulate Stop hook: create idle flag when Claude mock becomes idle
+    if [[ "${MOCK_CLI_TYPE:-claude}" == "claude" ]] && [[ -n "${MOCK_AGENT_ID:-}" ]]; then
+        local _flag_dir="${IDLE_FLAG_DIR:-/tmp}"
+        touch "${_flag_dir}/shogun_idle_${MOCK_AGENT_ID}" 2>/dev/null || true
+    fi
     case "$cli_type" in
         claude) echo -e "\n\$ " ;;
         codex)  echo -e "\n? for shortcuts                100% context left\n\$ " ;;
@@ -149,9 +158,16 @@ show_prompt() {
 
 # Show mock CLI busy indicator
 # Usage: show_busy <cli_type> <seconds>
+#
+# For Claude CLI: removes the idle flag file to simulate the agent being busy.
 show_busy() {
     local cli_type="${1:-claude}"
     local seconds="${2:-0}"
+    # Simulate Stop hook: remove idle flag when Claude mock starts processing
+    if [[ "${MOCK_CLI_TYPE:-claude}" == "claude" ]] && [[ -n "${MOCK_AGENT_ID:-}" ]]; then
+        local _flag_dir="${IDLE_FLAG_DIR:-/tmp}"
+        rm -f "${_flag_dir}/shogun_idle_${MOCK_AGENT_ID}" 2>/dev/null || true
+    fi
     case "$cli_type" in
         claude) echo "Working on task (${seconds}s • esc to interrupt)" ;;
         codex)  echo "Thinking about approach (${seconds}s • esc to interrupt)" ;;
