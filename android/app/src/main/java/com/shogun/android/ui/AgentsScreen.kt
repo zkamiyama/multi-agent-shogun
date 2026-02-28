@@ -123,8 +123,11 @@ fun AgentsScreen(
     val rateLimitLoading by viewModel.rateLimitLoading.collectAsState()
     val rateLimitResult by viewModel.rateLimitResult.collectAsState()
 
-    var selectedPane by remember { mutableStateOf<PaneInfo?>(null) }
+    var selectedPaneIndex by remember { mutableStateOf<Int?>(null) }
     var showRateLimitDialog by remember { mutableStateOf(false) }
+
+    // Derive selected pane from live data so it auto-updates
+    val selectedPane = selectedPaneIndex?.let { idx -> panes.find { it.index == idx } }
 
     LaunchedEffect(Unit) {
         val prefs = context.getSharedPreferences("shogun_prefs", android.content.Context.MODE_PRIVATE)
@@ -137,12 +140,12 @@ fun AgentsScreen(
     }
 
     if (selectedPane != null) {
-        // Full screen pane detail
+        // Full screen pane detail — always reads from live panes list
         PaneFullScreen(
-            pane = selectedPane!!,
-            onBack = { selectedPane = null },
+            pane = selectedPane,
+            onBack = { selectedPaneIndex = null },
             onSendCommand = { cmd ->
-                viewModel.sendCommandToPane(selectedPane!!.index, cmd)
+                viewModel.sendCommandToPane(selectedPane.index, cmd)
             },
             onRefresh = { viewModel.refreshAllPanes() }
         )
@@ -179,7 +182,7 @@ fun AgentsScreen(
                     items(panes) { pane ->
                         PaneCard(
                             pane = pane,
-                            onClick = { selectedPane = pane }
+                            onClick = { selectedPaneIndex = pane.index }
                         )
                     }
                 }
@@ -256,7 +259,7 @@ fun PaneCard(
             .fillMaxWidth()
             .height(160.dp)
             .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF2D2D2D))
+        colors = CardDefaults.cardColors(containerColor = Color(0xCC2D2D2D))
     ) {
         Column(modifier = Modifier.padding(8.dp)) {
             Text(
