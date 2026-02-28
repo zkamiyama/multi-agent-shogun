@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -99,17 +100,28 @@ private fun rateLimitBarColor(percent: Float): Color = when {
 
 private fun formatResetTime(resetStr: String): String {
     val locale = java.util.Locale.getDefault()
+    val now = java.time.LocalDateTime.now()
     return try {
         if (resetStr.contains('T')) {
-            val datePart = resetStr.substringBefore('T')
-            val timePart = resetStr.substringAfter('T').take(5)
-            val ld = java.time.LocalDate.parse(datePart)
-            val dow = ld.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, locale)
-            "${ld.monthValue}/${ld.dayOfMonth}($dow) $timePart"
+            val ldt = java.time.LocalDateTime.parse(resetStr.take(16))
+            val dow = ldt.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, locale)
+            val timeStr = "${ldt.monthValue}/${ldt.dayOfMonth}($dow) %02d:%02d".format(ldt.hour, ldt.minute)
+            if (ldt.isBefore(now)) {
+                "$timeStr にリセット済み"
+            } else {
+                "$timeStr にリセット"
+            }
         } else {
             val ld = java.time.LocalDate.parse(resetStr)
+            val today = java.time.LocalDate.now()
             val dow = ld.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, locale)
-            "${ld.monthValue}/${ld.dayOfMonth}($dow)"
+            val dateStr = "${ld.monthValue}/${ld.dayOfMonth}($dow)"
+            if (ld.isBefore(today)) {
+                "$dateStr にリセット済み"
+            } else {
+                val dow = ld.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, locale)
+                "${ld.monthValue}/${ld.dayOfMonth}($dow) にリセット"
+            }
         }
     } catch (_: Exception) {
         resetStr
@@ -276,7 +288,7 @@ fun PaneCard(
             .fillMaxWidth()
             .height(160.dp)
             .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = Color(0xCC2D2D2D))
+        colors = CardDefaults.cardColors(containerColor = Color(0x802D2D2D))
     ) {
         Column(modifier = Modifier.padding(8.dp)) {
             Text(
@@ -320,7 +332,7 @@ fun PaneFullScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            startContinuousListening(speechRecognizer) { result ->
+            startContinuousListening(speechRecognizer, { isListening }) { result ->
                 val newText = if (commandTextValue.text.isEmpty()) result else "${commandTextValue.text} $result"
                 commandTextValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
             }
@@ -354,7 +366,7 @@ fun PaneFullScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF2D2D2D))
+                .background(Color(0x802D2D2D))
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -375,11 +387,16 @@ fun PaneFullScreen(
         }
 
         // Full screen pane content
-        LazyColumn(
-            state = listState,
+        Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+        ) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxHeight()
                 .padding(horizontal = 8.dp, vertical = 4.dp)
         ) {
             items(lines) { line ->
@@ -392,6 +409,7 @@ fun PaneFullScreen(
                 )
             }
         }
+        } // Box (horizontal scroll)
 
         // Special keys bar
         SpecialKeysRow(onSendKey = { onSendCommand(it) })
@@ -418,10 +436,10 @@ fun PaneFullScreen(
                         == PackageManager.PERMISSION_GRANTED
                     ) {
                         if (isListening) {
-                            speechRecognizer.stopListening()
+                            speechRecognizer.cancel()
                             isListening = false
                         } else {
-                            startContinuousListening(speechRecognizer) { result ->
+                            startContinuousListening(speechRecognizer, { isListening }) { result ->
                                 val newText = if (commandTextValue.text.isEmpty()) result else "${commandTextValue.text} $result"
                                 commandTextValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
                             }
@@ -484,7 +502,7 @@ private fun RateLimitContent(rawText: String) {
             )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("${w.percent}%", color = color, fontSize = 11.sp)
-                Text("リセット: ${formatResetTime(w.resetStr)}", color = Color(0xFF888888), fontSize = 11.sp)
+                Text(formatResetTime(w.resetStr), color = Color(0xFF888888), fontSize = 11.sp)
             }
         }
 
@@ -499,7 +517,7 @@ private fun RateLimitContent(rawText: String) {
             )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("${w.percent}%", color = color, fontSize = 11.sp)
-                Text("リセット: ${formatResetTime(w.resetStr)}", color = Color(0xFF888888), fontSize = 11.sp)
+                Text(formatResetTime(w.resetStr), color = Color(0xFF888888), fontSize = 11.sp)
             }
             if (claudeMax.sonnet7d != null || claudeMax.opus7d != null) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {

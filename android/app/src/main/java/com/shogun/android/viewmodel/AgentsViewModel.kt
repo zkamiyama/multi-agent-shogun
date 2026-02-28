@@ -39,11 +39,12 @@ class AgentsViewModel(application: Application) : AndroidViewModel(application) 
 
     private var refreshJob: Job? = null
     @Volatile private var paused = false
+    @Volatile private var isRefreshing = false
 
     fun pauseRefresh() { paused = true }
     fun resumeRefresh() {
         paused = false
-        refreshAllPanes()
+        viewModelScope.launch { refreshAllPanesInternal() }
     }
 
     fun connect(host: String, port: Int, user: String, keyPath: String, password: String = "") {
@@ -62,31 +63,70 @@ class AgentsViewModel(application: Application) : AndroidViewModel(application) 
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
             while (isActive) {
-                if (!paused) refreshAllPanes()
+                if (!paused && !isRefreshing) {
+                    refreshAllPanesInternal()
+                }
                 delay(5000)
             }
         }
     }
 
     fun refreshAllPanes() {
-        viewModelScope.launch {
+        viewModelScope.launch { refreshAllPanesInternal() }
+    }
+
+    private suspend fun refreshAllPanesInternal() {
+        if (isRefreshing) return
+        isRefreshing = true
+        try {
             val prefs = getApplication<Application>().getSharedPreferences("shogun_prefs", Context.MODE_PRIVATE)
             val agentsSession = prefs.getString("agents_session", "multiagent") ?: "multiagent"
-            val newPanes = mutableListOf<PaneInfo>()
-            for (i in 0..7) {
-                val agentIdResult = sshManager.execCommand(
-                    "/usr/bin/tmux display-message -t $agentsSession:0.$i -p '#{@agent_id}' 2>/dev/null || echo 'pane$i'"
-                )
-                val contentResult = sshManager.execCommand(
-                    "/usr/bin/tmux capture-pane -t $agentsSession:0.$i -p -e -S -500 2>/dev/null"
-                )
-                val agentId = agentIdResult.getOrDefault("pane$i").trim()
-                val content = contentResult.getOrDefault("").trim()
-                newPanes.add(PaneInfo(index = i, agentId = agentId, content = content))
+            // Batch all pane queries into a single SSH command
+            val batchCmd = buildString {
+                append("for i in 0 1 2 3 4 5 6 7; do ")
+                append("echo \"===ID\$i===\"; ")
+                append("/usr/bin/tmux display-message -t $agentsSession:0.\$i -p '#{@agent_id}' 2>/dev/null || echo \"pane\$i\"; ")
+                append("echo \"===CONTENT\$i===\"; ")
+                append("/usr/bin/tmux capture-pane -t $agentsSession:0.\$i -p -S -50 2>/dev/null; ")
+                append("done")
             }
-            _panes.value = newPanes
-            _errorMessage.value = null
+            val result = sshManager.execCommand(batchCmd)
+            if (result.isSuccess) {
+                val output = result.getOrDefault("")
+                val newPanes = parseBatchOutput(output)
+                _panes.value = newPanes
+                _errorMessage.value = null
+            }
+        } finally {
+            isRefreshing = false
         }
+    }
+
+    private fun parseBatchOutput(output: String): List<PaneInfo> {
+        val panes = mutableListOf<PaneInfo>()
+        for (i in 0..7) {
+            val idMarker = "===ID$i==="
+            val contentMarker = "===CONTENT$i==="
+            val nextIdMarker = "===ID${i + 1}==="
+
+            val idStart = output.indexOf(idMarker)
+            val contentStart = output.indexOf(contentMarker)
+            if (idStart == -1 || contentStart == -1) {
+                panes.add(PaneInfo(index = i, agentId = "pane$i", content = ""))
+                continue
+            }
+
+            val agentId = output.substring(idStart + idMarker.length, contentStart).trim()
+            val contentEnd = if (i < 7) {
+                val next = output.indexOf(nextIdMarker)
+                if (next != -1) next else output.length
+            } else {
+                output.length
+            }
+            val content = output.substring(contentStart + contentMarker.length, contentEnd).trim()
+            panes.add(PaneInfo(index = i, agentId = agentId, content = content))
+        }
+        return panes
     }
 
     fun sendCommandToPane(paneIndex: Int, text: String) {
@@ -113,6 +153,11 @@ class AgentsViewModel(application: Application) : AndroidViewModel(application) 
             _rateLimitResult.value = null
             val prefs = getApplication<Application>().getSharedPreferences("shogun_prefs", Context.MODE_PRIVATE)
             val projectPath = prefs.getString("project_path", "") ?: ""
+            if (projectPath.isBlank()) {
+                _rateLimitLoading.value = false
+                _rateLimitResult.value = "設定画面でプロジェクトパスを設定してください"
+                return@launch
+            }
             val result = sshManager.execCommand("bash $projectPath/scripts/ratelimit_check.sh")
             _rateLimitLoading.value = false
             _rateLimitResult.value = result.getOrElse { "取得失敗: ${it.message}" }

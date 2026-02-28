@@ -90,6 +90,7 @@ fun DashboardScreen(
                             textSize = 14f
                             setTextColor(android.graphics.Color.parseColor("#E8DCC8"))  // Zouge
                             setLinkTextColor(android.graphics.Color.parseColor("#D4B96A"))  // LinkGold
+                            setTextIsSelectable(true)
                         }
                     },
                     update = { textView ->

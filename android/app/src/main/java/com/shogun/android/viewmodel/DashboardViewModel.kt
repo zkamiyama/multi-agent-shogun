@@ -42,6 +42,11 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             _isLoading.value = true
             val prefs = getApplication<Application>().getSharedPreferences("shogun_prefs", Context.MODE_PRIVATE)
             val projectPath = prefs.getString("project_path", "") ?: ""
+            if (projectPath.isBlank()) {
+                _errorMessage.value = "設定画面でプロジェクトパスを設定してください"
+                _isLoading.value = false
+                return@launch
+            }
             val result = sshManager.execCommand("cat $projectPath/dashboard.md")
             if (result.isSuccess) {
                 _markdownContent.value = result.getOrDefault("")

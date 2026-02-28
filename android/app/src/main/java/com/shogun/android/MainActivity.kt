@@ -72,13 +72,27 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleShareIntent(intent: Intent) {
-        if (intent.action != Intent.ACTION_SEND) return
-        val imageUri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            intent.getParcelableExtra(Intent.EXTRA_STREAM)
-        } ?: return
+        val imageUris: List<Uri> = when (intent.action) {
+            Intent.ACTION_SEND -> {
+                val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                }
+                listOfNotNull(uri)
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+                } ?: emptyList()
+            }
+            else -> return
+        }
+        if (imageUris.isEmpty()) return
 
         val sshManager = SshManager.getInstance()
         if (!sshManager.isConnected()) {
@@ -92,20 +106,19 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "❌ 設定画面でプロジェクトパスを設定してください", Toast.LENGTH_LONG).show()
             return
         }
-        Toast.makeText(this, "転送中...", Toast.LENGTH_SHORT).show()
+        val total = imageUris.size
+        Toast.makeText(this, "転送中... (${total}枚)", Toast.LENGTH_SHORT).show()
         lifecycleScope.launch {
-            sshManager.uploadScreenshot(this@MainActivity, imageUri, projectPath).fold(
-                onSuccess = { fileName ->
-                    Toast.makeText(this@MainActivity, "✅ 転送完了: $fileName", Toast.LENGTH_LONG).show()
-                    sshManager.execCommand(
-                        "bash $projectPath/scripts/inbox_write.sh shogun " +
-                        "'スクショ到着: queue/screenshots/$fileName' screenshot_received karo"
-                    )
-                },
-                onFailure = { e ->
-                    Toast.makeText(this@MainActivity, "❌ 転送失敗: ${e.message}", Toast.LENGTH_LONG).show()
-                }
-            )
+            var success = 0
+            var failed = 0
+            for (uri in imageUris) {
+                sshManager.uploadScreenshot(this@MainActivity, uri, projectPath).fold(
+                    onSuccess = { success++ },
+                    onFailure = { failed++ }
+                )
+            }
+            val msg = if (failed == 0) "✅ ${success}枚 転送完了" else "✅ ${success}枚 完了 / ❌ ${failed}枚 失敗"
+            Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
         }
     }
 }

@@ -12,7 +12,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -80,7 +82,7 @@ fun ShogunScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            startContinuousListening(speechRecognizer) { result ->
+            startContinuousListening(speechRecognizer, { isListening }) { result ->
                 val newText = if (inputTextValue.text.isEmpty()) result else "${inputTextValue.text} $result"
                 inputTextValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
             }
@@ -104,8 +106,19 @@ fun ShogunScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> viewModel.resumeRefresh()
-                Lifecycle.Event.ON_PAUSE -> viewModel.pauseRefresh()
+                Lifecycle.Event.ON_RESUME -> {
+                    viewModel.resumeRefresh()
+                    if (isListening) {
+                        startContinuousListening(speechRecognizer, { isListening }) { result ->
+                            val newText = if (inputTextValue.text.isEmpty()) result else "${inputTextValue.text} $result"
+                            inputTextValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
+                        }
+                    }
+                }
+                Lifecycle.Event.ON_PAUSE -> {
+                    viewModel.pauseRefresh()
+                    speechRecognizer.cancel()
+                }
                 else -> {}
             }
         }
@@ -153,6 +166,7 @@ fun ShogunScreen(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
         ) {
             if (errorMessage != null) {
                 Text(
@@ -166,7 +180,7 @@ fun ShogunScreen(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxHeight()
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     items(lines) { line ->
@@ -246,10 +260,10 @@ fun ShogunScreen(
                         == PackageManager.PERMISSION_GRANTED
                     ) {
                         if (isListening) {
-                            speechRecognizer.stopListening()
+                            speechRecognizer.cancel()
                             isListening = false
                         } else {
-                            startContinuousListening(speechRecognizer) { result ->
+                            startContinuousListening(speechRecognizer, { isListening }) { result ->
                                 val newText = if (inputTextValue.text.isEmpty()) result else "${inputTextValue.text} $result"
                                 inputTextValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
                             }
@@ -332,10 +346,12 @@ fun SpecialKeysRow(onSendKey: (String) -> Unit) {
 
 /**
  * Continuous listening — auto-restarts after each result.
- * Only stops when user explicitly calls speechRecognizer.stopListening().
+ * Checks isActive() before restarting to respect user's OFF toggle.
+ * Caller should use cancel() (not stopListening()) to stop cleanly.
  */
 fun startContinuousListening(
     speechRecognizer: SpeechRecognizer,
+    isActive: () -> Boolean,
     onResult: (String) -> Unit
 ) {
     val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -353,18 +369,17 @@ fun startContinuousListening(
         override fun onBufferReceived(buffer: ByteArray?) {}
         override fun onEndOfSpeech() {}
         override fun onError(error: Int) {
-            // Auto-restart on all recoverable errors
-            // Only stop on fatal errors: ERROR_AUDIO, ERROR_INSUFFICIENT_PERMISSIONS
+            if (!isActive()) return
             when (error) {
                 SpeechRecognizer.ERROR_AUDIO,
                 SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
                     // Fatal — do not restart
                 }
                 else -> {
-                    // Recoverable (NO_MATCH, TIMEOUT, BUSY, CLIENT, NETWORK, etc.)
-                    // Small delay before restart to avoid tight loop
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        try { speechRecognizer.startListening(intent) } catch (_: Exception) {}
+                        if (isActive()) {
+                            try { speechRecognizer.startListening(intent) } catch (_: Exception) {}
+                        }
                     }, 300)
                 }
             }
@@ -374,8 +389,9 @@ fun startContinuousListening(
             if (!matches.isNullOrEmpty()) {
                 onResult(matches[0])
             }
-            // Auto-restart for continuous listening
-            speechRecognizer.startListening(intent)
+            if (isActive()) {
+                speechRecognizer.startListening(intent)
+            }
         }
         override fun onPartialResults(partialResults: Bundle?) {}
         override fun onEvent(eventType: Int, params: Bundle?) {}
