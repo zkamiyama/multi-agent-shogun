@@ -340,3 +340,90 @@ dump_watcher_log() {
     # Cleanup
     stop_inbox_watcher "$watcher_pid"
 }
+
+# ═══════════════════════════════════════════════════════════════
+# E2E-008-F: Claude agent at welcome screen (no idle flag)
+#            receives nudge via inbox_watcher initial flag creation
+# ═══════════════════════════════════════════════════════════════
+# Regression test for false-busy deadlock: when Claude CLI is at its
+# welcome screen, no stop_hook has ever fired, so no idle flag exists.
+# inbox_watcher must create the initial idle flag at startup so that
+# nudge delivery isn't blocked by false-busy detection.
+
+@test "E2E-008-F: Claude at welcome screen with no idle flag — nudge delivered via initial flag" {
+    local ashigaru1_pane
+    ashigaru1_pane=$(pane_target 1)
+
+    # Use isolated IDLE_FLAG_DIR to avoid cross-test contamination
+    local flag_dir
+    flag_dir=$(mktemp -d "/tmp/e2e_idle_flags_XXXXXX")
+    export IDLE_FLAG_DIR="$flag_dir"
+
+    # 1. Respawn pane with claude mock
+    tmux respawn-pane -k -t "$ashigaru1_pane" \
+        "IDLE_FLAG_DIR=$flag_dir MOCK_CLI_TYPE=claude MOCK_AGENT_ID=ashigaru1 MOCK_PROCESSING_DELAY=1 MOCK_PROJECT_ROOT=$E2E_QUEUE bash $PROJECT_ROOT/tests/e2e/mock_cli.sh"
+    sleep 2
+    tmux set-option -p -t "$ashigaru1_pane" @agent_cli "claude"
+
+    # 2. Remove any idle flag that mock_cli created on startup
+    #    (simulates real CLI at welcome screen where stop_hook hasn't fired)
+    rm -f "$flag_dir/shogun_idle_ashigaru1"
+
+    # Verify flag is truly gone — this is the precondition for the test
+    [ ! -f "$flag_dir/shogun_idle_ashigaru1" ]
+
+    # 3. Place assigned task YAML
+    cp "$PROJECT_ROOT/tests/e2e/fixtures/task_ashigaru1_basic.yaml" \
+       "$E2E_QUEUE/queue/tasks/ashigaru1.yaml"
+
+    # 4. Send task_assigned message (unread message waiting)
+    bash "$E2E_QUEUE/scripts/inbox_write.sh" "ashigaru1" \
+        "タスクYAMLを読んで作業開始せよ。" "task_assigned" "karo"
+
+    # 5. Start inbox_watcher — this is where the fix kicks in:
+    #    inbox_watcher should create the initial idle flag for Claude CLI
+    local watcher_pid log_file
+    log_file="/tmp/e2e_inbox_watcher_ashigaru1_$$.log"
+    IDLE_FLAG_DIR="$flag_dir" \
+    ESCALATE_PHASE1="${E2E_ESCALATE_PHASE1:-10}" \
+    ESCALATE_PHASE2="${E2E_ESCALATE_PHASE2:-20}" \
+    ESCALATE_COOLDOWN="${E2E_ESCALATE_COOLDOWN:-25}" \
+    INOTIFY_TIMEOUT="${E2E_INOTIFY_TIMEOUT:-5}" \
+    bash "$E2E_QUEUE/scripts/inbox_watcher.sh" "ashigaru1" "$ashigaru1_pane" "claude" \
+        > "$log_file" 2>&1 &
+    watcher_pid=$!
+
+    # 6. Verify that inbox_watcher created the initial idle flag
+    sleep 2
+    if [ ! -f "$flag_dir/shogun_idle_ashigaru1" ]; then
+        echo "FAIL: inbox_watcher did not create initial idle flag" >&2
+        dump_watcher_log "$log_file"
+        stop_inbox_watcher "$watcher_pid"
+        rm -rf "$flag_dir"
+        return 1
+    fi
+
+    # 7. Verify initial flag creation logged
+    run grep "Created initial idle flag for ashigaru1" "$log_file"
+    if [ "$status" -ne 0 ]; then
+        dump_watcher_log "$log_file"
+    fi
+    assert_success
+
+    # 8. Wait for task to complete (proves nudge was delivered)
+    run wait_for_yaml_value "$E2E_QUEUE/queue/tasks/ashigaru1.yaml" "task.status" "done" 45
+    if [ "$status" -ne 0 ]; then
+        dump_pane_for_debug "$ashigaru1_pane" "ashigaru1-claude-F"
+        dump_watcher_log "$log_file"
+    fi
+    assert_success
+
+    # 9. Verify NO "agent is busy" log for this agent
+    #    (without the fix, this would show repeated "busy" messages)
+    run grep "unread for ashigaru1 but agent is busy (claude)" "$log_file"
+    assert_failure
+
+    # Cleanup
+    stop_inbox_watcher "$watcher_pid"
+    rm -rf "$flag_dir"
+}
