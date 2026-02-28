@@ -245,12 +245,12 @@ fun ShogunScreen(
                         inputText = ""
                     }
                 },
-                enabled = inputText.isNotBlank() && isConnected
+                enabled = inputText.isNotBlank() && isConnected && !isListening
             ) {
                 Icon(
                     imageVector = Icons.Default.Send,
                     contentDescription = "送信",
-                    tint = if (inputText.isNotBlank() && isConnected) Color(0xFFC9A94E) else Color(0xFF666666)
+                    tint = if (inputText.isNotBlank() && isConnected && !isListening) Color(0xFFC9A94E) else Color(0xFF666666)
                 )
             }
         } // Row (buttons)

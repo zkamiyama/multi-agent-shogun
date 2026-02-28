@@ -20,10 +20,13 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Speed
 import androidx.core.content.ContextCompat
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -49,8 +52,11 @@ fun AgentsScreen(
     val context = LocalContext.current
     val panes by viewModel.panes.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
+    val rateLimitLoading by viewModel.rateLimitLoading.collectAsState()
+    val rateLimitResult by viewModel.rateLimitResult.collectAsState()
 
     var selectedPane by remember { mutableStateOf<PaneInfo?>(null) }
+    var showRateLimitDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         val prefs = context.getSharedPreferences("shogun_prefs", android.content.Context.MODE_PRIVATE)
@@ -98,7 +104,7 @@ fun AgentsScreen(
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(8.dp),
+                    contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 72.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -110,6 +116,75 @@ fun AgentsScreen(
                     }
                 }
             }
+
+            // Rate limit check button (bottom-right)
+            FloatingActionButton(
+                onClick = {
+                    showRateLimitDialog = true
+                    viewModel.execRateLimitCheck()
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+                    .size(48.dp),
+                containerColor = Color(0xFF2D2D2D),
+                contentColor = Color(0xFFC9A94E)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Speed,
+                    contentDescription = "使用量",
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+
+        // Rate limit dialog
+        if (showRateLimitDialog) {
+            AlertDialog(
+                onDismissRequest = {
+                    showRateLimitDialog = false
+                    viewModel.clearRateLimitResult()
+                },
+                title = {
+                    Text("Claude レートリミット", color = Color(0xFFC9A94E))
+                },
+                text = {
+                    if (rateLimitLoading) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = Color(0xFFC9A94E))
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            Text(
+                                text = rateLimitResult ?: "",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = Color(0xFFE8DCC8)
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showRateLimitDialog = false
+                        viewModel.clearRateLimitResult()
+                    }) {
+                        Text("閉じる", color = Color(0xFFC9A94E))
+                    }
+                },
+                containerColor = Color(0xFF2D2D2D),
+                titleContentColor = Color(0xFFC9A94E),
+                textContentColor = Color(0xFFE8DCC8)
+            )
         }
     }
 }
@@ -182,10 +257,20 @@ fun PaneFullScreen(
         }
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF1A1A1A))
+    ) {
+        Image(
+            painter = painterResource(R.drawable.bg_agents),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            alpha = 0.55f,
+            modifier = Modifier.fillMaxSize()
+        )
+    Column(
+        modifier = Modifier.fillMaxSize()
     ) {
         // Top bar with agent name and back button
         Row(
@@ -283,13 +368,15 @@ fun PaneFullScreen(
                         commandText = ""
                     }
                 },
-                enabled = commandText.isNotBlank()
+                enabled = commandText.isNotBlank() && !isListening
             ) {
                 Icon(
                     imageVector = Icons.Default.Send,
-                    contentDescription = "送信"
+                    contentDescription = "送信",
+                    tint = if (commandText.isNotBlank() && !isListening) Color(0xFFC9A94E) else Color(0xFF666666)
                 )
             }
         }
-    }
+    } // Column
+    } // Box
 }
