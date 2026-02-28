@@ -62,6 +62,15 @@ fun ShogunScreen(
     var isListening by remember { mutableStateOf(false) }
     var isInputExpanded by remember { mutableStateOf(false) }
 
+    // Duck BGM while voice input is active
+    LaunchedEffect(isListening) {
+        if (isListening) {
+            mediaPlayer?.setVolume(0.05f, 0.05f)
+        } else {
+            mediaPlayer?.setVolume(1.0f, 1.0f)
+        }
+    }
+
     val listState = rememberLazyListState()
     val lines = remember(paneContent) { paneContent.lines() }
 
