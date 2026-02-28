@@ -1,133 +1,172 @@
 ---
 name: skill-creator
-description: 汎用的な作業パターンを発見した際に、再利用可能なClaude Codeスキルを自動生成する。繰り返し使えるワークフロー、ベストプラクティス、ドメイン知識をスキル化する時に使用。
+description: |
+  Claude Codeスキル（SKILL.md）の設計・作成・バリデーション。
+  新しいスキルの作成、既存スキルの改善、スキル設計レビューに使用。
+  「スキル作って」「スキル設計」「SKILL.md作成」で起動。
+argument-hint: "[skill-name or description]"
 ---
 
-# Skill Creator - スキル自動生成
+# Skill Creator — Claude Code Skills Design & Generation
 
 ## Overview
 
-作業中に発見した汎用的なパターンを、再利用可能なClaude Codeスキルとして保存する。
-これにより、同じ作業を繰り返す際の品質と効率が向上する。
+Claude Code公式仕様（2026-02最新）に準拠したスキルを設計・作成する。
+作成するスキルは Agent Skills Open Standard (agentskills.io) にも準拠し、
+Claude Code以外のAIツール（Cursor, Codex CLI等）でも動作する。
 
-## When to Create a Skill
+## Frontmatter Reference（全フィールド）
 
-以下の条件を満たす場合、スキル化を検討せよ：
+```yaml
+---
+name: skill-name              # kebab-case, max 64 chars. 省略時はディレクトリ名
+description: |                 # 【最重要】Claudeがいつ発火するか判断する唯一の材料
+  What + When を明記。トリガーワードを含める。
+argument-hint: "[target]"      # 補完時のヒント表示。引数ありスキル用
+disable-model-invocation: false # true = 手動 /name でのみ起動（副作用あるスキル向け）
+user-invocable: true           # false = /メニュー非表示（背景知識スキル向け）
+allowed-tools: Read, Grep, Bash # 許可ツール。指定すると制限にもなる。省略=全ツール継承
+model: sonnet                  # スキル実行時のモデル指定（省略=親から継承）
+context: fork                  # fork = サブエージェントで隔離実行
+agent: general-purpose         # fork時のエージェント種別: Explore, Plan, general-purpose
+hooks:                         # スキル内フック定義
+  PostToolUse:
+    - matcher: "Edit|Write"
+      hooks:
+        - type: command
+          command: "./scripts/lint.sh"
+---
+```
 
-1. **再利用性**: 他のプロジェクトでも使えるパターン
-2. **複雑性**: 単純すぎず、手順や知識が必要なもの
-3. **安定性**: 頻繁に変わらない手順やルール
-4. **価値**: スキル化することで明確なメリットがある
+## Description設計（最重要 — 発火品質を決める）
 
-## Skill Structure
+descriptionはClaude Codeが「このスキルを使うか否か」を判断する**唯一の材料**。
+本文は発火判定に使われない。
 
-生成するスキルは以下の構造に従う：
+### 7項目チェックリスト
+
+| # | チェック | 悪い例 | 良い例 |
+|---|---------|-------|-------|
+| 1 | What: 何をするか明記 | "ドキュメント処理" | "PDFからテーブルを抽出しCSVに変換" |
+| 2 | When: いつ使うか明記 | (なし) | "データ分析ワークフローで使用" |
+| 3 | トリガーワード含有 | (なし) | "「記事QC」「バリデーション」で起動" |
+| 4 | 具体的なアクション動詞 | "管理する" | "抽出・変換・検証する" |
+| 5 | 長さ: 1-3文（50-200文字） | 1単語 | 2文で概要+トリガー |
+| 6 | 既存スキルと差別化 | 他スキルと被る | 独自の守備範囲を明示 |
+| 7 | 角括弧 [] を使わない | "[PDF]を処理" | "PDFを処理" |
+
+## Dynamic Features（動的機能）
+
+### 引数置換
+
+スキル呼び出し時の引数を動的に埋め込む：
 
 ```
-skill-name/
-├── SKILL.md          # 必須
-├── scripts/          # オプション（実行スクリプト）
-└── resources/        # オプション（参照ファイル）
+/my-skill 結婚 kekkon
 ```
+- `$ARGUMENTS` → `結婚 kekkon`（全引数）
+- `$0` → `結婚`（第1引数）
+- `$1` → `kekkon`（第2引数）
 
-## SKILL.md Template
+`$ARGUMENTS` を本文で使わない場合、末尾に自動追加される。
+
+### 動的コンテキスト `!`command``
+
+スキル読み込み前にシェルコマンドを実行し、結果を埋め込む：
 
 ```markdown
----
-name: {skill-name}
-description: {いつこのスキルを使うか、具体的なユースケースを明記}
----
+## 現在のブランチ
+!`git branch --show-current`
 
-# {Skill Name}
-
-## Overview
-{このスキルが何をするか}
-
-## When to Use
-{どういう状況で使うか、トリガーとなるキーワードや状況}
-
-## Instructions
-{具体的な手順}
-
-## Examples
-{入力と出力の例}
-
-## Guidelines
-{守るべきルール、注意点}
+## 最近のコミット
+!`git log --oneline -5`
 ```
 
-## Creation Process
+**用途**: GSCデータ取得、ファイル一覧、環境変数、API応答の事前取得。
 
-1. パターンの特定
-   - 何が汎用的か
-   - どこで再利用できるか
+## Execution Patterns（実行パターン）
 
-2. スキル名の決定
-   - kebab-case を使用（例: api-error-handler）
-   - 動詞+名詞 or 名詞+名詞
+### Pattern A: インライン実行（デフォルト）
 
-3. description の記述（最重要）
-   - Claude がいつこのスキルを使うか判断する材料
-   - 具体的なユースケース、ファイルタイプ、アクション動詞を含める
-   - 悪い例: "ドキュメント処理スキル"
-   - 良い例: "PDFからテーブルを抽出しCSVに変換する。データ分析ワークフローで使用。"
+メイン会話内で直接実行。ガイドライン型・短いタスク向け。
 
-4. Instructions の記述
-   - 明確な手順
-   - 判断基準
-   - エッジケースの対処
-
-5. 保存
-   - パス: ~/.claude/skills/shogun-{skill-name}/
-   - 既存スキルと名前が被らないか確認
-
-## 使用フロー
-
-このスキルはKaroがShogunからの指示を受けて使用する。
-
-1. Ashigaruがスキル化候補を発見 → Karoに報告
-2. Karo → Shogunに報告
-3. **Shogunが最新仕様をリサーチし、スキル設計を行う**
-4. Shogunが人間に承認を依頼（dashboard.md経由）
-5. 人間が承認
-6. Shogun → Karoに作成を指示（設計書付き）
-7. **Karo がこのskill-creatorを使用してスキルを作成**
-8. 完了報告
-
-※ Shogunがリサーチした最新仕様に基づいて作成すること。
-※ Shogunからの設計書に従うこと。
-
-## Examples of Good Skills
-
-### Example 1: API Response Handler
-```markdown
+```yaml
 ---
-name: api-response-handler
-description: REST APIのレスポンス処理パターン。エラーハンドリング、リトライロジック、レスポンス正規化を含む。API統合作業時に使用。
+name: coding-standards
+description: コーディング規約参照。コードレビューや新規実装時に自動適用。
+user-invocable: false  # 背景知識として自動ロード
 ---
 ```
 
-### Example 2: Meeting Notes Formatter
-```markdown
----
-name: meeting-notes-formatter
-description: 議事録を標準フォーマットに変換する。参加者、決定事項、アクションアイテムを抽出・整理。会議後のドキュメント作成時に使用。
----
-```
+### Pattern B: Fork実行（隔離）
 
-### Example 3: Data Validation Rules
-```markdown
+サブエージェントで隔離実行。重い処理・大量出力向け。
+
+```yaml
 ---
-name: data-validation-rules
-description: 入力データのバリデーションパターン集。メール、電話番号、日付、金額などの検証ルール。フォーム処理やデータインポート時に使用。
+name: deep-research
+description: 指定トピックの網羅的リサーチ。Web検索・X検索を駆使して調査レポート作成。
+context: fork
+agent: general-purpose
+allowed-tools: Read, Grep, Glob, Bash, WebSearch, WebFetch
 ---
 ```
 
-## Reporting Format
+**注意**: `context: fork` はガイドラインだけのスキルに使うな。
+サブエージェントには明確なタスクが必要。
 
-スキル生成時は以下の形式で報告：
+### Pattern C: 手動専用（副作用あり）
 
-「はっ！(Ha!) 新たなる技を編み出しました(New skill created!)
-- スキル名: {name}
-- 用途: {description}
-- 保存先: {path}」
+デプロイ・送信など副作用があるスキル。Claudeの自動発火を禁止。
+
+```yaml
+---
+name: deploy
+description: 本番環境にデプロイ。
+disable-model-invocation: true  # /deploy でのみ起動
+---
+```
+
+## File Structure（ファイル構成）
+
+```
+~/.claude/skills/skill-name/
+├── SKILL.md              # 必須。500行以内。
+├── reference.md          # 任意。詳細なAPI仕様・ルール集。
+├── examples/             # 任意。入出力サンプル。
+└── scripts/              # 任意。実行スクリプト。
+```
+
+**Progressive Disclosure**: SKILL.md本体は500行以内。
+詳細はreference.md等に分離し、Claude が必要時に参照する。
+
+## Creation Checklist（作成時チェックリスト）
+
+スキル作成時、以下を順に確認：
+
+1. **description**: 7項目チェック通過するか
+2. **既存スキルとの重複**: `ls ~/.claude/skills/` で確認
+3. **実行パターン選択**: インライン / fork / 手動専用
+4. **allowed-tools**: 必要最小限に制限するか、全ツール許可か
+5. **引数設計**: `$0`, `$1` 等の引数を使うか → `argument-hint` 記載
+6. **動的コンテキスト**: `!`command`` で事前取得すべきデータはあるか
+7. **500行制限**: 本体が長すぎないか → reference.md分離
+8. **テスト**: `/skill-name test-arg` で実際に動くか
+
+## 将軍システム固有ルール
+
+- 保存先: `~/.claude/skills/shogun-{skill-name}/`
+- スキル候補は足軽が発見 → 家老経由で将軍に報告 → 将軍が設計 → 殿が承認 → 家老が作成
+- 将軍システム連携（inbox_write, task YAML等）が必要なスキルは allowed-tools に Bash を含めよ
+- north_star はフロントマターでなく**本文に記載**（フロントマターのカスタムフィールドはClaude Codeに無視される）
+
+## Anti-Patterns（やってはいけないこと）
+
+| NG | 理由 | 代わりに |
+|----|------|---------|
+| SKILL.md 1000行超 | 読み込みコスト爆増 | reference.md に分離 |
+| description が曖昧 | 発火しない or 誤発火 | What + When + トリガーワード |
+| `context: fork` + ガイドラインのみ | サブエージェントがタスク不明で迷走 | インライン or subagent の skills: で参照 |
+| `disable-model-invocation` + `user-invocable: false` | 誰も起動できない | どちらか片方だけ |
+| allowed-tools 未指定で重い処理 | 意図しないツール使用 | 必要なツールのみ列挙 |
+| フロントマターに独自フィールド追加 | Claude Codeに無視される | 本文のMarkdownに記載 |
