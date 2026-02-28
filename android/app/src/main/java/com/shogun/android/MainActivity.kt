@@ -133,20 +133,12 @@ fun ShogunApp() {
             )
             .setOnAudioFocusChangeListener { focusChange ->
                 when (focusChange) {
-                    AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-                    AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                        // Voice input started — duck volume, don't stop
-                        mediaPlayer?.setVolume(0.15f, 0.15f)
-                    }
-                    AudioManager.AUDIOFOCUS_GAIN -> {
-                        // Voice input ended — restore volume
-                        mediaPlayer?.setVolume(1.0f, 1.0f)
-                    }
                     AudioManager.AUDIOFOCUS_LOSS -> {
                         // Another app took focus permanently — pause but keep position
                         mediaPlayer?.pause()
                         isBgmPlaying = false
                     }
+                    // Volume ducking is handled explicitly by isListening in ShogunScreen
                 }
             }
             .build()
