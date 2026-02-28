@@ -38,6 +38,13 @@ class AgentsViewModel(application: Application) : AndroidViewModel(application) 
     val rateLimitLoading: StateFlow<Boolean> = _rateLimitLoading
 
     private var refreshJob: Job? = null
+    @Volatile private var paused = false
+
+    fun pauseRefresh() { paused = true }
+    fun resumeRefresh() {
+        paused = false
+        refreshAllPanes()
+    }
 
     fun connect(host: String, port: Int, user: String, keyPath: String, password: String = "") {
         viewModelScope.launch {
@@ -55,7 +62,7 @@ class AgentsViewModel(application: Application) : AndroidViewModel(application) 
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
             while (isActive) {
-                refreshAllPanes()
+                if (!paused) refreshAllPanes()
                 delay(5000)
             }
         }

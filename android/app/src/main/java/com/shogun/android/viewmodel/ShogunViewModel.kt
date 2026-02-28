@@ -29,6 +29,24 @@ class ShogunViewModel(application: Application) : AndroidViewModel(application) 
 
     private var refreshJob: Job? = null
     private var reconnectJob: Job? = null
+    @Volatile private var paused = false
+
+    fun pauseRefresh() { paused = true }
+    fun resumeRefresh() {
+        paused = false
+        // Trigger immediate refresh on resume
+        viewModelScope.launch {
+            if (sshManager.isConnected()) {
+                val prefs = getApplication<Application>().getSharedPreferences("shogun_prefs", Context.MODE_PRIVATE)
+                val shogunSession = prefs.getString("shogun_session", "shogun") ?: "shogun"
+                val result = sshManager.execCommand("/usr/bin/tmux capture-pane -t $shogunSession:main -p -e -S -500")
+                if (result.isSuccess) {
+                    _paneContent.value = result.getOrDefault("")
+                    _errorMessage.value = null
+                }
+            }
+        }
+    }
 
     fun connect(host: String, port: Int, user: String, keyPath: String, password: String = "") {
         viewModelScope.launch {
@@ -55,7 +73,7 @@ class ShogunViewModel(application: Application) : AndroidViewModel(application) 
         refreshJob = viewModelScope.launch {
             val prefs = getApplication<Application>().getSharedPreferences("shogun_prefs", Context.MODE_PRIVATE)
             while (isActive) {
-                if (sshManager.isConnected()) {
+                if (!paused && sshManager.isConnected()) {
                     val shogunSession = prefs.getString("shogun_session", "shogun") ?: "shogun"
                     val result = sshManager.execCommand("/usr/bin/tmux capture-pane -t $shogunSession:main -p -e -S -500")
                     if (result.isSuccess) {
