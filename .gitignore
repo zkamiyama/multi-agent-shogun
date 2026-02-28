@@ -179,3 +179,7 @@ tests/specs/osato_lms_*
 !.github/
 !.github/workflows/
 !.github/workflows/*.yml
+
+# Android companion app
+!android/
+!android/**
