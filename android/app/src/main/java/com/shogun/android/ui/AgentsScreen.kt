@@ -45,6 +45,60 @@ import com.shogun.android.R
 import com.shogun.android.viewmodel.AgentsViewModel
 import com.shogun.android.viewmodel.PaneInfo
 
+// ── Rate limit data classes ──────────────────────────────────────────────────
+private data class WindowInfo(val percent: Float, val resetStr: String)
+private data class ClaudeMaxInfo(
+    val window5h: WindowInfo?,
+    val window7d: WindowInfo?,
+    val sonnet7d: Float?,
+    val opus7d: Float?,
+    val todayTokens: String?,
+    val sessions: Int?,
+    val messages: Int?
+)
+private data class CodexEntry(val ashigaru: Int, val percent: Float?) // null = unknown
+
+private fun parseRateLimitResult(text: String): Pair<ClaudeMaxInfo, List<CodexEntry>> {
+    val window5h = Regex("""5h window:\s+([\d.]+)%.*\(resets ([^)]+)\)""").find(text)?.let {
+        WindowInfo(it.groupValues[1].toFloatOrNull() ?: 0f, it.groupValues[2])
+    }
+    val window7d = Regex("""7d window:\s+([\d.]+)%.*\(resets ([^)]+)\)""").find(text)?.let {
+        WindowInfo(it.groupValues[1].toFloatOrNull() ?: 0f, it.groupValues[2])
+    }
+    val sonnet7d = Regex("""sonnet 7d:\s+([\d.]+)%""").find(text)?.groupValues?.get(1)?.toFloatOrNull()
+    val opus7d   = Regex("""opus 7d:\s+([\d.]+)%""").find(text)?.groupValues?.get(1)?.toFloatOrNull()
+    val todayTokens = Regex("""Today:\s+([\d,]+) tokens""").find(text)?.groupValues?.get(1)
+    val sessions = Regex("""Sessions:\s+(\d+)""").find(text)?.groupValues?.get(1)?.toIntOrNull()
+    val messages = Regex("""Messages:\s+(\d+)""").find(text)?.groupValues?.get(1)?.toIntOrNull()
+
+    val claudeMax = ClaudeMaxInfo(window5h, window7d, sonnet7d, opus7d, todayTokens, sessions, messages)
+
+    val codexEntries = mutableListOf<CodexEntry>()
+    Regex("""(\d+):(\d+)%""").findAll(text).forEach { m ->
+        val ash = m.groupValues[1].toIntOrNull() ?: return@forEach
+        codexEntries.add(CodexEntry(ash, m.groupValues[2].toFloatOrNull()))
+    }
+    Regex("""(\d+):\?""").findAll(text).forEach { m ->
+        val ash = m.groupValues[1].toIntOrNull() ?: return@forEach
+        if (codexEntries.none { it.ashigaru == ash }) codexEntries.add(CodexEntry(ash, null))
+    }
+    codexEntries.sortBy { it.ashigaru }
+    return Pair(claudeMax, codexEntries)
+}
+
+private fun rateLimitBarColor(percent: Float): Color = when {
+    percent >= 80f -> Color(0xFFCC4444)
+    percent >= 50f -> Color(0xFFC9A94E)
+    else           -> Color(0xFF4CAF50)
+}
+
+private fun formatResetTime(resetStr: String): String = if (resetStr.contains('T')) {
+    resetStr.substringAfter('T').take(5)
+} else {
+    val parts = resetStr.split('-')
+    if (parts.size >= 3) "${parts[1].trimStart('0')}/${parts[2].trimStart('0')}" else resetStr
+}
+
 @Composable
 fun AgentsScreen(
     viewModel: AgentsViewModel = viewModel()
@@ -60,9 +114,9 @@ fun AgentsScreen(
 
     LaunchedEffect(Unit) {
         val prefs = context.getSharedPreferences("shogun_prefs", android.content.Context.MODE_PRIVATE)
-        val host = prefs.getString("ssh_host", "192.168.0.1") ?: "192.168.0.1"
+        val host = prefs.getString("ssh_host", "192.168.1.1") ?: "192.168.1.1"
         val port = prefs.getString("ssh_port", "22")?.toIntOrNull() ?: 22
-        val user = prefs.getString("ssh_user", "yohei") ?: "yohei"
+        val user = prefs.getString("ssh_user", "") ?: ""
         val keyPath = prefs.getString("ssh_key_path", "") ?: ""
         val password = prefs.getString("ssh_password", "") ?: ""
         viewModel.connect(host, port, user, keyPath, password)
@@ -159,18 +213,7 @@ fun AgentsScreen(
                             CircularProgressIndicator(color = Color(0xFFC9A94E))
                         }
                     } else {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .verticalScroll(rememberScrollState())
-                        ) {
-                            Text(
-                                text = rateLimitResult ?: "",
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp,
-                                color = Color(0xFFE8DCC8)
-                            )
-                        }
+                        RateLimitContent(rawText = rateLimitResult ?: "")
                     }
                 },
                 confirmButton = {
@@ -379,4 +422,108 @@ fun PaneFullScreen(
         }
     } // Column
     } // Box
+}
+
+// ── Rate Limit UI ─────────────────────────────────────────────────────────────
+@Composable
+private fun RateLimitContent(rawText: String) {
+    val (claudeMax, codexEntries) = remember(rawText) { parseRateLimitResult(rawText) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        // ── Claude Max section ──
+        Text("Claude Max", color = Color(0xFFC9A94E), fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF555555)))
+
+        claudeMax.window5h?.let { w ->
+            val color = rateLimitBarColor(w.percent)
+            Text("5時間枠", color = Color(0xFFE8DCC8), fontSize = 12.sp)
+            LinearProgressIndicator(
+                progress = { w.percent / 100f },
+                modifier = Modifier.fillMaxWidth(),
+                color = color,
+                trackColor = Color(0xFF444444)
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("${w.percent}%", color = color, fontSize = 11.sp)
+                Text("リセット: ${formatResetTime(w.resetStr)}", color = Color(0xFF888888), fontSize = 11.sp)
+            }
+        }
+
+        claudeMax.window7d?.let { w ->
+            val color = rateLimitBarColor(w.percent)
+            Text("7日枠", color = Color(0xFFE8DCC8), fontSize = 12.sp)
+            LinearProgressIndicator(
+                progress = { w.percent / 100f },
+                modifier = Modifier.fillMaxWidth(),
+                color = color,
+                trackColor = Color(0xFF444444)
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("${w.percent}%", color = color, fontSize = 11.sp)
+                Text("リセット: ${formatResetTime(w.resetStr)}", color = Color(0xFF888888), fontSize = 11.sp)
+            }
+            if (claudeMax.sonnet7d != null || claudeMax.opus7d != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    claudeMax.sonnet7d?.let { Text("Sonnet: ${it}%", color = Color(0xFF888888), fontSize = 11.sp) }
+                    claudeMax.opus7d?.let   { Text("Opus: ${it}%",   color = Color(0xFF888888), fontSize = 11.sp) }
+                }
+            }
+        }
+
+        claudeMax.todayTokens?.let { tokens ->
+            Text("本日トークン", color = Color(0xFFE8DCC8), fontSize = 12.sp)
+            Text(tokens, color = Color(0xFFC9A94E), fontSize = 15.sp, fontFamily = FontFamily.Monospace)
+        }
+
+        if (claudeMax.sessions != null || claudeMax.messages != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                claudeMax.sessions?.let { Text("セッション: $it", color = Color(0xFF888888), fontSize = 11.sp) }
+                claudeMax.messages?.let { Text("メッセージ: $it", color = Color(0xFF888888), fontSize = 11.sp) }
+            }
+        }
+
+        // ── Codex section (only if data present) ──
+        if (codexEntries.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text("Codex コンテキスト残量", color = Color(0xFFC9A94E), fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF555555)))
+            codexEntries.forEach { entry ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "ash${entry.ashigaru}",
+                        color = Color(0xFFE8DCC8),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.width(40.dp)
+                    )
+                    if (entry.percent != null) {
+                        val color = rateLimitBarColor(entry.percent)
+                        LinearProgressIndicator(
+                            progress = { entry.percent / 100f },
+                            modifier = Modifier.weight(1f),
+                            color = color,
+                            trackColor = Color(0xFF444444)
+                        )
+                        Text("${entry.percent.toInt()}%", color = color, fontSize = 11.sp)
+                    } else {
+                        LinearProgressIndicator(
+                            progress = { 0f },
+                            modifier = Modifier.weight(1f),
+                            color = Color(0xFF555555),
+                            trackColor = Color(0xFF444444)
+                        )
+                        Text("---", color = Color(0xFF888888), fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+    }
 }

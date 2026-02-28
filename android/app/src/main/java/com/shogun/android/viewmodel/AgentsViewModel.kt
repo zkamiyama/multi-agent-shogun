@@ -31,6 +31,12 @@ class AgentsViewModel(application: Application) : AndroidViewModel(application) 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage
 
+    private val _rateLimitResult = MutableStateFlow<String?>(null)
+    val rateLimitResult: StateFlow<String?> = _rateLimitResult
+
+    private val _rateLimitLoading = MutableStateFlow(false)
+    val rateLimitLoading: StateFlow<Boolean> = _rateLimitLoading
+
     private var refreshJob: Job? = null
 
     fun connect(host: String, port: Int, user: String, keyPath: String, password: String = "") {
@@ -92,6 +98,22 @@ class AgentsViewModel(application: Application) : AndroidViewModel(application) 
             delay(1000)
             refreshAllPanes()
         }
+    }
+
+    fun execRateLimitCheck() {
+        viewModelScope.launch {
+            _rateLimitLoading.value = true
+            _rateLimitResult.value = null
+            val prefs = getApplication<Application>().getSharedPreferences("shogun_prefs", Context.MODE_PRIVATE)
+            val projectPath = prefs.getString("project_path", "") ?: ""
+            val result = sshManager.execCommand("bash $projectPath/scripts/ratelimit_check.sh")
+            _rateLimitLoading.value = false
+            _rateLimitResult.value = result.getOrElse { "取得失敗: ${it.message}" }
+        }
+    }
+
+    fun clearRateLimitResult() {
+        _rateLimitResult.value = null
     }
 
     override fun onCleared() {

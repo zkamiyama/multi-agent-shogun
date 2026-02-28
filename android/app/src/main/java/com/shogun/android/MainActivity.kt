@@ -86,13 +86,15 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        val prefs = getSharedPreferences("shogun_prefs", Context.MODE_PRIVATE)
+        val projectPath = prefs.getString("project_path", "") ?: ""
         Toast.makeText(this, "転送中...", Toast.LENGTH_SHORT).show()
         lifecycleScope.launch {
-            sshManager.uploadScreenshot(this@MainActivity, imageUri).fold(
+            sshManager.uploadScreenshot(this@MainActivity, imageUri, projectPath).fold(
                 onSuccess = { fileName ->
                     Toast.makeText(this@MainActivity, "✅ 転送完了: $fileName", Toast.LENGTH_LONG).show()
                     sshManager.execCommand(
-                        "bash /mnt/c/tools/multi-agent-shogun/scripts/inbox_write.sh shogun " +
+                        "bash $projectPath/scripts/inbox_write.sh shogun " +
                         "'スクショ到着: queue/screenshots/$fileName' screenshot_received karo"
                     )
                 },

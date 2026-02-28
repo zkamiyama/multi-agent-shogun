@@ -41,9 +41,9 @@ fun DashboardScreen(
 
     LaunchedEffect(Unit) {
         val prefs = context.getSharedPreferences("shogun_prefs", android.content.Context.MODE_PRIVATE)
-        val host = prefs.getString("ssh_host", "192.168.0.1") ?: "192.168.0.1"
+        val host = prefs.getString("ssh_host", "192.168.1.1") ?: "192.168.1.1"
         val port = prefs.getString("ssh_port", "22")?.toIntOrNull() ?: 22
-        val user = prefs.getString("ssh_user", "yohei") ?: "yohei"
+        val user = prefs.getString("ssh_user", "") ?: ""
         val keyPath = prefs.getString("ssh_key_path", "") ?: ""
         val password = prefs.getString("ssh_password", "") ?: ""
         viewModel.connect(host, port, user, keyPath, password)

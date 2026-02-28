@@ -201,7 +201,7 @@ class SshManager private constructor() {
         shellOutputStream = null
     }
 
-    suspend fun uploadScreenshot(context: Context, imageUri: Uri): Result<String> =
+    suspend fun uploadScreenshot(context: Context, imageUri: Uri, projectPath: String = ""): Result<String> =
         withContext(Dispatchers.IO) {
             val s = session
             if (s == null || !s.isConnected) {
@@ -210,7 +210,7 @@ class SshManager private constructor() {
             try {
                 val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
                 val fileName = "screenshot_$timestamp.png"
-                val remoteDir = "/mnt/c/tools/multi-agent-shogun/queue/screenshots"
+                val remoteDir = "$projectPath/queue/screenshots"
                 val remotePath = "$remoteDir/$fileName"
 
                 val channelSftp = s.openChannel("sftp") as ChannelSftp

@@ -21,11 +21,12 @@ fun SettingsScreen() {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("shogun_prefs", Context.MODE_PRIVATE)
 
-    var host by remember { mutableStateOf(prefs.getString("ssh_host", "100.112.199.62") ?: "100.112.199.62") }
+    var host by remember { mutableStateOf(prefs.getString("ssh_host", "192.168.1.1") ?: "192.168.1.1") }
     var port by remember { mutableStateOf(prefs.getString("ssh_port", "22") ?: "22") }
-    var user by remember { mutableStateOf(prefs.getString("ssh_user", "yohei") ?: "yohei") }
+    var user by remember { mutableStateOf(prefs.getString("ssh_user", "") ?: "") }
     var keyPath by remember { mutableStateOf(prefs.getString("ssh_key_path", "") ?: "") }
     var password by remember { mutableStateOf(prefs.getString("ssh_password", "") ?: "") }
+    var projectPath by remember { mutableStateOf(prefs.getString("project_path", "") ?: "") }
     var shogunSession by remember { mutableStateOf(prefs.getString("shogun_session", "shogun") ?: "shogun") }
     var agentsSession by remember { mutableStateOf(prefs.getString("agents_session", "multiagent") ?: "multiagent") }
 
@@ -85,6 +86,19 @@ fun SettingsScreen() {
 
         Divider()
 
+        Text("プロジェクト設定", style = MaterialTheme.typography.titleMedium, color = Color(0xFFC9A94E))
+
+        OutlinedTextField(
+            value = projectPath,
+            onValueChange = { projectPath = it },
+            label = { Text("プロジェクトパス（サーバー側）") },
+            placeholder = { Text("/path/to/multi-agent-shogun") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
+        Divider()
+
         Text("セッション設定", style = MaterialTheme.typography.titleMedium, color = Color(0xFFC9A94E))
 
         OutlinedTextField(
@@ -111,6 +125,7 @@ fun SettingsScreen() {
                     .putString("ssh_user", user)
                     .putString("ssh_key_path", keyPath)
                     .putString("ssh_password", password)
+                    .putString("project_path", projectPath)
                     .putString("shogun_session", shogunSession)
                     .putString("agents_session", agentsSession)
                     .apply()

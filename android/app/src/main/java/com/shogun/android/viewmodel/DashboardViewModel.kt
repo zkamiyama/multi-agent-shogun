@@ -1,6 +1,7 @@
 package com.shogun.android.viewmodel
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.shogun.android.ssh.SshManager
@@ -39,7 +40,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     fun loadDashboard() {
         viewModelScope.launch {
             _isLoading.value = true
-            val result = sshManager.execCommand("cat /mnt/c/tools/multi-agent-shogun/dashboard.md")
+            val prefs = getApplication<Application>().getSharedPreferences("shogun_prefs", Context.MODE_PRIVATE)
+            val projectPath = prefs.getString("project_path", "") ?: ""
+            val result = sshManager.execCommand("cat $projectPath/dashboard.md")
             if (result.isSuccess) {
                 _markdownContent.value = result.getOrDefault("")
                 _errorMessage.value = null
