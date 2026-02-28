@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Shogun - Android</string>
+    <string name="app_name">multi-agent-shogun Android</string>
     <string name="tab_shogun">将軍</string>
     <string name="tab_agents">エージェント</string>
     <string name="tab_dashboard">ダッシュボード</string>
