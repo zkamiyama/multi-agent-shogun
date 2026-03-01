@@ -23,7 +23,7 @@ Companion app for [multi-agent-shogun](https://github.com/yohey-w/multi-agent-sh
 
 - **Voice Input** — Japanese speech recognition with continuous listening mode. Dictate commands hands-free.
 - **BGM** — Sengoku-themed background music with toggle control. Auto-ducks during voice input.
-- **Rate Limit Monitor** — Check Claude Max usage (5h/7d windows, Sonnet/Opus breakdown, session/message counts) with visual progress bars.
+- **Rate Limit Monitor** — Tap the FAB button on the Agents tab to check Claude Max usage (5h/7d windows, Sonnet/Opus breakdown, session/message counts) with visual progress bars.
 - **Screenshot Sharing** — Share screenshots from other apps directly to Shogun via Android share sheet. Files are SFTP-transferred to the server.
 - **ANSI Color Support** — Terminal output rendered with 256-color ANSI escape code parsing.
 - **Special Keys Bar** — Quick access to Enter, C-c, C-b, arrows, Tab, ESC, C-o, C-d for tmux/Claude Code workflow.

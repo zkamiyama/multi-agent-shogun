@@ -283,7 +283,7 @@ Monitor and command 10 AI agents from your phone with the dedicated Android comp
 | **Shogun Terminal** | SSH terminal + voice input + special key bar (C-c, C-b, Tab, etc.) |
 | **Agents Grid** | 9-pane simultaneous monitoring. Tap to expand fullscreen + send commands |
 | **Dashboard** | Renders dashboard.md with full table text selection/copy |
-| **Rate Limit** | Claude Max 5h/7d usage with progress bars |
+| **Rate Limit** | Tap the FAB on the Agents tab to check Claude Max 5h/7d usage with progress bars |
 | **Voice Input** | Japanese continuous recognition via Google Speech API — higher accuracy than phone keyboard voice |
 | **Screenshot Share** | Share images via Android share menu → SFTP transfer to server |
 
