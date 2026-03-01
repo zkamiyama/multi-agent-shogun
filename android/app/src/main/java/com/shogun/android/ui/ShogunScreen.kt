@@ -25,8 +25,9 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.MusicOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.Lifecycle
@@ -52,7 +53,7 @@ import com.shogun.android.viewmodel.ShogunViewModel
 fun ShogunScreen(
     viewModel: ShogunViewModel = viewModel(),
     mediaPlayer: MediaPlayer? = null,
-    isBgmPlaying: Boolean = false,
+    bgmTrackIndex: Int = -1,
     onBgmToggle: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -65,7 +66,7 @@ fun ShogunScreen(
     var isInputExpanded by remember { mutableStateOf(false) }
 
     // Duck BGM while voice input is active
-    LaunchedEffect(isListening) {
+    LaunchedEffect(isListening, mediaPlayer) {
         if (isListening) {
             mediaPlayer?.setVolume(0.05f, 0.05f)
         } else {
@@ -244,12 +245,19 @@ fun ShogunScreen(
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // BGM toggle button
+            // BGM toggle button — cycles OFF → Track1 → Track2 → Track3 → OFF
             IconButton(onClick = onBgmToggle) {
+                val trackLabels = listOf("将軍", "令和", "足軽")
+                val (icon, tint) = when (bgmTrackIndex) {
+                    0 -> Icons.Default.MusicNote to Color(0xFFC9A94E)      // gold
+                    1 -> Icons.Default.Headphones to Color(0xFF4ECDC4)     // teal
+                    2 -> Icons.Default.MusicNote to Color(0xFFFF6B6B)      // red
+                    else -> Icons.Default.MusicOff to Color(0xFF666666)    // gray = OFF
+                }
                 Icon(
-                    imageVector = if (isBgmPlaying) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
-                    contentDescription = "BGM",
-                    tint = if (isBgmPlaying) Color(0xFFC9A94E) else Color(0xFF666666)
+                    imageVector = icon,
+                    contentDescription = if (bgmTrackIndex >= 0) "BGM: ${trackLabels[bgmTrackIndex]}" else "BGM OFF",
+                    tint = tint
                 )
             }
 

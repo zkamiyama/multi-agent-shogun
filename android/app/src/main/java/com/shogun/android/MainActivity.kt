@@ -130,14 +130,11 @@ fun ShogunApp() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    // BGM MediaPlayer — lives above NavHost so it survives tab switches
-    var isBgmPlaying by remember { mutableStateOf(false) }
+    // BGM — 3-track cycling: OFF → shogun → shogun_reiwa → shogun_ashigirls → OFF
+    val bgmTracks = remember { listOf(R.raw.shogun, R.raw.shogun_reiwa, R.raw.shogun_ashigirls) }
+    var bgmTrackIndex by remember { mutableIntStateOf(-1) } // -1 = OFF
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
-    val mediaPlayer = remember {
-        MediaPlayer.create(context, R.raw.shogun)?.apply {
-            isLooping = true
-        }
-    }
+    var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
 
     // AudioFocus: duck BGM during voice input instead of stopping
     val focusRequest = remember {
@@ -151,11 +148,10 @@ fun ShogunApp() {
             .setOnAudioFocusChangeListener { focusChange ->
                 when (focusChange) {
                     AudioManager.AUDIOFOCUS_LOSS -> {
-                        // Another app took focus permanently — pause but keep position
-                        mediaPlayer?.pause()
-                        isBgmPlaying = false
+                        mediaPlayer?.release()
+                        mediaPlayer = null
+                        bgmTrackIndex = -1
                     }
-                    // Volume ducking is handled explicitly by isListening in ShogunScreen
                 }
             }
             .build()
@@ -209,18 +205,24 @@ fun ShogunApp() {
             composable(Screen.Shogun.route) {
                 ShogunScreen(
                     mediaPlayer = mediaPlayer,
-                    isBgmPlaying = isBgmPlaying,
+                    bgmTrackIndex = bgmTrackIndex,
                     onBgmToggle = {
-                        if (isBgmPlaying) {
-                            mediaPlayer?.pause()
+                        // Cycle: -1(OFF) → 0 → 1 → 2 → -1(OFF)
+                        val nextIndex = if (bgmTrackIndex >= 2) -1 else bgmTrackIndex + 1
+                        // Always release old player — next track starts from beginning
+                        mediaPlayer?.release()
+                        mediaPlayer = null
+                        if (nextIndex == -1) {
                             audioManager.abandonAudioFocusRequest(focusRequest)
-                            isBgmPlaying = false
                         } else {
                             audioManager.requestAudioFocus(focusRequest)
-                            mediaPlayer?.setVolume(1.0f, 1.0f)
-                            mediaPlayer?.start()
-                            isBgmPlaying = true
+                            mediaPlayer = MediaPlayer.create(context, bgmTracks[nextIndex])?.apply {
+                                isLooping = true
+                                setVolume(1.0f, 1.0f)
+                                start()
+                            }
                         }
+                        bgmTrackIndex = nextIndex
                     }
                 )
             }
