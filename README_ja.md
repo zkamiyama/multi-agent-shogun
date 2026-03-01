@@ -287,7 +287,7 @@ cd /mnt/c/tools/multi-agent-shogun
 | **音声入力** | Google Speech APIによる日本語連続認識。キーボード音声入力より高精度 |
 | **スクショ共有** | 共有メニューから画像をSFTP転送 |
 
-> **Note:** 現在Androidのみ対応。iOSはテスト端末がないため未対応。コントリビューション歓迎！
+> **Note:** 現在Androidのみ対応。iOS版は開発者にテスト端末がないため未対応。ニーズがあれば [Issue](https://github.com/yohey-w/multi-agent-shogun/issues) で教えてください。PRも歓迎！
 
 #### セットアップ手順
 
@@ -299,7 +299,10 @@ cd /mnt/c/tools/multi-agent-shogun
 **手順：**
 
 1. **APKをインストール**
-   [`android/release/multi-agent-shogun.apk`](android/release/multi-agent-shogun.apk) をスマホにダウンロードしてインストール
+   1. [`android/release/multi-agent-shogun.apk`](android/release/multi-agent-shogun.apk) をスマホにダウンロード（GitHub上のファイルを開いて「Download raw file」）
+   2. ダウンロード完了の通知をタップ → 「インストール」
+   3. 「提供元不明のアプリ」警告が出たら → 「設定」→ 該当ブラウザの「この提供元を許可」をON → 戻って「インストール」
+   4. インストール完了 → 「開く」
 
 2. **SSH接続情報を設定**（設定タブ）
 

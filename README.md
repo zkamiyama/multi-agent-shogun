@@ -287,7 +287,7 @@ Monitor and command 10 AI agents from your phone with the dedicated Android comp
 | **Voice Input** | Japanese continuous recognition via Google Speech API — higher accuracy than phone keyboard voice |
 | **Screenshot Share** | Share images via Android share menu → SFTP transfer to server |
 
-> **Note:** Currently Android only. iOS version is not available (no test device). Contributions welcome!
+> **Note:** Android only for now. No iOS version — the developer doesn't own an iPhone. If there's demand, please open an [Issue](https://github.com/yohey-w/multi-agent-shogun/issues). PRs welcome!
 
 #### Setup
 
@@ -299,7 +299,10 @@ Monitor and command 10 AI agents from your phone with the dedicated Android comp
 **Steps:**
 
 1. **Install APK**
-   Download [`android/release/multi-agent-shogun.apk`](android/release/multi-agent-shogun.apk) and sideload it
+   1. Download [`android/release/multi-agent-shogun.apk`](android/release/multi-agent-shogun.apk) on your phone (open the file on GitHub → "Download raw file")
+   2. Tap the download notification → "Install"
+   3. If "Unknown sources" warning appears → "Settings" → enable "Allow from this source" for your browser → go back → "Install"
+   4. Done → "Open"
 
 2. **Configure SSH** (Settings tab)
 
