@@ -268,9 +268,76 @@ cd /mnt/c/tools/multi-agent-shogun
 ./shutsujin_departure.sh
 ```
 
-### 📱 スマホからアクセス（どこからでも指揮）
+### 📱 スマホからアクセス — 専用Androidアプリ（推奨）
 
-ベッドから、カフェから、トイレから。スマホでAI部下を操作できる。
+<p align="center">
+  <img src="android/screenshots/01_shogun_terminal.png" alt="将軍ターミナル" width="200">
+  <img src="android/screenshots/02_agents_grid.png" alt="エージェント一覧" width="200">
+  <img src="android/screenshots/03_dashboard.png" alt="ダッシュボード" width="200">
+</p>
+
+専用のAndroidアプリで10体のAIエージェントをスマホから監視・指揮できる。
+
+| 機能 | 説明 |
+|------|------|
+| **将軍ターミナル** | SSHターミナル + 音声入力 + 特殊キーバー (C-c, C-b, Tab等) |
+| **エージェント一覧** | 9ペイン同時監視。タップで全画面展開 + コマンド送信 |
+| **ダッシュボード** | dashboard.md をレンダリング表示。表のテキストもコピー可 |
+| **レートリミット** | Claude Maxの5h/7d消費率をプログレスバーで表示 |
+| **音声入力** | Google Speech APIによる日本語連続認識。キーボード音声入力より高精度 |
+| **スクショ共有** | 共有メニューから画像をSFTP転送 |
+
+> **Note:** 現在Androidのみ対応。iOSはテスト端末がないため未対応。コントリビューション歓迎！
+
+#### セットアップ手順
+
+**前提条件：**
+- WSL2 (またはLinuxサーバー) で将軍システムが稼働中
+- SSHサーバーが起動済み (`sudo service ssh start`)
+- スマホとサーバーが同一ネットワーク上（LAN or [Tailscale](https://tailscale.com/)）
+
+**手順：**
+
+1. **APKをインストール**
+   [`android/release/multi-agent-shogun.apk`](android/release/multi-agent-shogun.apk) をスマホにダウンロードしてインストール
+
+2. **SSH接続情報を設定**（設定タブ）
+
+   | 項目 | 入力例 | 説明 |
+   |------|--------|------|
+   | SSHホスト | `100.xxx.xxx.xxx` | サーバーのIP（Tailscale IPなど） |
+   | SSHポート | `22` | 通常は22 |
+   | SSHユーザー | `your_username` | SSH接続のユーザー名 |
+   | SSH秘密鍵パス | `/data/data/.../id_ed25519` | スマホ上の秘密鍵パス（※1） |
+   | SSHパスワード | `****` | 鍵がない場合はパスワード認証 |
+   | プロジェクトパス | `/mnt/c/tools/multi-agent-shogun` | サーバー側のプロジェクトディレクトリ |
+   | 将軍セッション名 | `shogun` | tmuxの将軍セッション名 |
+   | エージェントセッション名 | `multiagent` | tmuxのエージェントセッション名 |
+
+   ※1 秘密鍵はスマホに転送するか、パスワード認証を使用
+
+3. **保存 → 将軍タブに切り替え** → 自動接続
+
+**Tailscaleを使う場合（外出先からも接続可能）：**
+
+```bash
+# サーバー側（WSL2）
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscaled &
+sudo tailscale up --authkey tskey-auth-XXXXXXXXXXXX
+sudo service ssh start
+```
+
+スマホにもTailscaleアプリをインストールして同じアカウントでログイン。表示されるTailscale IPをアプリのSSHホストに入力。
+
+**ntfy通知も併用する場合：**
+
+[ntfyの設定セクション](#-8-スマホ通知ntfy)を参照。家老からの進捗通知をプッシュで受け取れる。
+
+<details>
+<summary>📟 <b>Termux方式（Androidアプリなし）</b>（クリックで展開）</summary>
+
+Termuxを使ったSSH接続でも操作できる。専用アプリと比べて機能は限定的だが、追加のAPKインストールが不要。
 
 **必要なもの（全部無料）：**
 
@@ -304,9 +371,11 @@ cd /mnt/c/tools/multi-agent-shogun
 
 **切り方：** Termuxのウィンドウをスワイプで閉じるだけ。tmuxセッションは生き残る。AI部下は黙々と作業を続けている。
 
-**音声入力：** スマホの音声入力で喋れば、将軍が自然言語を理解して全軍に指示を出す。音声認識の誤字も文脈で解釈してくれる。
+</details>
 
-**もっと簡単に：** ntfyを設定すると、ntfyアプリから直接通知の受信やコマンドの送信ができます。SSHは不要です。
+**音声入力：** Androidアプリの音声入力ボタンで喋れば、将軍が自然言語を理解して全軍に指示を出す。
+
+**もっと簡単に：** ntfyを設定すると、プッシュ通知で進捗を受け取れます。
 
 ---
 

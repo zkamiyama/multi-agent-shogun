@@ -268,9 +268,76 @@ cd /mnt/c/tools/multi-agent-shogun
 ./shutsujin_departure.sh
 ```
 
-### 📱 Mobile Access (Command from anywhere)
+### 📱 Mobile Access — Dedicated Android App (Recommended)
 
-Control your AI army from your phone — bed, café, or bathroom.
+<p align="center">
+  <img src="android/screenshots/01_shogun_terminal.png" alt="Shogun Terminal" width="200">
+  <img src="android/screenshots/02_agents_grid.png" alt="Agents Grid" width="200">
+  <img src="android/screenshots/03_dashboard.png" alt="Dashboard" width="200">
+</p>
+
+Monitor and command 10 AI agents from your phone with the dedicated Android companion app.
+
+| Feature | Description |
+|---------|-------------|
+| **Shogun Terminal** | SSH terminal + voice input + special key bar (C-c, C-b, Tab, etc.) |
+| **Agents Grid** | 9-pane simultaneous monitoring. Tap to expand fullscreen + send commands |
+| **Dashboard** | Renders dashboard.md with full table text selection/copy |
+| **Rate Limit** | Claude Max 5h/7d usage with progress bars |
+| **Voice Input** | Japanese continuous recognition via Google Speech API — higher accuracy than phone keyboard voice |
+| **Screenshot Share** | Share images via Android share menu → SFTP transfer to server |
+
+> **Note:** Currently Android only. iOS version is not available (no test device). Contributions welcome!
+
+#### Setup
+
+**Prerequisites:**
+- Shogun system running on WSL2 (or Linux server)
+- SSH server started (`sudo service ssh start`)
+- Phone and server on same network (LAN or [Tailscale](https://tailscale.com/))
+
+**Steps:**
+
+1. **Install APK**
+   Download [`android/release/multi-agent-shogun.apk`](android/release/multi-agent-shogun.apk) and sideload it
+
+2. **Configure SSH** (Settings tab)
+
+   | Field | Example | Description |
+   |-------|---------|-------------|
+   | SSH Host | `100.xxx.xxx.xxx` | Server IP (e.g., Tailscale IP) |
+   | SSH Port | `22` | Usually 22 |
+   | SSH User | `your_username` | SSH login username |
+   | SSH Key Path | `/data/data/.../id_ed25519` | Private key path on phone (*1) |
+   | SSH Password | `****` | Use if no key available |
+   | Project Path | `/mnt/c/tools/multi-agent-shogun` | Server-side project directory |
+   | Shogun Session | `shogun` | tmux session name for Shogun |
+   | Agent Session | `multiagent` | tmux session name for agents |
+
+   *1 Transfer your private key to the phone, or use password authentication
+
+3. **Save → Switch to Shogun tab** → auto-connects
+
+**Using Tailscale (connect from anywhere):**
+
+```bash
+# Server-side (WSL2)
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscaled &
+sudo tailscale up --authkey tskey-auth-XXXXXXXXXXXX
+sudo service ssh start
+```
+
+Install the Tailscale app on your phone, log in with the same account, and use the displayed Tailscale IP as the SSH Host in the app.
+
+**With ntfy notifications:**
+
+See [ntfy setup section](#-8-phone-notifications-ntfy) for push notifications from Karo on task completion.
+
+<details>
+<summary>📟 <b>Termux Method (without the Android app)</b> (click to expand)</summary>
+
+SSH via Termux also works. More limited than the dedicated app, but requires no APK sideloading.
 
 **Requirements (all free):**
 
@@ -302,20 +369,9 @@ Control your AI army from your phone — bed, café, or bathroom.
    csm    # See all 9 panes
    ```
 
-**Disconnect:** Just swipe the Termux window closed. tmux sessions survive — agents keep working. Temporary viewer sessions are auto-cleaned (destroy-unattached).
+**Disconnect:** Just swipe the Termux window closed. tmux sessions survive — agents keep working.
 
-**Recommended: SSH keepalive** — prevents zombie connections when Termux is swiped away:
-```bash
-# On your server (WSL), run once:
-sudo sed -i 's/#ClientAliveInterval 0/ClientAliveInterval 15/' /etc/ssh/sshd_config
-sudo sed -i 's/#ClientAliveCountMax 3/ClientAliveCountMax 3/' /etc/ssh/sshd_config
-sudo systemctl restart ssh
-```
-This detects dead connections within 45 seconds instead of waiting for TCP timeout.
-
-**Voice input:** Use your phone's voice keyboard to speak commands. The Shogun understands natural language, so typos from speech-to-text don't matter.
-
-**Even simpler:** With ntfy configured, you can receive notifications and send commands directly from the ntfy app — no SSH required.
+</details>
 
 ---
 
