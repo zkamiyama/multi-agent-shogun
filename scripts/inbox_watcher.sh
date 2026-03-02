@@ -901,6 +901,8 @@ process_unread() {
         fi
         FIRST_UNREAD_SEEN=0
         NEW_CONTEXT_SENT=0
+        # Ensure idle flag exists (fast-path recovery)
+        touch "${IDLE_FLAG_DIR:-/tmp}/shogun_idle_${AGENT_ID}" 2>/dev/null || true
         if ! agent_is_busy; then
             # Shogun: only clear input when pane is not active (Lord is away)
             if [ "$AGENT_ID" = "shogun" ] && pane_is_active; then
@@ -1105,6 +1107,9 @@ for s in data.get('specials', []):
         fi
         FIRST_UNREAD_SEEN=0
         NEW_CONTEXT_SENT=0
+        # Ensure idle flag exists when all messages are read.
+        # Recovers from stop_hook_inbox.sh flag loss during block cycles.
+        touch "${IDLE_FLAG_DIR:-/tmp}/shogun_idle_${AGENT_ID}" 2>/dev/null || true
         # Clear stale nudge text from input field (Codex CLI prefills last input on idle).
         # Only send C-u when agent is idle — during Working it would be disruptive.
         if ! agent_is_busy; then
