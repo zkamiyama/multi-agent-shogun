@@ -12,9 +12,49 @@ load "../test_helper/bats-support/load"
 load "../test_helper/bats-assert/load"
 
 setup_file() {
-    if [ -z "${PROJECT_ROOT:-}" ]; then
-        PROJECT_ROOT="$(git -C "${BATS_TEST_DIRNAME:-$(pwd)}" rev-parse --show-toplevel 2>/dev/null || pwd)"
-    fi
+    resolve_project_root() {
+        local c d abs git_root
+        local -a candidates
+
+        candidates=(
+            "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+            "$BATS_TEST_DIRNAME"
+            "$(dirname "$BATS_TEST_FILENAME")"
+            "$BATS_TEST_FILENAME"
+            "$PWD"
+        )
+
+        for c in "${candidates[@]}"; do
+            [ -z "$c" ] && continue
+
+            if [ -f "$c" ]; then
+                c="$(dirname "$c")"
+            fi
+
+            for d in "$c" "$c/../.." "$c/../../.."; do
+                if [ ! -d "$d" ] && [ -d "$PWD/$d" ]; then
+                    d="$PWD/$d"
+                fi
+
+                abs="$(cd "$d" 2>/dev/null && pwd || true)"
+                if [ -n "$abs" ] && [ -f "$abs/scripts/slim_yaml.py" ]; then
+                    printf '%s\n' "$abs"
+                    return 0
+                fi
+            done
+        done
+
+        git_root="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
+        if [ -n "$git_root" ] && [ -f "$git_root/scripts/slim_yaml.py" ]; then
+            printf '%s\n' "$git_root"
+            return 0
+        fi
+
+        return 1
+    }
+
+    PROJECT_ROOT="$(resolve_project_root)" || skip "Unable to locate project root for slim retention test"
+    export PROJECT_ROOT
     [ -f "$PROJECT_ROOT/scripts/slim_yaml.py" ] || skip "slim_yaml.py not found at $PROJECT_ROOT"
     command -v python3 &>/dev/null || skip "python3 not available"
 }
@@ -48,7 +88,7 @@ seed_yaml() {
     touch -d "2 days ago" "$root/queue/reports/ashigaru1_cmd_test_report.yaml"
     touch -d "2 days ago" "$root/queue/reports/ashigaru1_report.yaml"
 
-    run run_slim_yaml "$root" ashigaru1
+    run run_slim_yaml "$root" karo
     assert_success
 
     # Active parent_cmd means this report is kept.
@@ -72,7 +112,7 @@ seed_yaml() {
     touch -d "2 days ago" "$root/queue/reports/ashigaru1_cmd_test_report.yaml"
     touch -d "2 days ago" "$root/queue/reports/ashigaru1_report.yaml"
 
-    run run_slim_yaml "$root" ashigaru1
+    run run_slim_yaml "$root" karo
     assert_success
 
     # Non-canonical report is archived.
@@ -94,7 +134,7 @@ seed_yaml() {
     seed_yaml "$root/queue/reports/ashigaru1_report.yaml" $'parent_cmd: cmd_done\nstatus: done\n'
     touch -d "2 days ago" "$root/queue/reports/ashigaru1_report.yaml"
 
-    run run_slim_yaml "$root" ashigaru1
+    run run_slim_yaml "$root" karo
     assert_success
 
     # Canonical report is always retained.
