@@ -328,11 +328,11 @@ dump_watcher_log() {
     fi
     [ "$new_count" -eq 1 ]
 
-    # 7. Verify dedup guard logged skips for extra clear_commands
+    # 7. Verify extra clear_commands were suppressed (dedup or busy deferral)
     local skip_count
-    skip_count=$(grep -c "SKIP.*Codex /new already sent" "$log_file" 2>/dev/null || true)
+    skip_count=$(grep -c -E "SKIP.*(Codex /new already sent|is busy.*deferred)" "$log_file" 2>/dev/null || true)
     if [ "$skip_count" -lt 1 ]; then
-        echo "Expected at least 1 dedup skip log, got $skip_count" >&2
+        echo "Expected at least 1 dedup/deferral skip log, got $skip_count" >&2
         dump_watcher_log "$log_file"
     fi
     [ "$skip_count" -ge 1 ]
