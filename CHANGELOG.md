@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [4.4.0] - 2026-03-28
+
+### Added
+- karo daily log: cmd完了時に `logs/daily/YYYY-MM-DD.md` へサマリーを自動追記する機能を導入 (PR #95)
+- `.gitignore`: `.claude/settings.local.json` を除外対象に追加
+
+### Changed
+- `instructions/karo.md`: ntfy通知ステップを6→7に移動、daily log appendをステップ6に挿入
+- `instructions/roles/karo_role.md`: 同期済み
+- 全CLI向け generated instructions を再生成（codex/copilot/kimi-karo.md）
+
 ## [4.3.0] - 2026-03-28
 
 ### Added
