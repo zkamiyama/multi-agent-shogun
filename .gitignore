@@ -189,3 +189,4 @@ tests/specs/osato_lms_*
 # Android companion app
 !android/
 !android/**
+.claude/settings.local.json
