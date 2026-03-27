@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [4.3.0] - 2026-03-28
+
+### Added
+- `shutsujin_departure.sh`: all Claude Code agents now launch with `--effort max` by default (shogun, karo, ashigaru, gunshi)
+
 ## [4.2.0] - 2026-03-24
 
 ### Added
