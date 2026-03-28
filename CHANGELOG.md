@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [4.5.0] - 2026-03-28
+
+### Added
+- Android: Raw/UI toggle in ratelimit dialog for debugging SSH output
+- Android: SSH key file picker in settings (load private key from device storage)
+- Android: parse failure fallback — show raw output when no data parsed
+- `ratelimit_check.sh`: zoom-capture for Codex /status blocks (fixes narrow pane truncation)
+
+### Fixed
+- Android: ratelimit display not working (stderr not captured, missing 2>&1)
+- Android: SSH private key loading (read file bytes instead of path reference)
+- `ratelimit_check.sh`: extract latest /status block with awk parser to avoid stale data
+
+### Changed
+- SshManager: capture stderr + log for diagnostics
+- AgentsViewModel: show executed command in SSH error messages
+
 ## [4.4.0] - 2026-03-28
 
 ### Added
