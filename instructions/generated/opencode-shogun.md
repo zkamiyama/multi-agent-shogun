@@ -582,6 +582,7 @@ Guidelines:
 2. **Use focused tools**: prefer `read`/`grep`/`glob` over shelling out for routine inspection
 3. **Use `skill` for reusable workflows**: OpenCode loads `SKILL.md` definitions on demand
 4. **Permissions in this repo**: OpenCode defaults to permissive access, and this repository launches agents with `OPENCODE_CONFIG_CONTENT='{"permission":"allow"}'` so unattended sessions always get an explicit allow config at runtime
+5. **Session titles**: the bootstrap prompt starts with the role name so OpenCode's auto-generated session title stays role-identifiable
 
 ## Instructions and rules
 

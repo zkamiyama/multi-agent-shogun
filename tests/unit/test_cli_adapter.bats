@@ -491,13 +491,37 @@ load_adapter_with() {
 # get_startup_prompt テスト
 # =============================================================================
 
-@test "get_startup_prompt: opencode → Session Start prompt with role instruction file" {
+@test "get_startup_prompt: opencode shogun → role-prefixed Session Start prompt" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     result=$(get_startup_prompt "shogun")
     [ -n "$result" ]
-    [[ "$result" == Session\ Start* ]]
+    [[ "$result" == Shogun\ —\ Session\ Start* ]]
     [[ "$result" == *"queue/tasks/shogun.yaml"* ]]
     [[ "$result" == *"instructions/generated/opencode-shogun.md"* ]]
+}
+
+@test "get_startup_prompt: opencode karo → role-prefixed Session Start prompt" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(get_startup_prompt "karo")
+    [ -n "$result" ]
+    [[ "$result" == Karo\ —\ Session\ Start* ]]
+    [[ "$result" == *"instructions/generated/opencode-karo.md"* ]]
+}
+
+@test "get_startup_prompt: opencode gunshi → role-prefixed Session Start prompt" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(get_startup_prompt "gunshi")
+    [ -n "$result" ]
+    [[ "$result" == Gunshi\ —\ Session\ Start* ]]
+    [[ "$result" == *"instructions/generated/opencode-gunshi.md"* ]]
+}
+
+@test "get_startup_prompt: opencode ashigaru1 → role-prefixed Session Start prompt" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(get_startup_prompt "ashigaru1")
+    [ -n "$result" ]
+    [[ "$result" == Ashigaru1\ —\ Session\ Start* ]]
+    [[ "$result" == *"instructions/generated/opencode-ashigaru.md"* ]]
 }
 
 # =============================================================================

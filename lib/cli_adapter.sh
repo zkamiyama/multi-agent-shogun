@@ -414,7 +414,8 @@ get_model_display_name() {
 # CLIが初回起動時に自動実行すべき初期プロンプトを返す
 # Codex CLI: [PROMPT]引数として渡す（サジェストUI停止問題の根本対策）
 # Claude Code: 空（CLAUDE.md自動読込でSession Start手順が起動）
-# OpenCode: role-specific instruction file を読み込む bootstrap prompt を launch時に --prompt で渡す。
+# OpenCode: role-prefixed bootstrap prompt を launch時に --prompt で渡し、
+#           first message 由来の自動セッションタイトルにロール名を残す。
 # Copilot/Kimi: 空（今後対応）
 get_startup_prompt() {
     local agent_id="$1"
@@ -426,9 +427,21 @@ get_startup_prompt() {
             echo "Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message -t \"\$TMUX_PANE\" -p '#{@agent_id}' to identify yourself. 2) Read queue/tasks/${agent_id}.yaml. 3) Read queue/inbox/${agent_id}.yaml, mark read:true. 4) Read files listed in context_files. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until the task is done."
             ;;
         opencode)
+            local role_title_seed
             local role_instruction_file
+            local startup_prompt
+
+            case "$agent_id" in
+                shogun)    role_title_seed="Shogun" ;;
+                karo)      role_title_seed="Karo" ;;
+                gunshi)    role_title_seed="Gunshi" ;;
+                ashigaru*) role_title_seed="Ashigaru${agent_id#ashigaru}" ;;
+                *)         role_title_seed="$agent_id" ;;
+            esac
+
             role_instruction_file=$(get_instruction_file "$agent_id" "opencode")
-            echo "Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message -t \"\$TMUX_PANE\" -p '#{@agent_id}' to identify yourself. 2) Read queue/tasks/${agent_id}.yaml. 3) Read queue/inbox/${agent_id}.yaml, mark read:true. 4) Read ${role_instruction_file}. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until the task is done."
+            startup_prompt="${role_title_seed} — Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message -t \"\$TMUX_PANE\" -p '#{@agent_id}' to identify yourself. 2) Read queue/tasks/${agent_id}.yaml. 3) Read queue/inbox/${agent_id}.yaml, mark read:true. 4) Read ${role_instruction_file}. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until the task is done."
+            printf '%s\n' "$startup_prompt"
             ;;
         *)
             echo ""
