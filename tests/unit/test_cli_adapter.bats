@@ -125,6 +125,34 @@ YAML
 cli:
   default: kimi
 YAML
+
+    # opencode settings
+    cat > "${TEST_TMP}/settings_opencode.yaml" << 'YAML'
+cli:
+  default: opencode
+  agents:
+    shogun:
+      type: opencode
+      model: openai/gpt-5.4-mini
+    karo:
+      type: opencode
+      model: gpt-5.4
+    gunshi:
+      type: opencode
+      model: anthropic/claude-opus-4-6
+    ashigaru1:
+      type: opencode
+      model: k2.5
+    ashigaru2:
+      type: opencode
+      model: moonshot-k2.5
+    ashigaru3:
+      type: opencode
+      model: claude-sonnet-4-6
+    ashigaru4:
+      type: opencode
+      model: gpt-5.3-codex-spark
+YAML
 }
 
 teardown() {
@@ -211,6 +239,18 @@ load_adapter_with() {
     [ "$result" = "kimi" ]
 }
 
+@test "get_cli_type: opencode設定 shogun → opencode" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(get_cli_type "shogun")
+    [ "$result" = "opencode" ]
+}
+
+@test "get_cli_type: opencode default → opencode" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(get_cli_type "unknown_agent")
+    [ "$result" = "opencode" ]
+}
+
 @test "get_cli_type: 未定義agent → default継承" {
     load_adapter_with "${TEST_TMP}/settings_codex_default.yaml"
     result=$(get_cli_type "ashigaru3")
@@ -288,8 +328,9 @@ load_adapter_with() {
 
 @test "build_cli_command: codex + default model → codex --model sonnet ..." {
     load_adapter_with "${TEST_TMP}/settings_mixed.yaml"
+    expected_prompt_arg=$(get_startup_prompt_arg "ashigaru5")
     result=$(build_cli_command "ashigaru5")
-    [ "$result" = "codex --model sonnet --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen" ]
+    [ "$result" = "codex --model sonnet --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen $expected_prompt_arg" ]
 }
 
 @test "build_cli_command: copilot → copilot --yolo" {
@@ -308,6 +349,36 @@ load_adapter_with() {
     load_adapter_with "${TEST_TMP}/settings_kimi.yaml"
     result=$(build_cli_command "ashigaru4")
     [ "$result" = "kimi --yolo --model k2.5" ]
+}
+
+@test "build_cli_command: opencode explicit provider/model → opencode --model openai/gpt-5.4-mini" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    expected_prompt_arg=$(get_startup_prompt_arg "shogun")
+    result=$(build_cli_command "shogun")
+    [ "$result" = "opencode --model openai/gpt-5.4-mini $expected_prompt_arg" ]
+}
+
+@test "build_cli_command: opencode shorthand gpt-5.4 → provider/model" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    expected_prompt_arg=$(get_startup_prompt_arg "karo")
+    result=$(build_cli_command "karo")
+    [ "$result" = "opencode --model openai/gpt-5.4 $expected_prompt_arg" ]
+}
+
+@test "build_cli_command: opencode shorthand k2.5 → moonshot/kimi-k2.5" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    expected_prompt_arg=$(get_startup_prompt_arg "ashigaru1")
+    result=$(build_cli_command "ashigaru1")
+    [ "$result" = "opencode --model moonshot/kimi-k2.5 $expected_prompt_arg" ]
+}
+
+@test "build_cli_command: opencode deterministic output" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    expected_prompt_arg=$(get_startup_prompt_arg "ashigaru3")
+    first=$(build_cli_command "ashigaru3")
+    second=$(build_cli_command "ashigaru3")
+    [ "$first" = "$second" ]
+    [ "$first" = "opencode --model anthropic/claude-sonnet-4-6 $expected_prompt_arg" ]
 }
 
 @test "build_cli_command: cliセクションなし → claude フォールバック" {
@@ -406,6 +477,44 @@ load_adapter_with() {
     [ "$status" -eq 1 ]
 }
 
+@test "get_instruction_file: opencode + any role → instructions/generated/opencode-shogun.md" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(get_instruction_file "shogun")
+    [ "$result" = "instructions/generated/opencode-shogun.md" ]
+}
+
+# =============================================================================
+# get_startup_prompt テスト
+# =============================================================================
+
+@test "get_startup_prompt: opencode → Session Start prompt with role instruction file" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(get_startup_prompt "shogun")
+    [ -n "$result" ]
+    [[ "$result" == Session\ Start* ]]
+    [[ "$result" == *"queue/tasks/shogun.yaml"* ]]
+    [[ "$result" == *"instructions/generated/opencode-shogun.md"* ]]
+}
+
+# =============================================================================
+# get_startup_prompt_arg テスト
+# =============================================================================
+
+@test "get_startup_prompt_arg: codex → positional prompt" {
+    load_adapter_with "${TEST_TMP}/settings_mixed.yaml"
+    result=$(get_startup_prompt_arg "ashigaru5")
+    [[ "$result" != --prompt* ]]
+    [[ "$result" == *"Session Start"* ]]
+}
+
+@test "get_startup_prompt_arg: opencode → --prompt flag" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(get_startup_prompt_arg "shogun")
+    [[ "$result" == --prompt* ]]
+    [[ "$result" == *"Session Start"* ]]
+    [[ "$result" == *"instructions/generated/opencode-shogun.md"* ]]
+}
+
 # =============================================================================
 # validate_cli_availability テスト
 # =============================================================================
@@ -464,6 +573,15 @@ load_adapter_with() {
     echo '#!/bin/bash' > "${TEST_TMP}/bin/kimi"
     chmod +x "${TEST_TMP}/bin/kimi"
     PATH="${TEST_TMP}/bin:$PATH" run validate_cli_availability "kimi"
+    [ "$status" -eq 0 ]
+}
+
+@test "validate_cli_availability: opencode mock (PATH操作)" {
+    load_adapter_with "${TEST_TMP}/settings_none.yaml"
+    mkdir -p "${TEST_TMP}/bin"
+    echo '#!/bin/bash' > "${TEST_TMP}/bin/opencode"
+    chmod +x "${TEST_TMP}/bin/opencode"
+    PATH="${TEST_TMP}/bin:$PATH" run validate_cli_availability "opencode"
     [ "$status" -eq 0 ]
 }
 

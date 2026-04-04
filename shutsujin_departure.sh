@@ -716,11 +716,6 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
         _karo_cli_type=$(get_cli_type "karo")
         _karo_cmd=$(build_cli_command "karo")
     fi
-    # Codex等の初期プロンプト付加（サジェストUI停止問題対策）
-    _startup_prompt=$(get_startup_prompt "karo" 2>/dev/null)
-    if [[ -n "$_startup_prompt" ]]; then
-        _karo_cmd="$_karo_cmd \"$_startup_prompt\""
-    fi
     tmux set-option -p -t "multiagent:agents.${p}" @agent_cli "$_karo_cli_type"
     tmux send-keys -t "multiagent:agents.${p}" "$_karo_cmd"
     tmux send-keys -t "multiagent:agents.${p}" Enter
@@ -742,11 +737,6 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
                     _ashi_cmd=$(build_cli_command "ashigaru${i}")
                 fi
             fi
-            # Codex等の初期プロンプト付加（サジェストUI停止問題対策）
-            _startup_prompt=$(get_startup_prompt "ashigaru${i}" 2>/dev/null)
-            if [[ -n "$_startup_prompt" ]]; then
-                _ashi_cmd="$_ashi_cmd \"$_startup_prompt\""
-            fi
             tmux set-option -p -t "multiagent:agents.${p}" @agent_cli "$_ashi_cli_type"
             tmux send-keys -t "multiagent:agents.${p}" "$_ashi_cmd"
             tmux send-keys -t "multiagent:agents.${p}" Enter
@@ -762,11 +752,6 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
                 _ashi_cli_type=$(get_cli_type "ashigaru${i}")
                 _ashi_cmd=$(build_cli_command "ashigaru${i}")
             fi
-            # Codex等の初期プロンプト付加（サジェストUI停止問題対策）
-            _startup_prompt=$(get_startup_prompt "ashigaru${i}" 2>/dev/null)
-            if [[ -n "$_startup_prompt" ]]; then
-                _ashi_cmd="$_ashi_cmd \"$_startup_prompt\""
-            fi
             tmux set-option -p -t "multiagent:agents.${p}" @agent_cli "$_ashi_cli_type"
             tmux send-keys -t "multiagent:agents.${p}" "$_ashi_cmd"
             tmux send-keys -t "multiagent:agents.${p}" Enter
@@ -781,11 +766,6 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
     if [ "$CLI_ADAPTER_LOADED" = true ]; then
         _gunshi_cli_type=$(get_cli_type "gunshi")
         _gunshi_cmd=$(build_cli_command "gunshi")
-    fi
-    # Codex等の初期プロンプト付加（サジェストUI停止問題対策）
-    _startup_prompt=$(get_startup_prompt "gunshi" 2>/dev/null)
-    if [[ -n "$_startup_prompt" ]]; then
-        _gunshi_cmd="$_gunshi_cmd \"$_startup_prompt\""
     fi
     tmux set-option -p -t "multiagent:agents.${p}" @agent_cli "$_gunshi_cli_type"
     tmux send-keys -t "multiagent:agents.${p}" "$_gunshi_cmd"

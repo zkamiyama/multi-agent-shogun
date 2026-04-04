@@ -209,6 +209,9 @@ PYEOF
     run bash "${PROJECT_ROOT}/scripts/switch_cli.sh" --help
     [ "$status" -eq 1 ]
     [[ "$output" == *"Usage"* ]]
+    [[ "$output" == *"opencode"* ]]
+    [[ "$output" == *"bootstrap"* ]]
+    [[ "$output" == *"/new"* ]]
 }
 
 @test "switch_cli.sh -h → usage表示 + exit 1" {
@@ -226,6 +229,11 @@ PYEOF
 @test "switch_cli.sh 不正type → エラー" {
     run bash "${PROJECT_ROOT}/scripts/switch_cli.sh" ashigaru1 --type invalid_cli
     [ "$status" -ne 0 ]
+}
+
+@test "switch_cli validation: opencode type is accepted" {
+    _cli_adapter_is_valid_cli "opencode"
+    [ "$?" -eq 0 ]
 }
 
 # =============================================================================

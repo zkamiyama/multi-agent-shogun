@@ -71,6 +71,9 @@ EOFYAML
         kimi)
             cat "$PARTS_DIR/cli_specific/kimi_tools.md" >> "$output_path"
             ;;
+        opencode)
+            cat "$PARTS_DIR/cli_specific/opencode_tools.md" >> "$output_path"
+            ;;
     esac
 
     echo "  ✅ Created: $output_filename"
@@ -99,6 +102,12 @@ build_instruction_file "kimi" "shogun" "kimi-shogun.md"
 build_instruction_file "kimi" "karo" "kimi-karo.md"
 build_instruction_file "kimi" "ashigaru" "kimi-ashigaru.md"
 build_instruction_file "kimi" "gunshi" "kimi-gunshi.md"
+
+# Build OpenCode instruction files
+build_instruction_file "opencode" "shogun" "opencode-shogun.md"
+build_instruction_file "opencode" "karo" "opencode-karo.md"
+build_instruction_file "opencode" "ashigaru" "opencode-ashigaru.md"
+build_instruction_file "opencode" "gunshi" "opencode-gunshi.md"
 
 # ============================================================
 # AGENTS.md generation (Codex auto-load file)

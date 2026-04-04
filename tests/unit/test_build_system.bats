@@ -4,13 +4,13 @@
 #
 # テスト構成:
 #   - ビルド実行テスト: スクリプト正常終了、ディレクトリ生成
-#   - ファイル生成テスト: claude/codex/copilot各ロールの生成確認
+#   - ファイル生成テスト: claude/codex/copilot/opencode各ロールの生成確認
 #   - 内容検証テスト: 空でないこと、ロール名・CLI固有セクション含有
 #   - AGENTS.md / copilot-instructions.md 生成テスト
 #   - 冪等性テスト: 2回ビルドで差分なし
 #
 # Phase 2+3未実装テストについて:
-#   copilot生成、AGENTS.md、copilot-instructions.md のテストは
+#   copilot/opencode生成、AGENTS.md、copilot-instructions.md のテストは
 #   build_instructions.shが拡張されるまでFAILする（受入基準）。
 #   SKIP は使用しない（SKIP=0ルール遵守）。
 
@@ -72,7 +72,7 @@ setup() {
 }
 
 # =============================================================================
-# ファイル生成テスト — Codex
+# ファイル生成テスト — Codex / OpenCode
 # =============================================================================
 
 @test "codex: codex-shogun.md generated" {
@@ -85,6 +85,22 @@ setup() {
 
 @test "codex: codex-ashigaru.md generated" {
     [ -f "$OUTPUT_DIR/codex-ashigaru.md" ]
+}
+
+@test "opencode: opencode-shogun.md generated [R6]" {
+    [ -f "$OUTPUT_DIR/opencode-shogun.md" ]
+}
+
+@test "opencode: opencode-karo.md generated [R6]" {
+    [ -f "$OUTPUT_DIR/opencode-karo.md" ]
+}
+
+@test "opencode: opencode-ashigaru.md generated [R6]" {
+    [ -f "$OUTPUT_DIR/opencode-ashigaru.md" ]
+}
+
+@test "opencode: opencode-gunshi.md generated [R6]" {
+    [ -f "$OUTPUT_DIR/opencode-gunshi.md" ]
 }
 
 # =============================================================================
@@ -131,6 +147,22 @@ setup() {
     [ -s "$OUTPUT_DIR/codex-ashigaru.md" ]
 }
 
+@test "content: opencode-shogun.md is not empty" {
+    [ -s "$OUTPUT_DIR/opencode-shogun.md" ]
+}
+
+@test "content: opencode-karo.md is not empty" {
+    [ -s "$OUTPUT_DIR/opencode-karo.md" ]
+}
+
+@test "content: opencode-ashigaru.md is not empty" {
+    [ -s "$OUTPUT_DIR/opencode-ashigaru.md" ]
+}
+
+@test "content: opencode-gunshi.md is not empty" {
+    [ -s "$OUTPUT_DIR/opencode-gunshi.md" ]
+}
+
 # =============================================================================
 # 内容検証テスト — ロール名含有
 # =============================================================================
@@ -159,6 +191,22 @@ setup() {
     grep -qi "ashigaru\|足軽" "$OUTPUT_DIR/codex-ashigaru.md"
 }
 
+@test "content: opencode-shogun.md contains shogun role reference" {
+    grep -qi "shogun\|将軍" "$OUTPUT_DIR/opencode-shogun.md"
+}
+
+@test "content: opencode-karo.md contains karo role reference" {
+    grep -qi "karo\|家老" "$OUTPUT_DIR/opencode-karo.md"
+}
+
+@test "content: opencode-ashigaru.md contains ashigaru role reference" {
+    grep -qi "ashigaru\|足軽" "$OUTPUT_DIR/opencode-ashigaru.md"
+}
+
+@test "content: opencode-gunshi.md contains gunshi role reference" {
+    grep -qi "gunshi\|軍師" "$OUTPUT_DIR/opencode-gunshi.md"
+}
+
 # =============================================================================
 # 内容検証テスト — CLI固有セクション
 # =============================================================================
@@ -170,6 +218,10 @@ setup() {
 
 @test "content: codex files contain Codex-specific content" {
     grep -qi "codex\|AGENTS.md\|Codex" "$OUTPUT_DIR/codex-shogun.md"
+}
+
+@test "content: opencode files contain OpenCode-specific content [R6]" {
+    grep -qi "opencode\|OpenCode\|--prompt" "$OUTPUT_DIR/opencode-shogun.md"
 }
 
 @test "content: copilot files contain Copilot-specific content [Phase 2+3]" {
@@ -186,6 +238,26 @@ setup() {
 
 @test "agents: AGENTS.md contains Codex-specific content [Phase 2+3]" {
     [ -f "$PROJECT_ROOT/AGENTS.md" ] && grep -qi "codex\|agent" "$PROJECT_ROOT/AGENTS.md"
+}
+
+# =============================================================================
+# OpenCode instruction generation (R6)
+# =============================================================================
+
+@test "opencode-inst: instructions/generated/opencode-shogun.md generated [R6]" {
+    [ -f "$OUTPUT_DIR/opencode-shogun.md" ]
+}
+
+@test "opencode-inst: instructions/generated/opencode-karo.md generated [R6]" {
+    [ -f "$OUTPUT_DIR/opencode-karo.md" ]
+}
+
+@test "opencode-inst: instructions/generated/opencode-ashigaru.md generated [R6]" {
+    [ -f "$OUTPUT_DIR/opencode-ashigaru.md" ]
+}
+
+@test "opencode-inst: instructions/generated/opencode-gunshi.md generated [R6]" {
+    [ -f "$OUTPUT_DIR/opencode-gunshi.md" ]
 }
 
 # =============================================================================

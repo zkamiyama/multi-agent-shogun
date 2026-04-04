@@ -30,7 +30,7 @@ if [ "${__INBOX_WATCHER_TESTING__:-}" != "1" ]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     AGENT_ID="$1"
     PANE_TARGET="$2"
-    CLI_TYPE="${3:-claude}"  # CLI種別（claude/codex/copilot）。未指定→claude（後方互換）
+    CLI_TYPE="${3:-claude}"  # CLI種別（claude/codex/copilot/kimi/opencode）。未指定→claude（後方互換）
 
     INBOX="$SCRIPT_DIR/queue/inbox/${AGENT_ID}.yaml"
     LOCKFILE="${INBOX}.lock"
@@ -55,7 +55,7 @@ if [ "${__INBOX_WATCHER_TESTING__:-}" != "1" ]; then
         echo "[$(date)] Created initial idle flag for $AGENT_ID (CLI starts idle)" >&2
     fi
 
-    # Source cli_adapter for get_startup_prompt() (Codex needs startup prompt after /new)
+    # Source cli_adapter for get_startup_prompt() (Codex/OpenCode need startup prompt after /new)
     _cli_adapter="${SCRIPT_DIR}/lib/cli_adapter.sh"
     if [ -f "$_cli_adapter" ]; then
         source "$_cli_adapter"
@@ -235,7 +235,7 @@ should_throttle_nudge() {
 
 is_valid_cli_type() {
     case "${1:-}" in
-        claude|codex|copilot|kimi) return 0 ;;
+        claude|codex|copilot|kimi|opencode) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -456,7 +456,7 @@ PY
 # ─── Send CLI command via pty direct write ───
 # For /clear and /model only. These are CLI commands, not conversation messages.
 # CLI_TYPE別分岐: claude→そのまま, codex→/clear対応・/modelスキップ,
-#                  copilot→Ctrl-C+再起動・/modelスキップ
+#                  copilot→Ctrl-C+再起動・/modelスキップ, opencode→OpenCode既定挙動
 # 実行時にtmux paneの @agent_cli を再確認し、ドリフト時はpane値を優先する。
 send_cli_command() {
     local cmd="$1"
@@ -519,6 +519,31 @@ send_cli_command() {
             fi
             if [[ "$cmd" == /model* ]]; then
                 echo "[$(date)] Skipping $cmd (not supported on codex)" >&2
+                return 0
+            fi
+            ;;
+        opencode)
+            # OpenCode: /clear is normalized to /new, /model changes are restart-only.
+            if [[ "$cmd" == "/clear" ]]; then
+                if [ "${NEW_CONTEXT_SENT:-0}" -eq 1 ]; then
+                    echo "[$(date)] [SKIP] OpenCode /new already sent for $AGENT_ID — skipping duplicate clear_command" >&2
+                    return 0
+                fi
+                echo "[$(date)] [SEND-KEYS] OpenCode /clear→/new: starting new conversation for $AGENT_ID" >&2
+                timeout 5 tmux send-keys -t "$PANE_TARGET" "x" 2>/dev/null || true
+                sleep 0.3
+                timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
+                sleep 0.3
+                timeout 5 tmux send-keys -t "$PANE_TARGET" "/new" 2>/dev/null || true
+                sleep 0.3
+                timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+                sleep 3
+                send_codex_startup_prompt
+                NEW_CONTEXT_SENT=1
+                return 0
+            fi
+            if [[ "$cmd" == /model* ]]; then
+                echo "[$(date)] Skipping $cmd (OpenCode model changes are restart-only)" >&2
                 return 0
             fi
             ;;
@@ -598,7 +623,9 @@ send_startup_prompt() {
     if [[ -z "$startup_prompt" ]]; then
         startup_prompt="Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message to identify yourself. 2) Read queue/tasks/${AGENT_ID}.yaml. 3) Read queue/inbox/${AGENT_ID}.yaml, mark read:true. 4) Read context_files. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until done."
     fi
-    echo "[$(date)] [STARTUP] Sending startup prompt to $AGENT_ID: ${startup_prompt:0:80}..." >&2
+    local effective_cli
+    effective_cli=$(get_effective_cli_type)
+    echo "[$(date)] [STARTUP] Sending startup prompt to $AGENT_ID (${effective_cli}): ${startup_prompt:0:80}..." >&2
     # Dismiss suggestion UI, then send startup prompt
     timeout 5 tmux send-keys -t "$PANE_TARGET" "x" 2>/dev/null || true
     sleep 0.3
@@ -614,7 +641,7 @@ send_startup_prompt() {
 # Called when task_assigned is detected in unread messages.
 # Sends the appropriate "new conversation" command per CLI type to clear
 # stale context from the previous task.
-# CLI mapping: claude→/clear, codex→/new, copilot→/clear, kimi→/clear
+# CLI mapping: claude→/clear, codex→/new, opencode→/new, copilot→/clear, kimi→/clear
 send_context_reset() {
     local effective_cli
     effective_cli=$(get_effective_cli_type)
@@ -631,6 +658,7 @@ send_context_reset() {
     local reset_cmd
     case "$effective_cli" in
         codex)    reset_cmd="/new" ;;
+        opencode) reset_cmd="/new" ;;
         claude)   reset_cmd="/clear" ;;
         copilot)  reset_cmd="/clear" ;;
         kimi)     reset_cmd="/clear" ;;
@@ -639,10 +667,10 @@ send_context_reset() {
 
     echo "[$(date)] [CONTEXT-RESET] Sending $reset_cmd before task_assigned for $AGENT_ID ($effective_cli)" >&2
 
-    # Codex: send /new + startup prompt as a single atomic operation.
+    # Codex/OpenCode: send /new + startup prompt as a single atomic operation.
     # When called from clear_command path, NEW_CONTEXT_SENT=1 prevents reaching here.
     # When called for standalone task_assigned, this is the only /new send.
-    if [[ "$effective_cli" == "codex" ]]; then
+    if [[ "$effective_cli" == "codex" || "$effective_cli" == "opencode" ]]; then
         # Dismiss suggestion UI + send /new
         timeout 5 tmux send-keys -t "$PANE_TARGET" "x" 2>/dev/null || true
         sleep 0.3
@@ -688,7 +716,7 @@ send_context_reset() {
 # Check if the agent has an active inotifywait on its inbox.
 # If yes, the agent will self-wake — no nudge needed.
 agent_has_self_watch() {
-    # Codex/Copilot/Kimi CLIs cannot run self-watch. Only Claude Code agents can.
+    # Codex/Copilot/Kimi/OpenCode CLIs cannot run self-watch. Only Claude Code agents can.
     local effective_cli
     effective_cli=$(get_effective_cli_type)
     if [[ "$effective_cli" != "claude" ]]; then
@@ -1061,7 +1089,7 @@ for s in data.get('specials', []):
                     fi
                     echo "[$(date)] $normal_count unread for $AGENT_ID but agent is busy (claude) — Stop hook will deliver" >&2
                 else
-                    # Codex/Copilot/Kimi: No Stop hook. Pause escalation timer while busy.
+                    # Codex/Copilot/Kimi/OpenCode: No Stop hook. Pause escalation timer while busy.
                     FIRST_UNREAD_SEEN=$now
                     echo "[$(date)] $normal_count unread for $AGENT_ID but agent is busy ($busy_cli) — pausing escalation timer" >&2
                 fi

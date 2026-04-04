@@ -151,7 +151,7 @@ show_prompt() {
     fi
     case "$cli_type" in
         claude) echo -e "\n\$ " ;;
-        codex)  echo -e "\n? for shortcuts                100% context left\n\$ " ;;
+        codex|opencode)  echo -e "\n? for shortcuts                100% context left\n\$ " ;;
         *)      echo -e "\n\$ " ;;
     esac
 }
@@ -170,7 +170,7 @@ show_busy() {
     fi
     case "$cli_type" in
         claude) echo "Working on task (${seconds}s • esc to interrupt)" ;;
-        codex)  echo "Thinking about approach (${seconds}s • esc to interrupt)" ;;
+        codex|opencode)  echo "Thinking about approach (${seconds}s • esc to interrupt)" ;;
         *)      echo "Processing... (${seconds}s)" ;;
     esac
 }

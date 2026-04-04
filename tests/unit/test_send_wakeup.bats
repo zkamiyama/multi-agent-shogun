@@ -26,6 +26,8 @@
 #   T-BUSY-004: send_wakeup_with_escape — skips when agent is busy
 #   T-CODEX-001: send_cli_command — codex /clear → /new conversion
 #   T-CODEX-002: send_cli_command — codex /model → skip
+#   T-OPENCODE-001: send_cli_command — opencode /clear → /new conversion
+#   T-OPENCODE-002: send_cli_command — opencode /model → skip
 #   T-CODEX-003: C-u sent when unread=0 and agent is idle
 #   T-CODEX-004: C-u NOT sent when agent is busy
 #   T-CODEX-005: send_cli_command — claude /clear passes through as-is
@@ -54,6 +56,7 @@
 #   T-CRESET-001: send_context_reset — suppresses /clear for karo
 #   T-CRESET-002: send_context_reset — suppresses /clear for gunshi
 #   T-CRESET-003: send_context_reset — sends /clear for ashigaru
+#   T-CRESET-004: send_context_reset — sends /new for opencode
 #   T-COPILOT-001: send_cli_command — copilot /clear → Ctrl-C + restart
 #   T-COPILOT-002: send_cli_command — copilot /model → skip
 
@@ -483,6 +486,34 @@ MOCK
 
     # Stderr indicates skip
     echo "$output" | grep -q "not supported on codex"
+}
+
+# --- T-OPENCODE-001: opencode /clear → /new conversion ---
+
+@test "T-OPENCODE-001: send_cli_command converts /clear to /new for opencode" {
+    run bash -c '
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="opencode"
+        send_cli_command "/clear"
+    '
+    [ "$status" -eq 0 ]
+
+    grep -q "send-keys.*/new" "$MOCK_LOG"
+    ! grep -q "send-keys.*/clear" "$MOCK_LOG"
+}
+
+# --- T-OPENCODE-002: opencode /model → skip with restart-only note ---
+
+@test "T-OPENCODE-002: send_cli_command skips /model for opencode" {
+    run bash -c '
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="opencode"
+        send_cli_command "/model opus"
+    '
+    [ "$status" -eq 0 ]
+
+    ! grep -q "send-keys.*/model" "$MOCK_LOG"
+    echo "$output" | grep -q "restart-only"
 }
 
 # --- T-CODEX-003: C-u sent when unread=0 and agent is idle ---
@@ -1143,4 +1174,19 @@ YAML
 
     # /clear should have been sent via send-keys
     grep -q "send-keys.*/clear" "$MOCK_LOG"
+}
+
+# --- T-CRESET-004: send_context_reset sends /new for opencode ---
+
+@test "T-CRESET-004: send_context_reset sends /new for opencode" {
+    run bash -c '
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="ashigaru3"
+        CLI_TYPE="opencode"
+        send_context_reset
+    '
+    [ "$status" -eq 0 ]
+
+    grep -q "send-keys.*/new" "$MOCK_LOG"
+    ! grep -q "send-keys.*/clear" "$MOCK_LOG"
 }
