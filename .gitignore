@@ -38,6 +38,7 @@
 !instructions/cli_specific/codex_tools.md
 !instructions/cli_specific/copilot_tools.md
 !instructions/cli_specific/kimi_tools.md
+!instructions/cli_specific/opencode_tools.md
 
 # Multi-CLI: Build template parts (roles, common sections)
 !instructions/roles/

@@ -593,21 +593,59 @@ queue/reports/ashigaru{YOUR_NUMBER}_report.yaml  ← Write only this
 
 # OpenCode CLI Tools
 
-This section describes OpenCode-specific launch and session-control behavior.
+This section describes OpenCode-specific tools, rules loading, and session-control behavior.
 
-## Core behavior
+## Overview
 
-- **Launch**: interactive TUI via `opencode --model provider/model --prompt <bootstrap-prompt>`
-- **Instructions**: `AGENTS.md` remains the project auto-load root; the bootstrap prompt points to the role-specific OpenCode instruction file
-- **Context reset**: `/clear` requests are normalized to `/new` for automation
-- **Model switching**: treat as restart-only unless the operator explicitly relaunches with a new model
+OpenCode starts the TUI by default with `opencode`, can run headless work with `opencode run`, and accepts an initial bootstrap message via `--prompt` on both interactive and run flows.
 
-## Operator guidelines
+- **Launch**: `opencode --model provider/model --prompt <bootstrap-prompt>`
+- **Headless mode**: `opencode run [message...]` for non-interactive automation
+- **Model format**: `provider/model` such as `openai/gpt-5.4` or `moonshot/kimi-k2.5`
+- **Stats**: `opencode stats` shows token usage and cost statistics
 
-1. **Bootstrap first**: when a session starts, identify the role, load the role-specific OpenCode instruction file, then read task and inbox state
-2. **Keep prompts deterministic**: the bootstrap prompt must be stable for the same role and agent id
-3. **Do not assume slash-command parity**: OpenCode does not inherit Codex-era command semantics
-4. **Prefer repository files**: use the role-specific instruction file and YAML state as the source of truth
+## Built-in tools
+
+OpenCode provides built-in tools including `bash`, `read`, `edit`, `write`, `grep`, `glob`, `list`, `apply_patch`, `skill`, `todowrite`, `webfetch`, `websearch`, and `question`.
+
+Guidelines:
+
+1. **Read before edit**: inspect relevant files before changing them
+2. **Use focused tools**: prefer `read`/`grep`/`glob` over shelling out for routine inspection
+3. **Use `skill` for reusable workflows**: OpenCode loads `SKILL.md` definitions on demand
+4. **Mind permissions**: OpenCode defaults to permissive tool access unless restricted by `permission`
+
+## Instructions and rules
+
+OpenCode reads project instructions from `AGENTS.md` and supports Claude-compatible fallbacks such as `CLAUDE.md` when `AGENTS.md` is absent. Additional instruction files can be layered via the `instructions` field in `opencode.json`.
+
+For this repository:
+
+1. `AGENTS.md` remains the auto-load root rule file
+2. The launch bootstrap prompt must point the agent to the generated role-specific OpenCode instruction file
+3. The role-specific generated file is the source of truth for CLI-specific operating details
+
+## Session control
+
+OpenCode TUI supports `/new` (alias `/clear`) to start a new session, `/compact` to summarize context, `/sessions` to switch/resume sessions, and `/models` to inspect available models.
+
+Operational rules for this repository:
+
+1. **Bootstrap first**: at session start, identify the role, then read task/inbox state and the generated OpenCode role file
+2. **Deterministic startup prompt**: startup prompt text must stay stable per role so automation stays reliable
+3. **Context reset**: automation should send `/new`
+4. **Model changes**: treat model changes as relaunch-only in tmux automation even though OpenCode can inspect models interactively
+
+## Config, providers, and permissions
+
+OpenCode merges config from remote defaults, `~/.config/opencode/opencode.json`, project `opencode.json`, `.opencode/` directories, and environment overrides. Providers and models are configured with `provider/model` IDs, and permissions are controlled through the `permission` config.
+
+Key points:
+
+- `permission` controls whether tools are `allow`, `ask`, or `deny`
+- `websearch` is available when using the OpenCode provider or when `OPENCODE_ENABLE_EXA` is enabled
+- MCP servers are configured in `opencode.json` and become normal tools once enabled
+- Skills are discovered from `.opencode/skills/`, `.claude/skills/`, and compatible global paths
 
 ## Session control notes
 
@@ -616,4 +654,5 @@ This section describes OpenCode-specific launch and session-control behavior.
 | New task | Start with `--prompt` bootstrap text |
 | Context reset | Use `/new` |
 | Model change | Restart with a new `opencode --model ...` launch |
-| Instruction loading | Read the generated role-specific OpenCode instruction file |
+| Instruction loading | Read `AGENTS.md`, then the generated role-specific OpenCode instruction file |
+| Usage review | `opencode stats` for token and cost statistics |
