@@ -599,7 +599,7 @@ This section describes OpenCode-specific tools, rules loading, and session-contr
 
 OpenCode starts the TUI by default with `opencode`, can run headless work with `opencode run`, and accepts an initial bootstrap message via `--prompt` on both interactive and run flows.
 
-- **Launch**: `opencode --model provider/model --prompt <bootstrap-prompt>`
+- **Launch**: `OPENCODE_PERMISSION=allow opencode --model provider/model --prompt <bootstrap-prompt>`
 - **Headless mode**: `opencode run [message...]` for non-interactive automation
 - **Model format**: `provider/model` such as `openai/gpt-5.4` or `moonshot/kimi-k2.5`
 - **Stats**: `opencode stats` shows token usage and cost statistics
@@ -613,7 +613,7 @@ Guidelines:
 1. **Read before edit**: inspect relevant files before changing them
 2. **Use focused tools**: prefer `read`/`grep`/`glob` over shelling out for routine inspection
 3. **Use `skill` for reusable workflows**: OpenCode loads `SKILL.md` definitions on demand
-4. **Mind permissions**: OpenCode defaults to permissive tool access unless restricted by `permission`
+4. **Permissions in this repo**: OpenCode defaults to permissive access, and this repository launches agents with `OPENCODE_PERMISSION=allow` so unattended sessions do not stop on `ask` prompts
 
 ## Instructions and rules
 
@@ -643,6 +643,7 @@ OpenCode merges config from remote defaults, `~/.config/opencode/opencode.json`,
 Key points:
 
 - `permission` controls whether tools are `allow`, `ask`, or `deny`
+- `OPENCODE_PERMISSION` can inline the permission config for a launched session; this repository uses `OPENCODE_PERMISSION=allow` for unattended automation
 - `websearch` is available when using the OpenCode provider or when `OPENCODE_ENABLE_EXA` is enabled
 - MCP servers are configured in `opencode.json` and become normal tools once enabled
 - Skills are discovered from `.opencode/skills/`, `.claude/skills/`, and compatible global paths

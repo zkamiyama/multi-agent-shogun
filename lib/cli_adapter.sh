@@ -213,6 +213,7 @@ build_cli_command() {
             if [[ -n "$normalized_model" ]]; then
                 cmd="$cmd --model $normalized_model"
             fi
+            cmd="OPENCODE_PERMISSION=allow $cmd"
             ;;
         copilot)
             cmd="copilot --yolo"

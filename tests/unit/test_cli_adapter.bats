@@ -351,25 +351,25 @@ load_adapter_with() {
     [ "$result" = "kimi --yolo --model k2.5" ]
 }
 
-@test "build_cli_command: opencode explicit provider/model → opencode --model openai/gpt-5.4-mini" {
+@test "build_cli_command: opencode explicit provider/model → OPENCODE_PERMISSION=allow opencode --model openai/gpt-5.4-mini" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     expected_prompt_arg=$(get_startup_prompt_arg "shogun")
     result=$(build_cli_command "shogun")
-    [ "$result" = "opencode --model openai/gpt-5.4-mini $expected_prompt_arg" ]
+    [ "$result" = "OPENCODE_PERMISSION=allow opencode --model openai/gpt-5.4-mini $expected_prompt_arg" ]
 }
 
-@test "build_cli_command: opencode shorthand gpt-5.4 → provider/model" {
+@test "build_cli_command: opencode shorthand gpt-5.4 → OPENCODE_PERMISSION=allow + provider/model" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     expected_prompt_arg=$(get_startup_prompt_arg "karo")
     result=$(build_cli_command "karo")
-    [ "$result" = "opencode --model openai/gpt-5.4 $expected_prompt_arg" ]
+    [ "$result" = "OPENCODE_PERMISSION=allow opencode --model openai/gpt-5.4 $expected_prompt_arg" ]
 }
 
-@test "build_cli_command: opencode shorthand k2.5 → moonshot/kimi-k2.5" {
+@test "build_cli_command: opencode shorthand k2.5 → OPENCODE_PERMISSION=allow + moonshot/kimi-k2.5" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     expected_prompt_arg=$(get_startup_prompt_arg "ashigaru1")
     result=$(build_cli_command "ashigaru1")
-    [ "$result" = "opencode --model moonshot/kimi-k2.5 $expected_prompt_arg" ]
+    [ "$result" = "OPENCODE_PERMISSION=allow opencode --model moonshot/kimi-k2.5 $expected_prompt_arg" ]
 }
 
 @test "build_cli_command: opencode deterministic output" {
@@ -378,7 +378,7 @@ load_adapter_with() {
     first=$(build_cli_command "ashigaru3")
     second=$(build_cli_command "ashigaru3")
     [ "$first" = "$second" ]
-    [ "$first" = "opencode --model anthropic/claude-sonnet-4-6 $expected_prompt_arg" ]
+    [ "$first" = "OPENCODE_PERMISSION=allow opencode --model anthropic/claude-sonnet-4-6 $expected_prompt_arg" ]
 }
 
 @test "build_cli_command: cliセクションなし → claude フォールバック" {
