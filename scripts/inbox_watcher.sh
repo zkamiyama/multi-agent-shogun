@@ -485,7 +485,13 @@ send_cli_command() {
     # Busy guard: never send /clear when agent is actively processing.
     # clear_command inbox processor also checks busy, but this is a defense-in-depth guard.
     # Sending /clear during Working destroys in-progress context and causes data loss.
-    if [[ "$cmd" == "/clear" ]] && agent_is_busy; then
+    # OpenCode startup can leave capture-pane blank before the first frame renders,
+    # so only apply this guard after we can actually observe pane text.
+    local pane_snapshot=""
+    if [[ "$cmd" == "/clear" ]]; then
+        pane_snapshot=$(timeout 2 tmux capture-pane -t "$PANE_TARGET" -p 2>/dev/null || true)
+    fi
+    if [[ "$cmd" == "/clear" ]] && ! [[ "$effective_cli" == "opencode" && -z "${pane_snapshot//[[:space:]]/}" ]] && agent_is_busy; then
         echo "[$(date)] [SKIP] Agent is busy — /clear deferred to next cycle (agent=$AGENT_ID)" >&2
         return 0
     fi
@@ -761,7 +767,7 @@ agent_is_busy() {
         [ ! -f "${IDLE_FLAG_DIR:-/tmp}/shogun_idle_${AGENT_ID}" ]
     else
         # 従来のpane解析（Codex等フォールバック）
-        agent_is_busy_check "$PANE_TARGET"
+        agent_is_busy_check "$PANE_TARGET" "$effective_cli"
     fi
 }
 

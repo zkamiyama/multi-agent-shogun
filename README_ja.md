@@ -1750,7 +1750,7 @@ mcp__memory__read_graph()  ← 動作！
 <details>
 <summary><b>エージェントが権限を求めてくる？</b></summary>
 
-CLI ごとの無人実行向け権限回避付きで起動していることを確認：Claude は `--dangerously-skip-permissions`、OpenCode は `OPENCODE_PERMISSION=allow`。
+CLI ごとの無人実行向け権限回避付きで起動していることを確認：Claude は `--dangerously-skip-permissions`、OpenCode は `OPENCODE_CONFIG_CONTENT='{"permission":"allow"}'`。
 
 ```bash
 claude --dangerously-skip-permissions --system-prompt "..."

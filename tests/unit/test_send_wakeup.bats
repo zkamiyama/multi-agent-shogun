@@ -50,6 +50,8 @@
 #   T-BUSY-009: agent_is_busy — 'background terminal running' detected as busy
 #   T-BUSY-010: agent_is_busy — 'Compacting conversation' detected as busy
 #   T-BUSY-011: agent_is_busy — 'esc to interrupt' alone detected as busy
+#   T-BUSY-012: agent_is_busy — OpenCode idle home screen detected as idle
+#   T-BUSY-013: agent_is_busy — OpenCode sidebar busy state detected as busy
 #   T-SHOOK-001: Claude Code throttle uses 60s cooldown (stop-hook-supplementary)
 #   T-SHOOK-002: Claude Code count change bypasses throttle (stop-hook-supplementary)
 #   T-SHOOK-003: Non-Claude CLIs still bypass throttle on count change
@@ -492,6 +494,7 @@ MOCK
 
 @test "T-OPENCODE-001: send_cli_command converts /clear to /new for opencode" {
     run bash -c '
+        MOCK_PANE_CLI="opencode"
         source "'"$TEST_HARNESS"'"
         CLI_TYPE="opencode"
         send_cli_command "/clear"
@@ -1003,6 +1006,34 @@ YAML
         source "'"$TEST_HARNESS"'"
         LAST_CLEAR_TS=0
         CLI_TYPE="codex"  # pane-based detection (non-claude fallback)
+        agent_is_busy
+    '
+    [ "$status" -eq 0 ]
+}
+
+# --- T-BUSY-012: OpenCode idle home screen detected as idle ---
+
+@test "T-BUSY-012: agent_is_busy detects OpenCode home screen as idle" {
+    run bash -c '
+        MOCK_CAPTURE_PANE="$(printf "  ┃\n  ┃  Ask anything...\n  ┃\n\n                                                   ctrl+p commands\n")"
+        MOCK_PANE_CLI="opencode"
+        source "'"$TEST_HARNESS"'"
+        LAST_CLEAR_TS=0
+        CLI_TYPE="opencode"
+        agent_is_busy
+    '
+    [ "$status" -eq 1 ]
+}
+
+# --- T-BUSY-013: OpenCode busy sidebar detected as busy ---
+
+@test "T-BUSY-013: agent_is_busy detects OpenCode busy sidebar as busy" {
+    run bash -c '
+        MOCK_CAPTURE_PANE="$(printf "  ┃  think something deeper\n     → Skill \"requirements-clarification\"\n\n   ■⬝⬝⬝⬝⬝⬝⬝  esc interrupt\n")"
+        MOCK_PANE_CLI="opencode"
+        source "'"$TEST_HARNESS"'"
+        LAST_CLEAR_TS=0
+        CLI_TYPE="opencode"
         agent_is_busy
     '
     [ "$status" -eq 0 ]

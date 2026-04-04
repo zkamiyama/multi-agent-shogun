@@ -101,8 +101,8 @@ assert_success() {
     run grep "CONTEXT-RESET.*Sending /new" "$log_file"
     assert_success
 
-    # 9. Verify the OpenCode mock banner appeared in the pane output
-    run wait_for_pane_text "$ashigaru1_pane" "OpenCode CLI \(mock\)" 10
+    # 9. Verify the OpenCode-style mock prompt appeared in the pane output
+    run wait_for_pane_text "$ashigaru1_pane" "Ask anything" 10
     if [ "$status" -ne 0 ]; then
         dump_watcher_log "$log_file"
     fi

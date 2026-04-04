@@ -208,12 +208,14 @@ build_cli_command() {
             ;;
         opencode)
             local normalized_model
+            local permission_config
             normalized_model=$(normalize_opencode_model "$model")
+            permission_config=$(_cli_adapter_shell_quote '{"permission":"allow"}')
             cmd="opencode"
             if [[ -n "$normalized_model" ]]; then
                 cmd="$cmd --model $normalized_model"
             fi
-            cmd="OPENCODE_PERMISSION=allow $cmd"
+            cmd="OPENCODE_CONFIG_CONTENT=$permission_config $cmd"
             ;;
         copilot)
             cmd="copilot --yolo"

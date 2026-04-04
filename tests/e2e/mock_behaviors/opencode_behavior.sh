@@ -4,9 +4,14 @@
 
 # OpenCode CLI startup banner
 opencode_startup_banner() {
-    echo "╭────────────────────────────────────────╮"
-    echo "│      OpenCode CLI (mock)               │"
-    echo "│        ? for shortcuts                 │"
-    echo "╰────────────────────────────────────────╯"
-    echo "                                    100% context left"
+    echo "                                                      ▄"
+    echo "                     █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█"
+    echo "                     █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀"
+    echo "                     ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀"
+    echo ""
+    echo "   ┃"
+    echo "   ┃  Ask anything..."
+    echo "   ┃"
+    echo ""
+    echo "                                                   ctrl+p commands"
 }

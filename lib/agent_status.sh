@@ -10,16 +10,18 @@
 #   agent_is_busy_check "multiagent:agents.0"
 #   state=$(get_pane_state_label "multiagent:agents.3")
 
-# agent_is_busy_check <pane_target>
-# tmux paneの末尾5行からCLI固有のidle/busyパターンを検出する。
+# agent_is_busy_check <pane_target> [cli_type]
+# tmux paneのテキストからCLI固有のidle/busyパターンを検出する。
 # Returns: 0=busy, 1=idle, 2=pane不在
 #
 # Detection strategy:
-#   1. Status bar check (last non-empty line): 'esc to' only appears in
+#   1. OpenCode special-case: blank pane = not ready yet, bottom status line with
+#      'interrupt' = busy, otherwise treat rendered pane as idle-ready.
+#   2. Status bar check (last non-empty line): 'esc to' only appears in
 #      Claude Code's status bar during active processing. This is the most
 #      reliable busy signal — immune to old spinner text in scroll-back.
-#   2. Idle checks: CLI-specific idle prompts (❯, Codex ? prompt)
-#   3. Text-based busy markers: spinner keywords in bottom 5 lines
+#   3. Idle checks: CLI-specific idle prompts (❯, Codex ? prompt)
+#   4. Text-based busy markers: spinner keywords in bottom 5 lines
 #
 # Why this order matters:
 #   - Claude Code shows ❯ prompt even during thinking/working, so idle
@@ -30,6 +32,7 @@
 #     'esc to' — the status bar is always at the bottom.
 agent_is_busy_check() {
     local pane_target="$1"
+    local cli_type="${2:-}"
     local pane_tail
 
     # Pane existence check — independent of capture-pane result.
@@ -44,11 +47,31 @@ agent_is_busy_check() {
     # Piping directly to `tail -5` captures those blank lines → empty result.
     # Fix: store in a variable first so command-substitution strips trailing newlines,
     # then pipe to tail.
+    if [[ -z "$cli_type" ]]; then
+        cli_type=$(timeout 2 tmux show-options -v -p -t "$pane_target" @agent_cli 2>/dev/null || true)
+    fi
+
     local full_capture
     full_capture=$(timeout 2 tmux capture-pane -t "$pane_target" -p 2>/dev/null)
-    # Only check the bottom 5 lines. Old busy markers linger in scroll-back
-    # and cause false-busy if we scan too many lines.
+    # Only check the bottom 5 lines by default. Old busy markers linger in
+    # scroll-back and cause false-busy if we scan too many lines.
     pane_tail=$(echo "$full_capture" | tail -5)
+
+    # OpenCode uses a different layout from Codex/Claude: `capture-pane -p`
+    # can be blank for a short time while the TUI starts, and once rendered the
+    # most stable signal is the bottom status line's interrupt hint.
+    if [[ "$cli_type" == "opencode" ]]; then
+        local opencode_visible opencode_last_line
+        opencode_visible=$(printf '%s\n' "$full_capture" | grep -v '^[[:space:]]*$' || true)
+        if [[ -z "$opencode_visible" ]]; then
+            return 0  # unrendered / not ready yet
+        fi
+        opencode_last_line=$(printf '%s\n' "$opencode_visible" | tail -1)
+        if echo "$opencode_last_line" | grep -qiE '(^|[[:space:]])esc([[:space:]]+to)?[[:space:]]+interrupt([[:space:]]|$)'; then
+            return 0
+        fi
+        return 1
+    fi
 
     # Pane exists but capture is empty → treat as idle, not absent
     if [[ -z "$pane_tail" ]]; then
