@@ -1024,6 +1024,8 @@ process_unread() {
         # Ensure idle flag exists (fast-path recovery)
         touch "${IDLE_FLAG_DIR:-/tmp}/shogun_idle_${AGENT_ID}" 2>/dev/null || true
         if ! agent_is_busy; then
+            local effective_cli
+            effective_cli=$(get_effective_cli_type)
             # Shogun: only clear input when pane is not active (Lord is away)
             if [ "$AGENT_ID" = "shogun" ] && pane_is_active; then
                 : # Lord may be typing — skip C-u
