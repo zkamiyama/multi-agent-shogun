@@ -136,7 +136,7 @@ Shogun isn't locked to one vendor. The system supports 5 CLI tools, each with un
 | **Kimi Code**      | Free tier available, strong multilingual support                                                                                                                                                                        | Kimi k2                                 |
 | **OpenCode**       | Shared `AGENTS.md` instructions, role-specific bootstrap files, `--prompt` startup prompt, `/new` context reset, restart-only model changes, deterministic interactive TUI launch, provider-qualified `--model` routing | provider/model                          |
 
-OpenCode sessions bootstrap from the role-specific files, prefix the bootstrap prompt with the role name so session titles stay identifiable, and keep automation resets on `/new`; model changes require a relaunch. Automation uses the repository-provided `config/opencode-tui.json` via `OPENCODE_TUI_CONFIG`, which disables `app_exit` and pins `session_interrupt`/`input_clear` to known bindings.
+OpenCode sessions bootstrap from the role-specific files, prefix the bootstrap prompt with an explicit `[Session Title: <Role>'s pane]` tag so session titles stay identifiable, and keep automation resets on `/new`; model changes require a relaunch. Automation uses the repository-provided `config/opencode-tui.json` via `OPENCODE_TUI_CONFIG`, which disables `app_exit` and pins `session_interrupt`/`input_clear` to known bindings. The repo also pins `OPENCODE_CONFIG_CONTENT` so direct writes to `queue/` and instruction auto-load files stay blocked.
 
 A unified instruction build system generates CLI-specific instruction files from shared templates:
 

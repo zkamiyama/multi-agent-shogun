@@ -52,6 +52,7 @@
 #   T-BUSY-011: agent_is_busy — 'esc to interrupt' alone detected as busy
 #   T-BUSY-012: agent_is_busy — OpenCode idle home screen detected as idle
 #   T-BUSY-013: agent_is_busy — OpenCode sidebar busy state detected as busy
+#   T-BUSY-014: agent_is_busy — OpenCode animation row detected as busy
 #   T-SHOOK-001: Claude Code throttle uses 60s cooldown (stop-hook-supplementary)
 #   T-SHOOK-002: Claude Code count change bypasses throttle (stop-hook-supplementary)
 #   T-SHOOK-003: Non-Claude CLIs still bypass throttle on count change
@@ -1083,6 +1084,20 @@ YAML
 @test "T-BUSY-013: agent_is_busy detects OpenCode busy sidebar as busy" {
     run bash -c '
         MOCK_CAPTURE_PANE="$(printf "  ┃  think something deeper\n     → Skill \"requirements-clarification\"\n\n   ■⬝⬝⬝⬝⬝⬝⬝  esc interrupt\n")"
+        MOCK_PANE_CLI="opencode"
+        source "'"$TEST_HARNESS"'"
+        LAST_CLEAR_TS=0
+        CLI_TYPE="opencode"
+        agent_is_busy
+    '
+    [ "$status" -eq 0 ]
+}
+
+# --- T-BUSY-014: OpenCode busy animation row detected as busy ---
+
+@test "T-BUSY-014: agent_is_busy detects OpenCode busy animation row as busy" {
+    run bash -c '
+        MOCK_CAPTURE_PANE="$(printf "   ■⬝⬝⬝⬝⬝⬝⬝\n")"
         MOCK_PANE_CLI="opencode"
         source "'"$TEST_HARNESS"'"
         LAST_CLEAR_TS=0

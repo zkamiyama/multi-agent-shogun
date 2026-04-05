@@ -1750,7 +1750,7 @@ mcp__memory__read_graph()  ← 動作！
 <details>
 <summary><b>エージェントが権限を求めてくる？</b></summary>
 
-CLI ごとの無人実行向け権限回避付きで起動していることを確認：Claude は `--dangerously-skip-permissions`、OpenCode は `OPENCODE_CONFIG_CONTENT='{"permission":"allow"}'`。OpenCode はロール名を先頭に入れた起動プロンプトで、セッション名がロールごとに識別しやすくなるようにしている。OpenCode への自動キー操作は `config/opencode-tui.json` を `OPENCODE_TUI_CONFIG` で読み込み、`app_exit` を無効化して `session_interrupt` と `input_clear` を固定している。
+CLI ごとの無人実行向け権限回避付きで起動していることを確認：Claude は `--dangerously-skip-permissions`、OpenCode は repo 固定の `OPENCODE_CONFIG_CONTENT` を使って通常の tool use は許可しつつ、`queue/`・自動読込インストラクションへの直接書き込みは拒否する。OpenCode は `[Session Title: <Role>'s pane]` を先頭に入れた起動プロンプトで、セッション名がロールごとに識別しやすくなるようにしている。OpenCode への自動キー操作は `config/opencode-tui.json` を `OPENCODE_TUI_CONFIG` で読み込み、`app_exit` を無効化して `session_interrupt` と `input_clear` を固定している。
 
 ```bash
 claude --dangerously-skip-permissions --system-prompt "..."

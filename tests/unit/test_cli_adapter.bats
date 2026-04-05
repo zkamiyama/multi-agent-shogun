@@ -356,7 +356,7 @@ load_adapter_with() {
     expected_prompt_arg=$(get_startup_prompt_arg "shogun")
     result=$(build_cli_command "shogun")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
-    expected_prefix=$(_cli_adapter_shell_quote '{"permission":"allow"}')
+    expected_prefix=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/**":"deny","AGENTS.md":"deny",".github/copilot-instructions.md":"deny","agents/default/**":"deny","instructions/generated/**":"deny"}}}')
     [ "$result" = "OPENCODE_TUI_CONFIG=$expected_tui_config OPENCODE_CONFIG_CONTENT=$expected_prefix opencode --model openai/gpt-5.4-mini $expected_prompt_arg" ]
 }
 
@@ -365,7 +365,7 @@ load_adapter_with() {
     expected_prompt_arg=$(get_startup_prompt_arg "karo")
     result=$(build_cli_command "karo")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
-    expected_prefix=$(_cli_adapter_shell_quote '{"permission":"allow"}')
+    expected_prefix=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/**":"deny","AGENTS.md":"deny",".github/copilot-instructions.md":"deny","agents/default/**":"deny","instructions/generated/**":"deny"}}}')
     [ "$result" = "OPENCODE_TUI_CONFIG=$expected_tui_config OPENCODE_CONFIG_CONTENT=$expected_prefix opencode --model openai/gpt-5.4 $expected_prompt_arg" ]
 }
 
@@ -374,7 +374,7 @@ load_adapter_with() {
     expected_prompt_arg=$(get_startup_prompt_arg "ashigaru1")
     result=$(build_cli_command "ashigaru1")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
-    expected_prefix=$(_cli_adapter_shell_quote '{"permission":"allow"}')
+    expected_prefix=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/**":"deny","AGENTS.md":"deny",".github/copilot-instructions.md":"deny","agents/default/**":"deny","instructions/generated/**":"deny"}}}')
     [ "$result" = "OPENCODE_TUI_CONFIG=$expected_tui_config OPENCODE_CONFIG_CONTENT=$expected_prefix opencode --model moonshot/kimi-k2.5 $expected_prompt_arg" ]
 }
 
@@ -384,7 +384,7 @@ load_adapter_with() {
     first=$(build_cli_command "ashigaru3")
     second=$(build_cli_command "ashigaru3")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
-    expected_prefix=$(_cli_adapter_shell_quote '{"permission":"allow"}')
+    expected_prefix=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/**":"deny","AGENTS.md":"deny",".github/copilot-instructions.md":"deny","agents/default/**":"deny","instructions/generated/**":"deny"}}}')
     [ "$first" = "$second" ]
     [ "$first" = "OPENCODE_TUI_CONFIG=$expected_tui_config OPENCODE_CONFIG_CONTENT=$expected_prefix opencode --model anthropic/claude-sonnet-4-6 $expected_prompt_arg" ]
 }
@@ -505,7 +505,7 @@ load_adapter_with() {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     result=$(get_startup_prompt "shogun")
     [ -n "$result" ]
-    [[ "$result" == Shogun\ —\ Session\ Start* ]]
+    [[ "$result" == "[Session Title: Shogun's pane] Shogun — Session Start"* ]]
     [[ "$result" == *"queue/tasks/shogun.yaml"* ]]
     [[ "$result" == *"instructions/generated/opencode-shogun.md"* ]]
 }
@@ -514,7 +514,7 @@ load_adapter_with() {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     result=$(get_startup_prompt "karo")
     [ -n "$result" ]
-    [[ "$result" == Karo\ —\ Session\ Start* ]]
+    [[ "$result" == "[Session Title: Karo's pane] Karo — Session Start"* ]]
     [[ "$result" == *"instructions/generated/opencode-karo.md"* ]]
 }
 
@@ -522,7 +522,7 @@ load_adapter_with() {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     result=$(get_startup_prompt "gunshi")
     [ -n "$result" ]
-    [[ "$result" == Gunshi\ —\ Session\ Start* ]]
+    [[ "$result" == "[Session Title: Gunshi's pane] Gunshi — Session Start"* ]]
     [[ "$result" == *"instructions/generated/opencode-gunshi.md"* ]]
 }
 
@@ -530,7 +530,7 @@ load_adapter_with() {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     result=$(get_startup_prompt "ashigaru1")
     [ -n "$result" ]
-    [[ "$result" == Ashigaru1\ —\ Session\ Start* ]]
+    [[ "$result" == "[Session Title: Ashigaru1's pane] Ashigaru1 — Session Start"* ]]
     [[ "$result" == *"instructions/generated/opencode-ashigaru.md"* ]]
 }
 

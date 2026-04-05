@@ -212,7 +212,7 @@ build_cli_command() {
             local permission_config
             normalized_model=$(normalize_opencode_model "$model")
             tui_config_path=$(_cli_adapter_shell_quote "$CLI_ADAPTER_PROJECT_ROOT/config/opencode-tui.json")
-            permission_config=$(_cli_adapter_shell_quote '{"permission":"allow"}')
+            permission_config=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/**":"deny","AGENTS.md":"deny",".github/copilot-instructions.md":"deny","agents/default/**":"deny","instructions/generated/**":"deny"}}}')
             cmd="opencode"
             if [[ -n "$normalized_model" ]]; then
                 cmd="$cmd --model $normalized_model"
@@ -444,7 +444,7 @@ get_startup_prompt() {
             esac
 
             role_instruction_file=$(get_instruction_file "$agent_id" "opencode")
-            startup_prompt="${role_title_seed} — Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message -t \"\$TMUX_PANE\" -p '#{@agent_id}' to identify yourself. 2) Read queue/tasks/${agent_id}.yaml. 3) Read queue/inbox/${agent_id}.yaml, mark read:true. 4) Read ${role_instruction_file}. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until the task is done."
+            startup_prompt="[Session Title: ${role_title_seed}'s pane] ${role_title_seed} — Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message -t \"\$TMUX_PANE\" -p '#{@agent_id}' to identify yourself. 2) Read queue/tasks/${agent_id}.yaml. 3) Read queue/inbox/${agent_id}.yaml, mark read:true. 4) Read ${role_instruction_file}. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until the task is done."
             printf '%s\n' "$startup_prompt"
             ;;
         *)

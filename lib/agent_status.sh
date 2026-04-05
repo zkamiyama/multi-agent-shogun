@@ -15,8 +15,8 @@
 # Returns: 0=busy, 1=idle, 2=pane不在
 #
 # Detection strategy:
-#   1. OpenCode special-case: blank pane = not ready yet, bottom status line with
-#      'interrupt' = busy, otherwise treat rendered pane as idle-ready.
+#   1. OpenCode special-case: animated status row (`[■⬝]{8}`) = busy; if that
+#      row is absent, fall back to the bottom status line's interrupt hint.
 #   2. Status bar check (last non-empty line): 'esc to' only appears in
 #      Claude Code's status bar during active processing. This is the most
 #      reliable busy signal — immune to old spinner text in scroll-back.
@@ -58,13 +58,17 @@ agent_is_busy_check() {
     pane_tail=$(echo "$full_capture" | tail -5)
 
     # OpenCode uses a different layout from Codex/Claude: `capture-pane -p`
-    # can be blank for a short time while the TUI starts, and once rendered the
-    # most stable signal is the bottom status line's interrupt hint.
+    # can be blank for a short time while the TUI starts. Once rendered, the
+    # most stable signal is the animated busy row; if that is absent, fall back
+    # to the bottom status line's interrupt hint.
     if [[ "$cli_type" == "opencode" ]]; then
         local opencode_visible opencode_last_line
         opencode_visible=$(printf '%s\n' "$full_capture" | grep -v '^[[:space:]]*$' || true)
         if [[ -z "$opencode_visible" ]]; then
             return 0  # unrendered / not ready yet
+        fi
+        if printf '%s\n' "$opencode_visible" | grep -qE '[■⬝]{8}'; then
+            return 0
         fi
         opencode_last_line=$(printf '%s\n' "$opencode_visible" | tail -1)
         if echo "$opencode_last_line" | grep -qiE '(^|[[:space:]])esc([[:space:]]+to)?[[:space:]]+interrupt([[:space:]]|$)'; then

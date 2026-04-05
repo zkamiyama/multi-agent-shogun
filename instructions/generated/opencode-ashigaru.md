@@ -518,8 +518,8 @@ Guidelines:
 1. **Read before edit**: inspect relevant files before changing them
 2. **Use focused tools**: prefer `read`/`grep`/`glob` over shelling out for routine inspection
 3. **Use `skill` for reusable workflows**: OpenCode loads `SKILL.md` definitions on demand
-4. **Permissions in this repo**: OpenCode defaults to permissive access, and this repository launches agents with `OPENCODE_CONFIG_CONTENT='{"permission":"allow"}'` so unattended sessions always get an explicit allow config at runtime
-5. **Session titles**: the bootstrap prompt starts with the role name so OpenCode's auto-generated session title stays role-identifiable
+4. **Permissions in this repo**: OpenCode launches with a repo-pinned `OPENCODE_CONFIG_CONTENT` that allows normal tool use but denies direct writes to queue/instruction auto-load files; keep those files edited only through the repository scripts
+5. **Session titles**: the bootstrap prompt starts with `[Session Title: <Role>'s pane]` so OpenCode's auto-generated session title stays role-identifiable and unmistakable
 6. **tmux key handling**: use the repository-provided `config/opencode-tui.json` via `OPENCODE_TUI_CONFIG` so tmux automation sees stable keybinds
 7. **Keybind policy**: `app_exit` is disabled in that file, `session_interrupt` is `escape`, and `input_clear` is `ctrl+c`; do not rely on global user keybinds for these actions
 
@@ -551,7 +551,7 @@ OpenCode merges config from remote defaults, `~/.config/opencode/opencode.json`,
 Key points:
 
 - `permission` controls whether tools are `allow`, `ask`, or `deny`
-- `OPENCODE_CONFIG_CONTENT` is the documented runtime override path; this repository uses `OPENCODE_CONFIG_CONTENT='{"permission":"allow"}'` for unattended automation
+- `OPENCODE_CONFIG_CONTENT` is the documented runtime override path; this repository uses it to allow normal tool use while denying direct writes to queue/dashboard/instruction auto-load files
 - `websearch` is available when using the OpenCode provider or when `OPENCODE_ENABLE_EXA` is enabled
 - MCP servers are configured in `opencode.json` and become normal tools once enabled
 - Skills are discovered from `.opencode/skills/`, `.claude/skills/`, and compatible global paths
