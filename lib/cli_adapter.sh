@@ -210,9 +210,15 @@ build_cli_command() {
             local normalized_model
             local tui_config_path
             local permission_config
+            local permission_json
             normalized_model=$(normalize_opencode_model "$model")
             tui_config_path=$(_cli_adapter_shell_quote "$CLI_ADAPTER_PROJECT_ROOT/config/opencode-tui.json")
-            permission_config=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/**":"deny","AGENTS.md":"deny",".github/copilot-instructions.md":"deny","agents/default/**":"deny","instructions/generated/**":"deny"}}}')
+            if [[ "$agent_id" == "shogun" ]]; then
+                permission_json='{"permission":{"*":"allow","edit":{"*":"allow","queue/inbox/*":"deny"},"question":"allow"}}'
+            else
+                permission_json='{"permission":{"*":"allow","edit":{"*":"allow","queue/inbox/*":"deny"},"question":"deny"}}'
+            fi
+            permission_config=$(_cli_adapter_shell_quote "$permission_json")
             cmd="opencode"
             if [[ -n "$normalized_model" ]]; then
                 cmd="$cmd --model $normalized_model"

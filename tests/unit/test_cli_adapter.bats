@@ -351,30 +351,30 @@ load_adapter_with() {
     [ "$result" = "kimi --yolo --model k2.5" ]
 }
 
-@test "build_cli_command: opencode explicit provider/model → pinned tui config + allow config + opencode --model openai/gpt-5.4-mini" {
+@test "build_cli_command: opencode explicit provider/model → pinned tui config + shogun question allow config + opencode --model openai/gpt-5.4-mini" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     expected_prompt_arg=$(get_startup_prompt_arg "shogun")
     result=$(build_cli_command "shogun")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
-    expected_prefix=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/**":"deny","AGENTS.md":"deny",".github/copilot-instructions.md":"deny","agents/default/**":"deny","instructions/generated/**":"deny"}}}')
+    expected_prefix=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/inbox/*":"deny"},"question":"allow"}}')
     [ "$result" = "OPENCODE_TUI_CONFIG=$expected_tui_config OPENCODE_CONFIG_CONTENT=$expected_prefix opencode --model openai/gpt-5.4-mini $expected_prompt_arg" ]
 }
 
-@test "build_cli_command: opencode shorthand gpt-5.4 → pinned tui config + allow config + provider/model" {
+@test "build_cli_command: opencode shorthand gpt-5.4 → pinned tui config + deny question config + provider/model" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     expected_prompt_arg=$(get_startup_prompt_arg "karo")
     result=$(build_cli_command "karo")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
-    expected_prefix=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/**":"deny","AGENTS.md":"deny",".github/copilot-instructions.md":"deny","agents/default/**":"deny","instructions/generated/**":"deny"}}}')
+    expected_prefix=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/inbox/*":"deny"},"question":"deny"}}')
     [ "$result" = "OPENCODE_TUI_CONFIG=$expected_tui_config OPENCODE_CONFIG_CONTENT=$expected_prefix opencode --model openai/gpt-5.4 $expected_prompt_arg" ]
 }
 
-@test "build_cli_command: opencode shorthand k2.5 → pinned tui config + allow config + moonshot/kimi-k2.5" {
+@test "build_cli_command: opencode shorthand k2.5 → pinned tui config + deny question config + moonshot/kimi-k2.5" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     expected_prompt_arg=$(get_startup_prompt_arg "ashigaru1")
     result=$(build_cli_command "ashigaru1")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
-    expected_prefix=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/**":"deny","AGENTS.md":"deny",".github/copilot-instructions.md":"deny","agents/default/**":"deny","instructions/generated/**":"deny"}}}')
+    expected_prefix=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/inbox/*":"deny"},"question":"deny"}}')
     [ "$result" = "OPENCODE_TUI_CONFIG=$expected_tui_config OPENCODE_CONFIG_CONTENT=$expected_prefix opencode --model moonshot/kimi-k2.5 $expected_prompt_arg" ]
 }
 
@@ -384,7 +384,7 @@ load_adapter_with() {
     first=$(build_cli_command "ashigaru3")
     second=$(build_cli_command "ashigaru3")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
-    expected_prefix=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/**":"deny","AGENTS.md":"deny",".github/copilot-instructions.md":"deny","agents/default/**":"deny","instructions/generated/**":"deny"}}}')
+    expected_prefix=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/inbox/*":"deny"},"question":"deny"}}')
     [ "$first" = "$second" ]
     [ "$first" = "OPENCODE_TUI_CONFIG=$expected_tui_config OPENCODE_CONFIG_CONTENT=$expected_prefix opencode --model anthropic/claude-sonnet-4-6 $expected_prompt_arg" ]
 }

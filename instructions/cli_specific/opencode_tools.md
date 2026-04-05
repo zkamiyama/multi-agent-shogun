@@ -20,7 +20,7 @@ Guidelines:
 1. **Read before edit**: inspect relevant files before changing them
 2. **Use focused tools**: prefer `read`/`grep`/`glob` over shelling out for routine inspection
 3. **Use `skill` for reusable workflows**: OpenCode loads `SKILL.md` definitions on demand
-4. **Permissions in this repo**: OpenCode launches with a repo-pinned `OPENCODE_CONFIG_CONTENT` that allows normal tool use but denies direct writes to queue/instruction auto-load files; keep those files edited only through the repository scripts
+4. **Permissions in this repo**: OpenCode launches with a repo-pinned `OPENCODE_CONFIG_CONTENT` that allows normal tool use but denies direct writes to queue/instruction auto-load files; keep those files edited only through the repository scripts. The `question` tool is allowed only for the Shogun role; other roles have it denied so they do not stall on interactive prompts
 5. **Session titles**: the bootstrap prompt starts with `[Session Title: <Role>'s pane]` so OpenCode's auto-generated session title stays role-identifiable and unmistakable
 6. **tmux key handling**: use the repository-provided `config/opencode-tui.json` via `OPENCODE_TUI_CONFIG` so tmux automation sees stable keybinds
 7. **Keybind policy**: `app_exit` is disabled in that file, `session_interrupt` is `escape`, and `input_clear` is `ctrl+c`; do not rely on global user keybinds for these actions

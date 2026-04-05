@@ -1802,7 +1802,7 @@ mcp__memory__read_graph()
 <details>
 <summary><b>Agents asking for permissions?</b></summary>
 
-Agents should start with their CLI's unattended permission bypass. Claude uses `--dangerously-skip-permissions`, and OpenCode uses `OPENCODE_CONFIG_CONTENT='{"permission":"allow"}'`. This is handled automatically by `shutsujin_departure.sh`.
+Agents should start with their CLI's unattended permission bypass. Claude uses `--dangerously-skip-permissions`, and OpenCode uses repo-pinned permissions so the `question` tool is available only to Shogun while other roles keep it disabled. This is handled automatically by `shutsujin_departure.sh`.
 
 </details>
 
