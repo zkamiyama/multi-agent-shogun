@@ -55,6 +55,7 @@ usage() {
     echo "  agent_id   Agent configured in config/settings.yaml (e.g. karo, ashigaru1, gunshi)"
     echo "  --type     claude | codex | copilot | kimi | opencode"
     echo "  --model    claude-sonnet-4-6 | claude-opus-4-6 | gpt-5.3-codex | openai/gpt-5.4-mini | etc."
+    echo "  OpenCode  : role bootstrap uses --prompt, /clear maps to /new, model changes require relaunch"
     echo ""
     echo "If --type/--model omitted, uses current settings.yaml values."
     exit 1

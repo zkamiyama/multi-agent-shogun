@@ -208,14 +208,18 @@ build_cli_command() {
             ;;
         opencode)
             local normalized_model
+            local tui_config_path
             local permission_config
             normalized_model=$(normalize_opencode_model "$model")
+            tui_config_path=$(_cli_adapter_shell_quote "$CLI_ADAPTER_PROJECT_ROOT/config/opencode-tui.json")
             permission_config=$(_cli_adapter_shell_quote '{"permission":"allow"}')
             cmd="opencode"
             if [[ -n "$normalized_model" ]]; then
                 cmd="$cmd --model $normalized_model"
             fi
-            cmd="OPENCODE_CONFIG_CONTENT=$permission_config $cmd"
+            # Use a project-pinned TUI config so tmux automation sees stable keybinds
+            # even when the user has a different global tui.json.
+            cmd="OPENCODE_TUI_CONFIG=$tui_config_path OPENCODE_CONFIG_CONTENT=$permission_config $cmd"
             ;;
         copilot)
             cmd="copilot --yolo"

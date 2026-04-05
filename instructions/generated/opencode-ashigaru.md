@@ -520,6 +520,8 @@ Guidelines:
 3. **Use `skill` for reusable workflows**: OpenCode loads `SKILL.md` definitions on demand
 4. **Permissions in this repo**: OpenCode defaults to permissive access, and this repository launches agents with `OPENCODE_CONFIG_CONTENT='{"permission":"allow"}'` so unattended sessions always get an explicit allow config at runtime
 5. **Session titles**: the bootstrap prompt starts with the role name so OpenCode's auto-generated session title stays role-identifiable
+6. **tmux key handling**: use the repository-provided `config/opencode-tui.json` via `OPENCODE_TUI_CONFIG` so tmux automation sees stable keybinds
+7. **Keybind policy**: `app_exit` is disabled in that file, `session_interrupt` is `escape`, and `input_clear` is `ctrl+c`; do not rely on global user keybinds for these actions
 
 ## Instructions and rules
 

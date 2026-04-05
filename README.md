@@ -136,7 +136,7 @@ Shogun isn't locked to one vendor. The system supports 5 CLI tools, each with un
 | **Kimi Code**      | Free tier available, strong multilingual support                                                                                                                                                                        | Kimi k2                                 |
 | **OpenCode**       | Shared `AGENTS.md` instructions, role-specific bootstrap files, `--prompt` startup prompt, `/new` context reset, restart-only model changes, deterministic interactive TUI launch, provider-qualified `--model` routing | provider/model                          |
 
-OpenCode sessions bootstrap from the role-specific files, prefix the bootstrap prompt with the role name so session titles stay identifiable, and keep automation resets on `/new`; model changes require a relaunch.
+OpenCode sessions bootstrap from the role-specific files, prefix the bootstrap prompt with the role name so session titles stay identifiable, and keep automation resets on `/new`; model changes require a relaunch. Automation uses the repository-provided `config/opencode-tui.json` via `OPENCODE_TUI_CONFIG`, which disables `app_exit` and pins `session_interrupt`/`input_clear` to known bindings.
 
 A unified instruction build system generates CLI-specific instruction files from shared templates:
 
@@ -757,7 +757,7 @@ Or set the default directly in `scripts/inbox_watcher.sh` (`ASW_PHASE` variable)
 | Phase   | Timing  | Action                                                                             |
 | ------- | ------- | ---------------------------------------------------------------------------------- |
 | Phase 1 | 0-2 min | Standard nudge (`inbox3` text + Enter) — _skipped for busy agents in ASW Phase 2+_ |
-| Phase 2 | 2-4 min | Escape×2 + C-c to reset cursor, then nudge                                         |
+| Phase 2 | 2-4 min | Escape×2 + single Ctrl-C when prompt text is visible, then nudge                   |
 | Phase 3 | 4+ min  | Send `/clear` to force session reset (max once per 5 min)                          |
 
 **Key design choices:**

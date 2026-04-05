@@ -762,7 +762,7 @@ asw_phase: 2 # Claude Code環境では推奨
 | フェーズ | タイミング | アクション                                                                               |
 | -------- | ---------- | ---------------------------------------------------------------------------------------- |
 | Phase 1  | 0-2分      | 標準nudge（`inbox3` テキスト + Enter） — _ASW Phase 2以上ではbusyエージェントはスキップ_ |
-| Phase 2  | 2-4分      | Escape×2 + C-c でカーソルリセット、その後nudge                                           |
+| Phase 2  | 2-4分      | Escape×2 + 表示がある時だけ1回の Ctrl-C で入力消去、その後nudge                          |
 | Phase 3  | 4分以上    | `/clear` 送信でセッション強制リセット（5分間に最大1回）                                  |
 
 **設計のポイント:**
@@ -1750,7 +1750,7 @@ mcp__memory__read_graph()  ← 動作！
 <details>
 <summary><b>エージェントが権限を求めてくる？</b></summary>
 
-CLI ごとの無人実行向け権限回避付きで起動していることを確認：Claude は `--dangerously-skip-permissions`、OpenCode は `OPENCODE_CONFIG_CONTENT='{"permission":"allow"}'`。OpenCode はロール名を先頭に入れた起動プロンプトで、セッション名がロールごとに識別しやすくなるようにしている。
+CLI ごとの無人実行向け権限回避付きで起動していることを確認：Claude は `--dangerously-skip-permissions`、OpenCode は `OPENCODE_CONFIG_CONTENT='{"permission":"allow"}'`。OpenCode はロール名を先頭に入れた起動プロンプトで、セッション名がロールごとに識別しやすくなるようにしている。OpenCode への自動キー操作は `config/opencode-tui.json` を `OPENCODE_TUI_CONFIG` で読み込み、`app_exit` を無効化して `session_interrupt` と `input_clear` を固定している。
 
 ```bash
 claude --dangerously-skip-permissions --system-prompt "..."
