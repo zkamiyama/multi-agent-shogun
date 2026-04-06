@@ -16,7 +16,8 @@
 #
 # エスカレーション（未読メッセージが放置されている場合）:
 #   0〜2分: 通常nudge（send-keys）。ただしWorking中はスキップ
-#   2〜4分: Escape×2 + nudge（カーソル位置バグ対策）
+#   2〜4分: Copilot/Kimi は Escape×2 + Ctrl-C + nudge。
+#            Claude/Codex/OpenCode は安全のため通常nudgeへフォールバック
 #   4分〜 : /clear送信（5分に1回まで。強制リセット+YAML再読）
 # ═══════════════════════════════════════════════════════════════
 
@@ -55,7 +56,7 @@ if [ "${__INBOX_WATCHER_TESTING__:-}" != "1" ]; then
         echo "[$(date)] Created initial idle flag for $AGENT_ID (CLI starts idle)" >&2
     fi
 
-    # Source cli_adapter for get_startup_prompt() (Codex/OpenCode need startup prompt after /new)
+    # Source cli_adapter for get_startup_prompt() (Codex uses startup prompt after /new)
     _cli_adapter="${SCRIPT_DIR}/lib/cli_adapter.sh"
     if [ -f "$_cli_adapter" ]; then
         source "$_cli_adapter"
@@ -897,8 +898,8 @@ send_wakeup() {
 }
 
 # ─── Send wake-up nudge with Escape prefix ───
-# Phase 2 escalation: send Escape×2 + a clear-key sequence, then nudge.
-# Addresses the "echo last tool call" cursor position bug and stale input.
+# Phase 2 escalation: Copilot/Kimi get Escape×2 + single Ctrl-C + nudge.
+# Claude/Codex/OpenCode fall back to a plain nudge for safety.
 send_wakeup_with_escape() {
     local unread_count="$1"
     local nudge="inbox${unread_count}"
@@ -928,6 +929,14 @@ send_wakeup_with_escape() {
         return 0
     fi
 
+    # OpenCode: Escape is bound to session_interrupt in the pinned TUI config.
+    # Phase 2 must not interrupt the session; fall back to a plain nudge.
+    if [[ "$effective_cli" == "opencode" ]]; then
+        echo "[$(date)] [SKIP] opencode: suppressing Escape escalation for $AGENT_ID (Escape interrupts the session); sending plain nudge" >&2
+        send_wakeup "$unread_count"
+        return 0
+    fi
+
     if [ "${FINAL_ESCALATION_ONLY:-0}" = "1" ]; then
         echo "[$(date)] [SKIP] FINAL_ESCALATION_ONLY=1, suppressing phase2 nudge for $AGENT_ID" >&2
         return 0
@@ -943,10 +952,14 @@ send_wakeup_with_escape() {
         return 0
     fi
 
-    echo "[$(date)] [SEND-KEYS] ESCALATION Phase 2: Escape×2 + nudge for $AGENT_ID (cli=$effective_cli)" >&2
+    echo "[$(date)] [SEND-KEYS] ESCALATION Phase 2: Escape×2 + recovery nudge for $AGENT_ID (cli=$effective_cli)" >&2
     # Escape×2 to exit any mode.
     timeout 5 tmux send-keys -t "$PANE_TARGET" Escape Escape 2>/dev/null || true
     sleep 0.5
+    if [[ "$effective_cli" == "copilot" || "$effective_cli" == "kimi" ]]; then
+        timeout 5 tmux send-keys -t "$PANE_TARGET" C-c 2>/dev/null || true
+        sleep 0.5
+    fi
     if timeout 5 tmux send-keys -t "$PANE_TARGET" "$nudge" 2>/dev/null; then
         sleep 0.3
         timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true

@@ -1,15 +1,18 @@
 #!/usr/bin/env bats
 # ═══════════════════════════════════════════════════════════════
-# E2E-009: OpenCode CLI startup prompt after /new
+# E2E-009: OpenCode CLI task startup after /new
 # ═══════════════════════════════════════════════════════════════
 # Validates that inbox_watcher correctly handles OpenCode CLI agents:
 #   1. Sends /new for context reset
-#   2. Sends startup prompt after /new to trigger Session Start
-#   3. Agent processes assigned task via startup prompt
-#   4. Watcher log shows the OpenCode-specific bootstrap path
+#   2. Does NOT send a startup prompt because OpenCode loads role via --agent
+#   3. Sends a normal inbox nudge so the agent processes the assigned task
+#   4. Watcher log shows the OpenCode-specific /new path
 # ═══════════════════════════════════════════════════════════════
 
 # bats file_tags=e2e
+
+load "../test_helper/bats-support/load"
+load "../test_helper/bats-assert/load"
 
 # Load E2E helpers
 E2E_HELPERS_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/helpers" && pwd)"
@@ -43,17 +46,11 @@ dump_watcher_log() {
     echo "=== End watcher log ===" >&2
 }
 
-assert_success() {
-    [ "$status" -eq 0 ]
-}
-
-
 # ═══════════════════════════════════════════════════════════════
-# E2E-009-A: OpenCode agent receives startup prompt after /new
-#            and processes the assigned task
+# E2E-009-A: OpenCode agent resets with /new and processes the assigned task
 # ═══════════════════════════════════════════════════════════════
 
-@test "E2E-009-A: OpenCode startup prompt triggers task processing via inbox_watcher" {
+@test "E2E-009-A: OpenCode /new reset triggers task processing via inbox_watcher" {
     local ashigaru1_pane
     ashigaru1_pane=$(pane_target 1)
 
@@ -91,12 +88,9 @@ assert_success() {
     assert_yaml_field "$E2E_QUEUE/queue/reports/ashigaru1_report.yaml" "status" "done"
     assert_yaml_field "$E2E_QUEUE/queue/reports/ashigaru1_report.yaml" "task_id" "subtask_test_001a"
 
-    # 8. Verify OpenCode startup prompt and /new reset were logged
-    run grep "Sending startup prompt to ashigaru1 (opencode)" "$log_file"
-    if [ "$status" -ne 0 ]; then
-        dump_watcher_log "$log_file"
-    fi
-    assert_success
+    # 8. Verify OpenCode does NOT receive a startup prompt; --agent handles bootstrap
+    run grep "Sending startup prompt" "$log_file"
+    assert_failure
 
     run grep "CONTEXT-RESET.*Sending /new" "$log_file"
     assert_success

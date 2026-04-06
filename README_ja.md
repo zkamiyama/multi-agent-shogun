@@ -32,7 +32,7 @@ _コマンド1つで、10体のAIエージェントが並列稼働 — **Claude 
 
 ## クイックスタート
 
-**必要なもの:** tmux、bash 4+、以下のいずれか: [Claude Code](https://claude.ai/code) / Codex / Copilot / Kimi
+**必要なもの:** tmux、bash 4+、以下のいずれか: [Claude Code](https://claude.ai/code) / Codex / Copilot / Kimi / OpenCode
 
 ```bash
 git clone https://github.com/yohey-w/multi-agent-shogun
@@ -128,15 +128,15 @@ bash shutsujin_departure.sh                # 全エージェント起動
 
 将軍システムは特定ベンダーに依存しない。5つのCLIツールに対応し、それぞれの強みを活かす：
 
-| CLI                | 特徴                                                                                                                                                                                               | デフォルトモデル  |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| **Claude Code**    | tmux統合の実績、Memory MCP、専用ファイルツール（Read/Write/Edit/Glob/Grep）                                                                                                                        | Claude Sonnet 4.6 |
-| **OpenAI Codex**   | サンドボックス実行、JSONL構造化出力、`codex exec` ヘッドレスモード                                                                                                                                 | gpt-5.3-codex     |
-| **GitHub Copilot** | GitHub MCP組込、4種の特化エージェント（Explore/Task/Plan/Code-review）、`/delegate`                                                                                                                | Claude Sonnet 4.6 |
-| **Kimi Code**      | 無料プランあり、多言語サポート                                                                                                                                                                     | Kimi k2           |
-| **OpenCode**       | `AGENTS.md` 自動読込、ロール別ブートストラップ、`--prompt` 起動プロンプト、`/new` でのコンテキストリセット、モデル変更は再起動のみ、決定的な対話型 TUI 起動、`--model provider/model` ルーティング | provider/model    |
+| CLI                | 特徴                                                                                                                                                                                    | デフォルトモデル  |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| **Claude Code**    | tmux統合の実績、Memory MCP、専用ファイルツール（Read/Write/Edit/Glob/Grep）                                                                                                             | Claude Sonnet 4.6 |
+| **OpenAI Codex**   | サンドボックス実行、JSONL構造化出力、`codex exec` ヘッドレスモード                                                                                                                      | gpt-5.3-codex     |
+| **GitHub Copilot** | GitHub MCP組込、4種の特化エージェント（Explore/Task/Plan/Code-review）、`/delegate`                                                                                                     | Claude Sonnet 4.6 |
+| **Kimi Code**      | 無料プランあり、多言語サポート                                                                                                                                                          | Kimi k2           |
+| **OpenCode**       | `AGENTS.md` 自動読込、`--agent` によるロール別エージェント定義、`/new` でのコンテキストリセット、モデル変更は再起動のみ、決定的な対話型 TUI 起動、`--model provider/model` ルーティング | provider/model    |
 
-OpenCode の起動はロール別ファイルを読み込み、リセットは `/new`、モデル変更は再起動で行う。`OPENCODE_CONFIG_CONTENT` はロール別の境界を強制し、将軍は `queue/reports/*` を直接扱えず、家老は分配と報告集約のみ、足軽は自分の task/report のみ、軍師は `gunshi_report.yaml` と足軽レポートを読む。
+OpenCode の起動は `--agent` で生成済み `.opencode/agents/<agent>.md` を読み込み、リセットは `/new`、モデル変更は再起動で行う。ロール別の境界は生成されたエージェント frontmatter に埋め込まれており、将軍は `queue/reports/*` を直接扱えず、家老は分配と報告集約のみ、足軽は自分の task/report のみ、軍師は `gunshi_report.yaml` と足軽レポートを読む。
 
 統一ビルドシステムが共有テンプレートからCLI固有の指示書を自動生成：
 
@@ -759,11 +759,11 @@ asw_phase: 2 # Claude Code環境では推奨
 
 **3段階エスカレーション（v3.2）** — エージェントが応答しない場合:
 
-| フェーズ | タイミング | アクション                                                                               |
-| -------- | ---------- | ---------------------------------------------------------------------------------------- |
-| Phase 1  | 0-2分      | 標準nudge（`inbox3` テキスト + Enter） — _ASW Phase 2以上ではbusyエージェントはスキップ_ |
-| Phase 2  | 2-4分      | Escape×2 + 表示がある時だけ1回の Ctrl-C で入力消去、その後nudge                          |
-| Phase 3  | 4分以上    | `/clear` 送信でセッション強制リセット（5分間に最大1回）                                  |
+| フェーズ | タイミング | アクション                                                                                                |
+| -------- | ---------- | --------------------------------------------------------------------------------------------------------- |
+| Phase 1  | 0-2分      | 標準nudge（`inbox3` テキスト + Enter） — _ASW Phase 2以上ではbusyエージェントはスキップ_                  |
+| Phase 2  | 2-4分      | Copilot/Kimi: Escape×2 + 1回の Ctrl-C + nudge。Claude/Codex/OpenCode: 安全のため通常nudgeへフォールバック |
+| Phase 3  | 4分以上    | `/clear` 送信でセッション強制リセット（5分間に最大1回）                                                   |
 
 **設計のポイント:**
 
@@ -804,7 +804,7 @@ multiagent:agents.1            BUSY       ashigaru1
 multiagent:agents.8            BUSY       gunshi
 ```
 
-判定は **Claude Code** と **Codex CLI** の両方に対応。各tmuxペインの末尾5行からCLI固有のプロンプト/スピナーパターンを検出。判定ロジックは `lib/agent_status.sh` に分離されており、自作スクリプトからも利用可能：
+判定は **Claude Code**・**Codex CLI**・**OpenCode** に対応。各tmuxペインの末尾付近からCLI固有のプロンプト/スピナーパターンを検出。判定ロジックは `lib/agent_status.sh` に分離されており、自作スクリプトからも利用可能：
 
 ```bash
 source lib/agent_status.sh
@@ -1750,7 +1750,7 @@ mcp__memory__read_graph()  ← 動作！
 <details>
 <summary><b>エージェントが権限を求めてくる？</b></summary>
 
-CLI ごとの無人実行向け権限回避付きで起動していることを確認：Claude は `--dangerously-skip-permissions`、OpenCode は repo 固定の権限で `question` ツールを将軍だけに許可し、それ以外の役には無効化している。OpenCode は `[Session Title: <Role>'s pane]` を先頭に入れた起動プロンプトで、セッション名がロールごとに識別しやすくなるようにしている。OpenCode への自動キー操作は `config/opencode-tui.json` を `OPENCODE_TUI_CONFIG` で読み込み、`app_exit` を無効化して `session_interrupt` と `input_clear` を固定している。
+CLI ごとの無人実行向け権限回避付きで起動していることを確認：Claude は `--dangerously-skip-permissions`、OpenCode は repo 固定の生成エージェント定義で `question` ツールを将軍だけに許可し、それ以外の役には無効化している。OpenCode への自動キー操作は `config/opencode-tui.json` を `OPENCODE_TUI_CONFIG` で読み込み、`app_exit` を無効化して `session_interrupt` と `input_clear` を固定している。
 
 ```bash
 claude --dangerously-skip-permissions --system-prompt "..."

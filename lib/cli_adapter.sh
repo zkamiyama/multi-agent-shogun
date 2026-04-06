@@ -98,10 +98,14 @@ except Exception:
 # シェル引数として安全に埋め込めるように quote する
 _cli_adapter_shell_quote() {
     local value="$1"
-    "$CLI_ADAPTER_PROJECT_ROOT/.venv/bin/python3" -c 'import shlex, sys; print(shlex.quote(sys.argv[1]))' "$value"
+    local venv_python="$CLI_ADAPTER_PROJECT_ROOT/.venv/bin/python3"
+
+    if [[ -x "$venv_python" ]]; then
+        "$venv_python" -c 'import shlex, sys; print(shlex.quote(sys.argv[1]))' "$value" 2>/dev/null && return 0
+    fi
+
+    printf '%q\n' "$value"
 }
-
-
 
 # _cli_adapter_is_valid_cli cli_type
 # 許可されたCLI種別かチェック

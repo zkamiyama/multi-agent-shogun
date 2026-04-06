@@ -26,7 +26,7 @@
 #   T-BUSY-004: send_wakeup_with_escape — skips when agent is busy
 #   T-CODEX-001: send_cli_command — codex /clear → /new conversion
 #   T-CODEX-002: send_cli_command — codex /model → skip
-#   T-OPENCODE-001: send_cli_command — opencode /clear → /new conversion with double-Escape reset
+#   T-OPENCODE-001: send_cli_command — opencode /clear → /new conversion
 #   T-OPENCODE-002: send_cli_command — opencode /model → skip
 #   T-CODEX-003: C-u sent when unread=0 and agent is idle
 #   T-CODEX-004: C-u NOT sent when agent is busy
@@ -53,6 +53,7 @@
 #   T-BUSY-012: agent_is_busy — OpenCode idle home screen detected as idle
 #   T-BUSY-013: agent_is_busy — OpenCode sidebar busy state detected as busy
 #   T-BUSY-014: agent_is_busy — OpenCode animation row detected as busy
+#   T-BUSY-015: agent_is_busy — blank OpenCode pane falls back to idle
 #   T-SHOOK-001: Claude Code throttle uses 60s cooldown (stop-hook-supplementary)
 #   T-SHOOK-002: Claude Code count change bypasses throttle (stop-hook-supplementary)
 #   T-SHOOK-003: Non-Claude CLIs still bypass throttle on count change
@@ -357,6 +358,7 @@ MOCK
     '
     [ "$status" -eq 0 ]
     echo "$output" | grep -q "PHASE2_ESCAPE_NUDGE"
+    grep -q "send-keys.*C-c" "$MOCK_LOG"
     # Escape was sent
     grep -q "send-keys.*Escape" "$MOCK_LOG"
     # Nudge was also sent
@@ -400,6 +402,7 @@ MOCK
     '
     [ "$status" -eq 0 ]
     echo "$output" | grep -q "COOLDOWN_FALLBACK"
+    grep -q "send-keys.*C-c" "$MOCK_LOG"
     grep -q "send-keys.*Escape" "$MOCK_LOG"
     grep -q "send-keys.*inbox4" "$MOCK_LOG"
     ! grep -q "send-keys.*/clear" "$MOCK_LOG"
@@ -718,9 +721,9 @@ PY
     grep -q "send-keys.*Session Start" "$MOCK_LOG"
 }
 
-# --- T-OPENCODE-003: Phase 2 sends Escape×2 + nudge for all CLIs ---
+# --- T-OPENCODE-003: OpenCode Phase 2 falls back to plain nudge ---
 
-@test "T-OPENCODE-003: send_wakeup_with_escape sends Escape×2 + nudge for OpenCode" {
+@test "T-OPENCODE-003: send_wakeup_with_escape falls back to plain nudge for OpenCode" {
     run bash -c '
         MOCK_CAPTURE_PANE="first line\nsecond line\nthird line\n"
         MOCK_PANE_CLI="opencode"
@@ -730,8 +733,9 @@ PY
     '
     [ "$status" -eq 0 ]
 
-    # Escape Escape sent in a single send-keys call (1 log line with both)
-    grep -q "send-keys.*Escape.*Escape" "$MOCK_LOG"
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-c" "$MOCK_LOG"
+    grep -q "send-keys.*C-u" "$MOCK_LOG"
     grep -q "send-keys.*inbox3" "$MOCK_LOG"
 }
 
@@ -1073,6 +1077,20 @@ YAML
         agent_is_busy
     '
     [ "$status" -eq 0 ]
+}
+
+# --- T-BUSY-015: blank OpenCode pane falls back to idle ---
+
+@test "T-BUSY-015: agent_is_busy treats blank OpenCode pane as idle fallback" {
+    run bash -c '
+        MOCK_CAPTURE_PANE=""
+        MOCK_PANE_CLI="opencode"
+        source "'"$TEST_HARNESS"'"
+        LAST_CLEAR_TS=0
+        CLI_TYPE="opencode"
+        agent_is_busy
+    '
+    [ "$status" -eq 1 ]
 }
 
 # --- T-SHOOK-001: Claude Code throttle uses 60s cooldown (post PR#75: stop-hook supplementary) ---

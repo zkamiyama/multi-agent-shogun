@@ -17,6 +17,68 @@ mkdir -p "$OUTPUT_DIR"
 echo "=== Instruction File Build System ==="
 echo "Building instruction files..."
 
+opencode_build_python() {
+    if [[ -x "$ROOT_DIR/.venv/bin/python3" ]]; then
+        echo "$ROOT_DIR/.venv/bin/python3"
+    elif command -v python3 &>/dev/null; then
+        command -v python3
+    else
+        return 1
+    fi
+}
+
+get_build_ashigaru_ids() {
+    local settings_file="$ROOT_DIR/config/settings.yaml"
+    local python_bin
+    python_bin=$(opencode_build_python 2>/dev/null || true)
+
+    if [[ -n "$python_bin" && -f "$settings_file" ]]; then
+        local result
+        result=$("$python_bin" - "$settings_file" "$ROOT_DIR" <<'PYEOF'
+import sys
+from pathlib import Path
+import yaml
+
+settings_file = sys.argv[1]
+root_dir = Path(sys.argv[2])
+try:
+    with open(settings_file, encoding='utf-8') as fh:
+        data = yaml.safe_load(fh) or {}
+    cli_agents = (data.get('cli') or {}).get('agents') or {}
+    model_agents = data.get('models') or {}
+
+    ashigaru = {
+        str(agent_id)
+        for agent_id in cli_agents
+        if str(agent_id).startswith('ashigaru')
+    }
+    ashigaru.update(
+        str(agent_id)
+        for agent_id in model_agents
+        if str(agent_id).startswith('ashigaru')
+    )
+
+    if not ashigaru:
+        task_dir = root_dir / 'queue' / 'tasks'
+        if task_dir.exists():
+            ashigaru.update(path.stem for path in task_dir.glob('ashigaru*.yaml'))
+
+    ashigaru = list(ashigaru)
+    ashigaru.sort(key=lambda agent_id: int(str(agent_id).replace('ashigaru', '')) if str(agent_id).replace('ashigaru', '').isdigit() else 999)
+    print(' '.join(ashigaru))
+except Exception:
+    pass
+PYEOF
+        )
+        if [[ -n "$result" ]]; then
+            echo "$result"
+            return 0
+        fi
+    fi
+
+    echo "ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 ashigaru6 ashigaru7"
+}
+
 # ============================================================
 # Helper function: Build a complete instruction file
 # ============================================================
@@ -255,6 +317,7 @@ EOFYAML
 generate_opencode_agents() {
     local agents_dir="$ROOT_DIR/.opencode/agents"
     local permissions_file="$ROOT_DIR/config/opencode-permissions.yaml"
+    local python_bin
 
     echo "Generating: .opencode/agents/*.md (OpenCode agent definitions)"
 
@@ -265,8 +328,14 @@ generate_opencode_agents() {
 
     mkdir -p "$agents_dir"
 
+    python_bin=$(opencode_build_python) || {
+        echo "  ⚠️  python3 not found. Skipping OpenCode agent generation."
+        return 1
+    }
+
     # Agent ID → role mapping
-    local agent_ids="shogun karo gunshi ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 ashigaru6 ashigaru7"
+    local agent_ids
+    agent_ids="shogun karo gunshi $(get_build_ashigaru_ids)"
 
     for agent_id in $agent_ids; do
         # Determine role (all ashigaru share the same role template)
@@ -282,18 +351,15 @@ generate_opencode_agents() {
             shogun)                   role_title="Shogun — strategic oversight and command issuance" ;;
             karo)                     role_title="Karo — task decomposition, assignment, and coordination" ;;
             gunshi)                   role_title="Gunshi — strategic analysis and quality control" ;;
-            ashigaru1)                role_title="Ashigaru 1 — front-line execution" ;;
-            ashigaru2)                role_title="Ashigaru 2 — front-line execution" ;;
-            ashigaru3)                role_title="Ashigaru 3 — front-line execution" ;;
-            ashigaru4)                role_title="Ashigaru 4 — front-line execution" ;;
-            ashigaru5)                role_title="Ashigaru 5 — front-line execution" ;;
-            ashigaru6)                role_title="Ashigaru 6 — front-line execution" ;;
-            ashigaru7)                role_title="Ashigaru 7 — front-line execution" ;;
+            ashigaru*)
+                local ashigaru_number="${agent_id#ashigaru}"
+                role_title="Ashigaru ${ashigaru_number} — front-line execution"
+                ;;
         esac
 
         # Generate permission YAML via the same Python logic used in cli_adapter.sh
         local permission_yaml
-        permission_yaml=$("$ROOT_DIR/.venv/bin/python3" - "$permissions_file" "$agent_id" <<'PYEOF'
+        permission_yaml=$("$python_bin" - "$permissions_file" "$agent_id" <<'PYEOF'
 import json, sys, yaml
 
 permissions_file = sys.argv[1]

@@ -1,8 +1,8 @@
 # OpenCode role-specific permission matrix.
 #
-# This file is consumed by lib/cli_adapter.sh to generate OPENCODE_CONFIG_CONTENT
-# at launch time. Keep the matrix focused on file boundaries that matter for
-# role separation.
+# This file is consumed by scripts/build_instructions.sh to generate
+# `.opencode/agents/*.md` permission frontmatter at build time. Keep the matrix
+# focused on file boundaries that matter for role separation.
 
 common:
   edit_deny:

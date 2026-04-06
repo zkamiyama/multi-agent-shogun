@@ -30,6 +30,27 @@
 #     in scroll-back, so checking all 5 lines for 'esc to' causes false-busy
 #     (the bug T-BUSY-008 fixed). Solution: check ONLY the last line for
 #     'esc to' — the status bar is always at the bottom.
+opencode_has_busy_animation() {
+    local capture_text="$1"
+
+    if command -v python3 &>/dev/null; then
+        OPENCODE_CAPTURE_TEXT="$capture_text" python3 - <<'PY'
+import os
+import sys
+
+text = os.environ.get("OPENCODE_CAPTURE_TEXT", "")
+for line in text.splitlines():
+    glyphs = "".join(ch for ch in line if ch in "■⬝")
+    if len(glyphs) >= 8:
+        sys.exit(0)
+sys.exit(1)
+PY
+        return $?
+    fi
+
+    printf '%s\n' "$capture_text" | grep -qF '■⬝⬝⬝⬝⬝⬝⬝'
+}
+
 agent_is_busy_check() {
     local pane_target="$1"
     local cli_type="${2:-}"
@@ -57,17 +78,17 @@ agent_is_busy_check() {
     # scroll-back and cause false-busy if we scan too many lines.
     pane_tail=$(echo "$full_capture" | tail -5)
 
-    # OpenCode uses a different layout from Codex/Claude: `capture-pane -p`
-    # can be blank for a short time while the TUI starts. Once rendered, the
-    # most stable signal is the animated busy row; if that is absent, fall back
-    # to the bottom status line's interrupt hint.
+    # OpenCode uses a different layout from Codex/Claude. When the pane is
+    # blank, treat it as idle so the watcher can recover instead of holding the
+    # agent in permanent busy state after a crash or failed render. When the TUI
+    # is visible, prefer the busy animation row and then the interrupt hint.
     if [[ "$cli_type" == "opencode" ]]; then
         local opencode_visible opencode_last_line
         opencode_visible=$(printf '%s\n' "$full_capture" | grep -v '^[[:space:]]*$' || true)
         if [[ -z "$opencode_visible" ]]; then
-            return 0  # unrendered / not ready yet
+            return 1
         fi
-        if printf '%s\n' "$opencode_visible" | grep -qE '[■⬝]{8}'; then
+        if opencode_has_busy_animation "$opencode_visible"; then
             return 0
         fi
         opencode_last_line=$(printf '%s\n' "$opencode_visible" | tail -1)

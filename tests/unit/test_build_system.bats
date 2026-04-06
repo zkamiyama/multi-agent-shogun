@@ -221,7 +221,7 @@ setup() {
 }
 
 @test "content: opencode files contain OpenCode-specific content [R6]" {
-    grep -qi "opencode\|OpenCode\|--prompt" "$OUTPUT_DIR/opencode-shogun.md"
+    grep -qi "opencode\|OpenCode\|--agent" "$OUTPUT_DIR/opencode-shogun.md"
 }
 
 @test "content: copilot files contain Copilot-specific content [Phase 2+3]" {
@@ -258,6 +258,34 @@ setup() {
 
 @test "opencode-inst: instructions/generated/opencode-gunshi.md generated [R6]" {
     [ -f "$OUTPUT_DIR/opencode-gunshi.md" ]
+}
+
+@test "opencode-agent: .opencode/agents/shogun.md generated [R6]" {
+    [ -f "$PROJECT_ROOT/.opencode/agents/shogun.md" ]
+}
+
+@test "opencode-agent: generated agent frontmatter contains permission section [R6]" {
+    grep -q '^permission:' "$PROJECT_ROOT/.opencode/agents/shogun.md"
+}
+
+@test "opencode-agent: ashigaru1 permissions allow only own inbox/report/task [R6]" {
+    "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+from pathlib import Path
+import yaml
+
+text = Path("/home/nanashi/repo/multi-agent-shogun/.opencode/agents/ashigaru1.md").read_text(encoding="utf-8")
+parts = text.split("---", 2)
+frontmatter = yaml.safe_load(parts[1])
+perm = frontmatter["permission"]
+
+assert perm["question"] == "deny"
+assert perm["read"]["queue/inbox/*"] == "deny"
+assert perm["read"]["queue/inbox/ashigaru1.yaml"] == "allow"
+assert perm["read"]["queue/tasks/*"] == "deny"
+assert perm["read"]["queue/tasks/ashigaru1.yaml"] == "allow"
+assert perm["read"]["queue/reports/*"] == "deny"
+assert perm["read"]["queue/reports/ashigaru1_report.yaml"] == "allow"
+PYEOF
 }
 
 # =============================================================================

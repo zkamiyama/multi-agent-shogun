@@ -12,7 +12,7 @@
 #   # Codex Spark → Claude Sonnet に切替
 #   bash scripts/switch_cli.sh ashigaru3 --type claude --model claude-sonnet-4-6
 #
-#   # OpenCode で provider/model を直接指定（bootstrap は --prompt、モデル変更は再起動で反映）
+#   # OpenCode で provider/model を直接指定（role 定義は --agent、モデル変更は再起動で反映）
 #   bash scripts/switch_cli.sh ashigaru3 --type opencode --model openai/gpt-5.4-mini
 #
 #   # 同一CLI内でモデルだけ変更（Sonnet → Opus）
@@ -55,7 +55,7 @@ usage() {
     echo "  agent_id   Agent configured in config/settings.yaml (e.g. karo, ashigaru1, gunshi)"
     echo "  --type     claude | codex | copilot | kimi | opencode"
     echo "  --model    claude-sonnet-4-6 | claude-opus-4-6 | gpt-5.3-codex | openai/gpt-5.4-mini | etc."
-    echo "  OpenCode  : role bootstrap uses --prompt, /clear maps to /new, model changes require relaunch"
+    echo "  OpenCode  : role definition uses --agent, /clear maps to /new, model changes require relaunch"
     echo ""
     echo "If --type/--model omitted, uses current settings.yaml values."
     exit 1

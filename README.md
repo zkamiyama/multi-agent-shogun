@@ -128,15 +128,15 @@ Most AI coding tools charge per token. Running 8 Opus-grade agents through the A
 
 Shogun isn't locked to one vendor. The system supports 5 CLI tools, each with unique strengths:
 
-| CLI                | Key Strength                                                                                                                                                                                                            | Default Model                           |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| **Claude Code**    | Battle-tested tmux integration, Memory MCP, dedicated file tools (Read/Write/Edit/Glob/Grep)                                                                                                                            | Claude Sonnet 4.6                       |
-| **OpenAI Codex**   | Sandbox execution, JSONL structured output, `codex exec` headless mode, **per-model `--model` flag**                                                                                                                    | gpt-5.3-codex / **gpt-5.3-codex-spark** |
-| **GitHub Copilot** | Built-in GitHub MCP, 4 specialized agents (Explore/Task/Plan/Code-review), `/delegate` to coding agent                                                                                                                  | Claude Sonnet 4.6                       |
-| **Kimi Code**      | Free tier available, strong multilingual support                                                                                                                                                                        | Kimi k2                                 |
-| **OpenCode**       | Shared `AGENTS.md` instructions, role-specific bootstrap files, `--prompt` startup prompt, `/new` context reset, restart-only model changes, deterministic interactive TUI launch, provider-qualified `--model` routing | provider/model                          |
+| CLI                | Key Strength                                                                                                                                                                                                 | Default Model                           |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| **Claude Code**    | Battle-tested tmux integration, Memory MCP, dedicated file tools (Read/Write/Edit/Glob/Grep)                                                                                                                 | Claude Sonnet 4.6                       |
+| **OpenAI Codex**   | Sandbox execution, JSONL structured output, `codex exec` headless mode, **per-model `--model` flag**                                                                                                         | gpt-5.3-codex / **gpt-5.3-codex-spark** |
+| **GitHub Copilot** | Built-in GitHub MCP, 4 specialized agents (Explore/Task/Plan/Code-review), `/delegate` to coding agent                                                                                                       | Claude Sonnet 4.6                       |
+| **Kimi Code**      | Free tier available, strong multilingual support                                                                                                                                                             | Kimi k2                                 |
+| **OpenCode**       | Shared `AGENTS.md` instructions, role-specific agent definitions via `--agent`, `/new` context reset, restart-only model changes, deterministic interactive TUI launch, provider-qualified `--model` routing | provider/model                          |
 
-OpenCode sessions bootstrap from the role-specific files, prefix the bootstrap prompt with an explicit `[Session Title: <Role>'s pane]` tag so session titles stay identifiable, and keep automation resets on `/new`; model changes require a relaunch. Automation uses the repository-provided `config/opencode-tui.json` via `OPENCODE_TUI_CONFIG`, which disables `app_exit` and pins `session_interrupt`/`input_clear` to known bindings. The repo also pins `OPENCODE_CONFIG_CONTENT` with role-specific boundaries: Shogun is blocked from `queue/reports/*`, Karo is limited to coordination files plus report aggregation, Ashigaru only touch their own task/report pair, and Gunshi reads ashigaru reports but only writes `gunshi_report.yaml`.
+OpenCode sessions load the role-specific `.opencode/agents/<agent>.md` definition via `--agent` and keep automation resets on `/new`; model changes require a relaunch. Automation uses the repository-provided `config/opencode-tui.json` via `OPENCODE_TUI_CONFIG`, which disables `app_exit` and pins `session_interrupt`/`input_clear` to known bindings. Role boundaries are embedded in the generated agent frontmatter: Shogun is blocked from `queue/reports/*`, Karo is limited to coordination files plus report aggregation, Ashigaru only touch their own task/report pair, and Gunshi reads ashigaru reports but only writes `gunshi_report.yaml`.
 
 A unified instruction build system generates CLI-specific instruction files from shared templates:
 
@@ -754,11 +754,11 @@ Or set the default directly in `scripts/inbox_watcher.sh` (`ASW_PHASE` variable)
 
 **3-Phase Escalation (v3.2)** — If agent doesn't respond:
 
-| Phase   | Timing  | Action                                                                             |
-| ------- | ------- | ---------------------------------------------------------------------------------- |
-| Phase 1 | 0-2 min | Standard nudge (`inbox3` text + Enter) — _skipped for busy agents in ASW Phase 2+_ |
-| Phase 2 | 2-4 min | Escape×2 + single Ctrl-C when prompt text is visible, then nudge                   |
-| Phase 3 | 4+ min  | Send `/clear` to force session reset (max once per 5 min)                          |
+| Phase   | Timing  | Action                                                                                      |
+| ------- | ------- | ------------------------------------------------------------------------------------------- |
+| Phase 1 | 0-2 min | Standard nudge (`inbox3` text + Enter) — _skipped for busy agents in ASW Phase 2+_          |
+| Phase 2 | 2-4 min | Copilot/Kimi: Escape×2 + single Ctrl-C + nudge. Claude/Codex/OpenCode: plain nudge fallback |
+| Phase 3 | 4+ min  | Send `/clear` to force session reset (max once per 5 min)                                   |
 
 **Key design choices:**
 
@@ -799,7 +799,7 @@ multiagent:agents.1            BUSY       ashigaru1
 multiagent:agents.8            BUSY       gunshi
 ```
 
-Detection works for both **Claude Code** and **Codex CLI** by checking CLI-specific prompt/spinner patterns in the bottom 5 lines of each tmux pane. The detection logic lives in `lib/agent_status.sh` — source it in your own scripts:
+Detection works for **Claude Code**, **Codex CLI**, and **OpenCode** by checking CLI-specific prompt/spinner patterns near the bottom of each tmux pane. The detection logic lives in `lib/agent_status.sh` — source it in your own scripts:
 
 ```bash
 source lib/agent_status.sh
@@ -1884,7 +1884,7 @@ Even if you're not comfortable with keyboard shortcuts, you can switch, scroll, 
 - **Stop hook inbox delivery** — Claude Code agents automatically check inbox at turn end via `.claude/settings.json` Stop hook. Eliminates the `send-keys` interruption problem
 - **Model defaults updated** — Karo: Opus → Sonnet. Gunshi: Opus (deep reasoning). Ashigaru: Sonnet (uniform tier)
 - **Escape escalation disabled for Claude Code** — Phase 2 escalation was interrupting active Claude Code turns; Stop hook handles delivery instead
-- **Codex/OpenCode CLI startup prompt** — `get_startup_prompt()` returns the Session Start prompt, and `get_startup_prompt_arg()` turns it into the correct launch argument for Codex/OpenCode
+- **Codex/OpenCode startup integration** — Codex uses `get_startup_prompt()` / `get_startup_prompt_arg()` for Session Start recovery, while OpenCode loads role definitions through generated `.opencode/agents/*.md` files
 - **YAML slimming utility** — `scripts/slim_yaml.sh` archives read messages and terminal commands, supports current top-level and legacy task YAML, and keeps `--dry-run` filesystem-safe for queue cleanup audits
 
 </details>

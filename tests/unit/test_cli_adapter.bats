@@ -155,6 +155,48 @@ cli:
 YAML
 }
 
+# =============================================================================
+# normalize_opencode_model / shell quote テスト
+# =============================================================================
+
+@test "normalize_opencode_model: 空文字 → 空文字" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(normalize_opencode_model "")
+    [ "$result" = "" ]
+}
+
+@test "normalize_opencode_model: 既知aliasを provider/model に正規化" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    [ "$(normalize_opencode_model gpt-5.4-mini)" = "openai/gpt-5.4-mini" ]
+    [ "$(normalize_opencode_model gpt-5.3-codex-spark)" = "openai/gpt-5.3-codex-spark" ]
+    [ "$(normalize_opencode_model opus)" = "anthropic/claude-opus-4-6" ]
+    [ "$(normalize_opencode_model sonnet)" = "anthropic/claude-sonnet-4-6" ]
+    [ "$(normalize_opencode_model haiku)" = "anthropic/claude-haiku-4-5-20251001" ]
+    [ "$(normalize_opencode_model k2.5)" = "moonshot/kimi-k2.5" ]
+    [ "$(normalize_opencode_model moonshot-k2.5)" = "moonshot/kimi-k2.5" ]
+    [ "$(normalize_opencode_model kimi-k2.5)" = "moonshot/kimi-k2.5" ]
+    [ "$(normalize_opencode_model kimi-k2-turbo)" = "moonshot/kimi-k2-turbo" ]
+}
+
+@test "normalize_opencode_model: provider-qualified と未知モデルはそのまま" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    [ "$(normalize_opencode_model anthropic/claude-sonnet-4-6)" = "anthropic/claude-sonnet-4-6" ]
+    [ "$(normalize_opencode_model custom-provider/custom-model)" = "custom-provider/custom-model" ]
+    [ "$(normalize_opencode_model unknown-model)" = "unknown-model" ]
+}
+
+@test "_cli_adapter_shell_quote: .venv 不在時は bash fallback で quote" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    CLI_ADAPTER_PROJECT_ROOT="${TEST_TMP}/no_venv_root"
+    mkdir -p "$CLI_ADAPTER_PROJECT_ROOT"
+
+    sample='path with spaces $HOME'
+    quoted=$(_cli_adapter_shell_quote "$sample")
+    eval "roundtrip=$quoted"
+
+    [ "$roundtrip" = "$sample" ]
+}
+
 teardown() {
     unset PERMISSION_FLAG
     rm -rf "$TEST_TMP"
@@ -408,7 +450,7 @@ load_adapter_with() {
 @test "opencode tui config pins app_exit and keybinds" {
     grep -q '"app_exit": "none"' "${PROJECT_ROOT}/config/opencode-tui.json"
     grep -q '"session_interrupt": "escape"' "${PROJECT_ROOT}/config/opencode-tui.json"
-    grep -q '"input_clear": "ctrl+c, ctrl+u"' "${PROJECT_ROOT}/config/opencode-tui.json"
+    grep -q '"input_clear": "ctrl+c,ctrl+u"' "${PROJECT_ROOT}/config/opencode-tui.json"
 }
 
 @test "build_cli_command: cliセクションなし → claude フォールバック" {

@@ -210,7 +210,7 @@ PYEOF
     [ "$status" -eq 1 ]
     [[ "$output" == *"Usage"* ]]
     [[ "$output" == *"opencode"* ]]
-    [[ "$output" == *"bootstrap"* ]]
+    [[ "$output" == *"--agent"* ]]
     [[ "$output" == *"/new"* ]]
 }
 
