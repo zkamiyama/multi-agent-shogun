@@ -3,6 +3,6 @@
   "keybinds": {
     "app_exit": "none",
     "session_interrupt": "escape",
-    "input_clear": "ctrl+c, ctrl+u"
+    "input_clear": "ctrl+c,ctrl+u"
   }
 }
