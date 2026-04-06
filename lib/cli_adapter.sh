@@ -166,8 +166,10 @@ permission = {
     'question': role_cfg.get('question', 'deny'),
     'read': read_rule,
     'edit': edit_rule,
-    'list': copy.deepcopy(read_rule),
-    'glob': copy.deepcopy(read_rule),
+    'write': edit_rule,
+    'patch': edit_rule,
+    'list': read_rule,
+    'glob': read_rule,
 }
 
 print(json.dumps({'permission': permission}, separators=(',', ':')))
