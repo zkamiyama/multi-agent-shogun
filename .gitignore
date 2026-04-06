@@ -60,6 +60,9 @@
 # Multi-CLI: Codex auto-load file
 !AGENTS.md
 
+# Multi-CLI: OpenCode agent file
+!.opencode/agents/*.md
+
 # Setup and deployment scripts
 !shutsujin_departure.sh
 !first_setup.sh
