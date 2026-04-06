@@ -101,80 +101,7 @@ _cli_adapter_shell_quote() {
     "$CLI_ADAPTER_PROJECT_ROOT/.venv/bin/python3" -c 'import shlex, sys; print(shlex.quote(sys.argv[1]))' "$value"
 }
 
-# _cli_adapter_opencode_config_content(agent_id)
-# OpenCode向けの role-specific permission JSON を生成する。
-_cli_adapter_opencode_config_content() {
-    local agent_id="$1"
 
-    "$CLI_ADAPTER_PROJECT_ROOT/.venv/bin/python3" - "$CLI_ADAPTER_PROJECT_ROOT/config/opencode-permissions.yaml" "$agent_id" <<'PY'
-import copy
-import json
-import sys
-
-import yaml
-
-permissions_file = sys.argv[1]
-agent_id = sys.argv[2]
-
-def role_for_agent(agent_id: str) -> str:
-    if agent_id.startswith('ashigaru'):
-        return 'ashigaru'
-    if agent_id in {'shogun', 'karo', 'gunshi'}:
-        return agent_id
-    return ''
-
-def expand(pattern: str) -> str:
-    return pattern.replace('{agent_id}', agent_id)
-
-def build_rule(deny_patterns, allow_patterns):
-    deny = []
-    allow = []
-    seen = set()
-
-    for pattern in deny_patterns or []:
-        expanded = expand(pattern)
-        if expanded not in seen:
-            seen.add(expanded)
-            deny.append(expanded)
-
-    for pattern in allow_patterns or []:
-        expanded = expand(pattern)
-        if expanded not in seen:
-            seen.add(expanded)
-            allow.append(expanded)
-
-    rule = {'*': 'deny'}
-    for pattern in deny:
-        rule[pattern] = 'deny'
-    for pattern in allow:
-        rule[pattern] = 'allow'
-    return rule
-
-with open(permissions_file, encoding='utf-8') as fh:
-    config = yaml.safe_load(fh) or {}
-
-role = role_for_agent(agent_id)
-roles = config.get('roles') or {}
-role_cfg = roles.get(role) or {}
-
-common_edit_deny = list((config.get('common') or {}).get('edit_deny') or [])
-read_rule = build_rule(role_cfg.get('read_deny'), role_cfg.get('read_allow'))
-edit_rule = build_rule(common_edit_deny + list(role_cfg.get('edit_deny') or []), role_cfg.get('edit_allow'))
-
-permission = {
-    '*': 'allow',
-    'question': role_cfg.get('question', 'deny'),
-    'read': read_rule,
-    'edit': edit_rule,
-    'write': edit_rule,
-    'patch': edit_rule,
-    'list': read_rule,
-    'glob': read_rule,
-}
-
-print(json.dumps({'permission': permission}, separators=(',', ':')))
-PY
-}
 
 # _cli_adapter_is_valid_cli cli_type
 # 許可されたCLI種別かチェック
@@ -284,17 +211,18 @@ build_cli_command() {
         opencode)
             local normalized_model
             local tui_config_path
-            local permission_config
             normalized_model=$(normalize_opencode_model "$model")
             tui_config_path=$(_cli_adapter_shell_quote "$CLI_ADAPTER_PROJECT_ROOT/config/opencode-tui.json")
-            permission_config=$(_cli_adapter_shell_quote "$(_cli_adapter_opencode_config_content "$agent_id")")
             cmd="opencode"
             if [[ -n "$normalized_model" ]]; then
                 cmd="$cmd --model $normalized_model"
             fi
+            # Use --agent to load the pre-built agent definition from .opencode/agents/<name>.md.
+            # Permissions are also embedded in the agent definition YAML frontmatter at build time.
+            cmd="$cmd --agent $agent_id"
             # Use a project-pinned TUI config so tmux automation sees stable keybinds
             # even when the user has a different global tui.json.
-            cmd="OPENCODE_TUI_CONFIG=$tui_config_path OPENCODE_CONFIG_CONTENT=$permission_config $cmd"
+            cmd="OPENCODE_TUI_CONFIG=$tui_config_path $cmd"
             ;;
         copilot)
             cmd="copilot --yolo"
@@ -493,9 +421,8 @@ get_model_display_name() {
 # CLIが初回起動時に自動実行すべき初期プロンプトを返す
 # Codex CLI: [PROMPT]引数として渡す（サジェストUI停止問題の根本対策）
 # Claude Code: 空（CLAUDE.md自動読込でSession Start手順が起動）
-# OpenCode: role-prefixed bootstrap prompt を launch時に --prompt で渡し、
-#           first message 由来の自動セッションタイトルにロール名を残す。
 # Copilot/Kimi: 空（今後対応）
+# OpenCode: 空（.opencode/agents/が自動読込）
 get_startup_prompt() {
     local agent_id="$1"
     local cli_type
@@ -504,23 +431,6 @@ get_startup_prompt() {
     case "$cli_type" in
         codex)
             echo "Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message -t \"\$TMUX_PANE\" -p '#{@agent_id}' to identify yourself. 2) Read queue/tasks/${agent_id}.yaml. 3) Read queue/inbox/${agent_id}.yaml, mark read:true. 4) Read files listed in context_files. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until the task is done."
-            ;;
-        opencode)
-            local role_title_seed
-            local role_instruction_file
-            local startup_prompt
-
-            case "$agent_id" in
-                shogun)    role_title_seed="Shogun" ;;
-                karo)      role_title_seed="Karo" ;;
-                gunshi)    role_title_seed="Gunshi" ;;
-                ashigaru*) role_title_seed="Ashigaru${agent_id#ashigaru}" ;;
-                *)         role_title_seed="$agent_id" ;;
-            esac
-
-            role_instruction_file=$(get_instruction_file "$agent_id" "opencode")
-            startup_prompt="[Session Title: ${role_title_seed}'s pane] ${role_title_seed} — Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message -t \"\$TMUX_PANE\" -p '#{@agent_id}' to identify yourself. 2) Read queue/tasks/${agent_id}.yaml. 3) Read queue/inbox/${agent_id}.yaml, mark read:true. 4) Read ${role_instruction_file}. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until the task is done."
-            printf '%s\n' "$startup_prompt"
             ;;
         *)
             echo ""
@@ -531,7 +441,7 @@ get_startup_prompt() {
 # get_startup_prompt_arg(agent_id)
 # 起動コマンドに埋め込むCLI-specificの初期プロンプト引数を返す
 # Codex: positional prompt
-# OpenCode: --prompt <prompt>
+# その他: 空
 get_startup_prompt_arg() {
     local agent_id="$1"
     local cli_type
@@ -550,9 +460,6 @@ get_startup_prompt_arg() {
     case "$cli_type" in
         codex)
             echo "$quoted_prompt"
-            ;;
-        opencode)
-            echo "--prompt $quoted_prompt"
             ;;
         *)
             echo ""

@@ -351,76 +351,58 @@ load_adapter_with() {
     [ "$result" = "kimi --yolo --model k2.5" ]
 }
 
-@test "build_cli_command: opencode shogun → pinned tui config + report deny + question allow" {
+@test "build_cli_command: opencode shogun → --agent shogun + pinned tui config" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
-    expected_prompt_arg=$(get_startup_prompt_arg "shogun")
     result=$(build_cli_command "shogun")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
     [[ "$result" == "OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
-    [[ "$result" == *'opencode --model openai/gpt-5.4-mini '* ]]
-    [[ "$result" == *"$expected_prompt_arg" ]]
-    [[ "$result" == *'"question":"allow"'* ]]
-    [[ "$result" == *'"queue/reports/*":"deny"'* ]]
-    [[ "$result" == *'"queue/shogun_to_karo.yaml":"allow"'* ]]
-    [[ "$result" == *'"queue/ntfy_inbox.yaml":"allow"'* ]]
+    [[ "$result" == *'opencode --model openai/gpt-5.4-mini --agent shogun'* ]]
+    # No OPENCODE_CONFIG_CONTENT — permissions are in .opencode/agents/shogun.md
+    [[ "$result" != *'OPENCODE_CONFIG_CONTENT'* ]]
+    # No --prompt — system prompt loaded from .opencode/agents/shogun.md
+    [[ "$result" != *'--prompt'* ]]
 }
 
-@test "build_cli_command: opencode karo → pinned tui config + report allow + question deny" {
+@test "build_cli_command: opencode karo → --agent karo + pinned tui config" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
-    expected_prompt_arg=$(get_startup_prompt_arg "karo")
     result=$(build_cli_command "karo")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
     [[ "$result" == "OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
-    [[ "$result" == *'opencode --model openai/gpt-5.4 '* ]]
-    [[ "$result" == *"$expected_prompt_arg" ]]
-    [[ "$result" == *'"question":"deny"'* ]]
-    [[ "$result" == *'"queue/reports/*":"deny"'* ]]
-    [[ "$result" == *'"queue/reports/ashigaru*_report.yaml":"allow"'* ]]
-    [[ "$result" == *'"queue/reports/gunshi_report.yaml":"allow"'* ]]
-    [[ "$result" == *'"queue/tasks/ashigaru*.yaml":"allow"'* ]]
+    [[ "$result" == *'opencode --model openai/gpt-5.4 --agent karo'* ]]
+    [[ "$result" != *'OPENCODE_CONFIG_CONTENT'* ]]
+    [[ "$result" != *'--prompt'* ]]
 }
 
-@test "build_cli_command: opencode ashigaru → pinned tui config + own task/report only" {
+@test "build_cli_command: opencode ashigaru → --agent ashigaru1 + pinned tui config" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
-    expected_prompt_arg=$(get_startup_prompt_arg "ashigaru1")
     result=$(build_cli_command "ashigaru1")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
     [[ "$result" == "OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
-    [[ "$result" == *'opencode --model moonshot/kimi-k2.5 '* ]]
-    [[ "$result" == *"$expected_prompt_arg" ]]
-    [[ "$result" == *'"question":"deny"'* ]]
-    [[ "$result" == *'"queue/reports/*":"deny"'* ]]
-    [[ "$result" == *'"queue/tasks/ashigaru1.yaml":"allow"'* ]]
-    [[ "$result" == *'"queue/reports/ashigaru1_report.yaml":"allow"'* ]]
-    [[ "$result" == *'"queue/shogun_to_karo.yaml":"allow"'* ]]
+    [[ "$result" == *'opencode --model moonshot/kimi-k2.5 --agent ashigaru1'* ]]
+    [[ "$result" != *'OPENCODE_CONFIG_CONTENT'* ]]
+    [[ "$result" != *'--prompt'* ]]
 }
 
-@test "build_cli_command: opencode gunshi → pinned tui config + read ashigaru reports only" {
+@test "build_cli_command: opencode gunshi → --agent gunshi + pinned tui config" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
-    expected_prompt_arg=$(get_startup_prompt_arg "gunshi")
     result=$(build_cli_command "gunshi")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
     [[ "$result" == "OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
-    [[ "$result" == *'opencode --model anthropic/claude-opus-4-6 '* ]]
-    [[ "$result" == *"$expected_prompt_arg" ]]
-    [[ "$result" == *'"question":"deny"'* ]]
-    [[ "$result" == *'"queue/reports/ashigaru*_report.yaml":"allow"'* ]]
-    [[ "$result" == *'"queue/reports/gunshi_report.yaml":"allow"'* ]]
-    [[ "$result" == *'"queue/tasks/ashigaru*.yaml":"deny"'* ]]
-    [[ "$result" == *'"queue/shogun_to_karo.yaml":"deny"'* ]]
+    [[ "$result" == *'opencode --model anthropic/claude-opus-4-6 --agent gunshi'* ]]
+    [[ "$result" != *'OPENCODE_CONFIG_CONTENT'* ]]
+    [[ "$result" != *'--prompt'* ]]
 }
 
 @test "build_cli_command: opencode deterministic output" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
-    expected_prompt_arg=$(get_startup_prompt_arg "ashigaru3")
     first=$(build_cli_command "ashigaru3")
     second=$(build_cli_command "ashigaru3")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
     [[ "$first" == "$second" ]]
     [[ "$first" == "OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
-    [[ "$first" == *'opencode --model anthropic/claude-sonnet-4-6 '* ]]
-    [[ "$first" == *"$expected_prompt_arg" ]]
-    [[ "$first" == *'"question":"deny"'* ]]
+    [[ "$first" == *'opencode --model anthropic/claude-sonnet-4-6 --agent ashigaru3'* ]]
+    [[ "$first" != *'OPENCODE_CONFIG_CONTENT'* ]]
+    [[ "$first" != *'--prompt'* ]]
 }
 
 @test "opencode tui config pins app_exit and keybinds" {
@@ -535,37 +517,28 @@ load_adapter_with() {
 # get_startup_prompt テスト
 # =============================================================================
 
-@test "get_startup_prompt: opencode shogun → role-prefixed Session Start prompt" {
+@test "get_startup_prompt: opencode shogun → empty (uses --agent, no prompt needed)" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     result=$(get_startup_prompt "shogun")
-    [ -n "$result" ]
-    [[ "$result" == "[Session Title: Shogun's pane] Shogun — Session Start"* ]]
-    [[ "$result" == *"queue/tasks/shogun.yaml"* ]]
-    [[ "$result" == *"instructions/generated/opencode-shogun.md"* ]]
+    [ -z "$result" ]
 }
 
-@test "get_startup_prompt: opencode karo → role-prefixed Session Start prompt" {
+@test "get_startup_prompt: opencode karo → empty (uses --agent, no prompt needed)" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     result=$(get_startup_prompt "karo")
-    [ -n "$result" ]
-    [[ "$result" == "[Session Title: Karo's pane] Karo — Session Start"* ]]
-    [[ "$result" == *"instructions/generated/opencode-karo.md"* ]]
+    [ -z "$result" ]
 }
 
-@test "get_startup_prompt: opencode gunshi → role-prefixed Session Start prompt" {
+@test "get_startup_prompt: opencode gunshi → empty (uses --agent, no prompt needed)" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     result=$(get_startup_prompt "gunshi")
-    [ -n "$result" ]
-    [[ "$result" == "[Session Title: Gunshi's pane] Gunshi — Session Start"* ]]
-    [[ "$result" == *"instructions/generated/opencode-gunshi.md"* ]]
+    [ -z "$result" ]
 }
 
-@test "get_startup_prompt: opencode ashigaru1 → role-prefixed Session Start prompt" {
+@test "get_startup_prompt: opencode ashigaru1 → empty (uses --agent, no prompt needed)" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     result=$(get_startup_prompt "ashigaru1")
-    [ -n "$result" ]
-    [[ "$result" == "[Session Title: Ashigaru1's pane] Ashigaru1 — Session Start"* ]]
-    [[ "$result" == *"instructions/generated/opencode-ashigaru.md"* ]]
+    [ -z "$result" ]
 }
 
 # =============================================================================
@@ -579,12 +552,10 @@ load_adapter_with() {
     [[ "$result" == *"Session Start"* ]]
 }
 
-@test "get_startup_prompt_arg: opencode → --prompt flag" {
+@test "get_startup_prompt_arg: opencode → empty (uses --agent instead)" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     result=$(get_startup_prompt_arg "shogun")
-    [[ "$result" == --prompt* ]]
-    [[ "$result" == *"Session Start"* ]]
-    [[ "$result" == *"instructions/generated/opencode-shogun.md"* ]]
+    [[ "$result" == "" ]]
 }
 
 # =============================================================================
