@@ -540,9 +540,8 @@ send_cli_command() {
                 sleep 0.3
                 timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
                 sleep 3
-                 send_startup_prompt
-                 NEW_CONTEXT_SENT=1
-                 return 0
+                NEW_CONTEXT_SENT=1
+                return 0
              fi
             if [[ "$cmd" == /model* ]]; then
                 echo "[$(date)] Skipping $cmd (OpenCode model changes are restart-only)" >&2
@@ -688,8 +687,11 @@ send_context_reset() {
         sleep 0.3
         timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
         sleep 3
-        # Wait for idle + send startup prompt via shared helper
-        send_startup_prompt
+        # Codex: send startup prompt (agent has no auto-loaded instructions).
+        # OpenCode: skip — agent definition is auto-loaded via --agent flag.
+        if [[ "$effective_cli" == "codex" ]]; then
+            send_startup_prompt
+        fi
         return 0
     fi
 
