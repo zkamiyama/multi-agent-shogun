@@ -136,7 +136,7 @@ bash shutsujin_departure.sh                # 全エージェント起動
 | **Kimi Code**      | 無料プランあり、多言語サポート                                                                                                                                                                     | Kimi k2           |
 | **OpenCode**       | `AGENTS.md` 自動読込、ロール別ブートストラップ、`--prompt` 起動プロンプト、`/new` でのコンテキストリセット、モデル変更は再起動のみ、決定的な対話型 TUI 起動、`--model provider/model` ルーティング | provider/model    |
 
-OpenCode の起動はロール別ファイルを読み込み、リセットは `/new`、モデル変更は再起動で行う。
+OpenCode の起動はロール別ファイルを読み込み、リセットは `/new`、モデル変更は再起動で行う。`OPENCODE_CONFIG_CONTENT` はロール別の境界を強制し、将軍は `queue/reports/*` を直接扱えず、家老は分配と報告集約のみ、足軽は自分の task/report のみ、軍師は `gunshi_report.yaml` と足軽レポートを読む。
 
 統一ビルドシステムが共有テンプレートからCLI固有の指示書を自動生成：
 

@@ -503,10 +503,11 @@ MOCK
     '
     [ "$status" -eq 0 ]
 
-    [ "$(grep -c "send-keys.*Escape" "$MOCK_LOG")" -eq 2 ]
+    # /clear is converted to /new — no Escape or C-c sent (function removed)
     grep -q "send-keys.*/new" "$MOCK_LOG"
     ! grep -q "send-keys.*/clear" "$MOCK_LOG"
-    [ "$(grep -c "send-keys.*C-c" "$MOCK_LOG")" -eq 1 ]
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-c" "$MOCK_LOG"
 }
 
 # --- T-OPENCODE-002: opencode /model → skip with restart-only note ---
@@ -717,9 +718,9 @@ PY
     grep -q "send-keys.*Session Start" "$MOCK_LOG"
 }
 
-# --- T-OPENCODE-003: visible OpenCode pane uses double Escape + single Ctrl-C ---
+# --- T-OPENCODE-003: Phase 2 sends Escape×2 + nudge for all CLIs ---
 
-@test "T-OPENCODE-003: send_wakeup_with_escape uses double Escape and one C-c when text is visible" {
+@test "T-OPENCODE-003: send_wakeup_with_escape sends Escape×2 + nudge for OpenCode" {
     run bash -c '
         MOCK_CAPTURE_PANE="first line\nsecond line\nthird line\n"
         MOCK_PANE_CLI="opencode"
@@ -729,42 +730,9 @@ PY
     '
     [ "$status" -eq 0 ]
 
-    [ "$(grep -c "send-keys.*Escape" "$MOCK_LOG")" -eq 2 ]
+    # Escape Escape sent in a single send-keys call (1 log line with both)
+    grep -q "send-keys.*Escape.*Escape" "$MOCK_LOG"
     grep -q "send-keys.*inbox3" "$MOCK_LOG"
-    ! grep -q "send-keys.*C-u" "$MOCK_LOG"
-    [ "$(grep -c "send-keys.*C-c" "$MOCK_LOG")" -eq 1 ]
-}
-
-# --- T-OPENCODE-004: visible multi-line input clears when pane has text ---
-
-@test "T-OPENCODE-004: opencode_prepare_input_reset clears visible multi-line input when pane has text" {
-    run bash -c '
-        MOCK_CAPTURE_PANE="first line\nsecond line\nthird line\n"
-        MOCK_PANE_CLI="opencode"
-        source "'"$TEST_HARNESS"'"
-        opencode_prepare_input_reset "opencode"
-    '
-    [ "$status" -eq 0 ]
-
-    [ "$(grep -c "send-keys.*Escape" "$MOCK_LOG")" -eq 2 ]
-    [ "$(grep -c "send-keys.*C-c" "$MOCK_LOG")" -eq 1 ]
-    ! grep -q "send-keys.*C-u" "$MOCK_LOG"
-}
-
-# --- T-OPENCODE-005: empty OpenCode pane skips Ctrl-C ---
-
-@test "T-OPENCODE-005: opencode_prepare_input_reset skips Ctrl-C on empty pane" {
-    run bash -c '
-        MOCK_CAPTURE_PANE="\n\n\n"
-        MOCK_PANE_CLI="opencode"
-        source "'"$TEST_HARNESS"'"
-        opencode_prepare_input_reset "opencode"
-    '
-    [ "$status" -eq 0 ]
-
-    [ "$(grep -c "send-keys.*Escape" "$MOCK_LOG")" -eq 2 ]
-    ! grep -q "send-keys.*C-c" "$MOCK_LOG"
-    ! grep -q "send-keys.*C-u" "$MOCK_LOG"
 }
 
 # --- T-CODEX-012: auto-recovery dedupe ---
@@ -1286,8 +1254,10 @@ YAML
     '
     [ "$status" -eq 0 ]
 
-    grep -q "send-keys.*Escape" "$MOCK_LOG"
+    # C-u for input clear, then /new — no Escape (function removed)
+    grep -q "send-keys.*C-u" "$MOCK_LOG"
     grep -q "send-keys.*/new" "$MOCK_LOG"
     ! grep -q "send-keys.*/clear" "$MOCK_LOG"
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
     ! grep -q "send-keys.*C-c" "$MOCK_LOG"
 }

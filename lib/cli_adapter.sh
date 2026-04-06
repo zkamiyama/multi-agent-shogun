@@ -101,6 +101,79 @@ _cli_adapter_shell_quote() {
     "$CLI_ADAPTER_PROJECT_ROOT/.venv/bin/python3" -c 'import shlex, sys; print(shlex.quote(sys.argv[1]))' "$value"
 }
 
+# _cli_adapter_opencode_config_content(agent_id)
+# OpenCode向けの role-specific permission JSON を生成する。
+_cli_adapter_opencode_config_content() {
+    local agent_id="$1"
+
+    "$CLI_ADAPTER_PROJECT_ROOT/.venv/bin/python3" - "$CLI_ADAPTER_PROJECT_ROOT/config/opencode-permissions.yaml" "$agent_id" <<'PY'
+import copy
+import json
+import sys
+
+import yaml
+
+permissions_file = sys.argv[1]
+agent_id = sys.argv[2]
+
+def role_for_agent(agent_id: str) -> str:
+    if agent_id.startswith('ashigaru'):
+        return 'ashigaru'
+    if agent_id in {'shogun', 'karo', 'gunshi'}:
+        return agent_id
+    return ''
+
+def expand(pattern: str) -> str:
+    return pattern.replace('{agent_id}', agent_id)
+
+def build_rule(deny_patterns, allow_patterns):
+    deny = []
+    allow = []
+    seen = set()
+
+    for pattern in deny_patterns or []:
+        expanded = expand(pattern)
+        if expanded not in seen:
+            seen.add(expanded)
+            deny.append(expanded)
+
+    for pattern in allow_patterns or []:
+        expanded = expand(pattern)
+        if expanded not in seen:
+            seen.add(expanded)
+            allow.append(expanded)
+
+    rule = {'*': 'deny'}
+    for pattern in deny:
+        rule[pattern] = 'deny'
+    for pattern in allow:
+        rule[pattern] = 'allow'
+    return rule
+
+with open(permissions_file, encoding='utf-8') as fh:
+    config = yaml.safe_load(fh) or {}
+
+role = role_for_agent(agent_id)
+roles = config.get('roles') or {}
+role_cfg = roles.get(role) or {}
+
+common_edit_deny = list((config.get('common') or {}).get('edit_deny') or [])
+read_rule = build_rule(role_cfg.get('read_deny'), role_cfg.get('read_allow'))
+edit_rule = build_rule(common_edit_deny + list(role_cfg.get('edit_deny') or []), role_cfg.get('edit_allow'))
+
+permission = {
+    '*': 'allow',
+    'question': role_cfg.get('question', 'deny'),
+    'read': read_rule,
+    'edit': edit_rule,
+    'list': copy.deepcopy(read_rule),
+    'glob': copy.deepcopy(read_rule),
+}
+
+print(json.dumps({'permission': permission}, separators=(',', ':')))
+PY
+}
+
 # _cli_adapter_is_valid_cli cli_type
 # 許可されたCLI種別かチェック
 _cli_adapter_is_valid_cli() {
@@ -210,15 +283,9 @@ build_cli_command() {
             local normalized_model
             local tui_config_path
             local permission_config
-            local permission_json
             normalized_model=$(normalize_opencode_model "$model")
             tui_config_path=$(_cli_adapter_shell_quote "$CLI_ADAPTER_PROJECT_ROOT/config/opencode-tui.json")
-            if [[ "$agent_id" == "shogun" ]]; then
-                permission_json='{"permission":{"*":"allow","edit":{"*":"allow","queue/inbox/*":"deny"},"question":"allow"}}'
-            else
-                permission_json='{"permission":{"*":"allow","edit":{"*":"allow","queue/inbox/*":"deny"},"question":"deny"}}'
-            fi
-            permission_config=$(_cli_adapter_shell_quote "$permission_json")
+            permission_config=$(_cli_adapter_shell_quote "$(_cli_adapter_opencode_config_content "$agent_id")")
             cmd="opencode"
             if [[ -n "$normalized_model" ]]; then
                 cmd="$cmd --model $normalized_model"

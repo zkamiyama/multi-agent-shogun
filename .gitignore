@@ -73,6 +73,7 @@
 !config/
 !config/ntfy_auth.env.sample
 !config/opencode-tui.json
+!config/opencode-permissions.yaml
 
 # Templates
 !templates/

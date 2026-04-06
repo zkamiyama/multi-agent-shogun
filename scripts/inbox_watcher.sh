@@ -536,7 +536,6 @@ send_cli_command() {
                     return 0
                 fi
                 echo "[$(date)] [SEND-KEYS] OpenCode /clear→/new: starting new conversation for $AGENT_ID" >&2
-                opencode_prepare_input_reset "$effective_cli"
                 timeout 5 tmux send-keys -t "$PANE_TARGET" "/new" 2>/dev/null || true
                 sleep 0.3
                 timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
@@ -573,9 +572,7 @@ send_cli_command() {
     echo "[$(date)] [SEND-KEYS] Sending CLI command to $AGENT_ID ($effective_cli): $actual_cmd" >&2
     # Clear stale input first, then send command (text and Enter separated for Codex TUI)
     # Codex CLI: C-c when idle causes CLI to exit — skip it
-    if [[ "$effective_cli" == "opencode" ]]; then
-        opencode_prepare_input_reset "$effective_cli"
-    elif [[ "$effective_cli" != "codex" ]]; then
+    if [[ "$effective_cli" != "codex" ]]; then
         timeout 5 tmux send-keys -t "$PANE_TARGET" C-c 2>/dev/null || true
         sleep 0.5
     fi
@@ -604,7 +601,7 @@ send_cli_command() {
 # ─── Send startup prompt after context reset ───
 # Waits for agent to become idle, then sends a startup prompt that includes
 # full recovery steps (identify, read task YAML, read inbox, start work).
-# Codex uses a typed `x` to dismiss its suggestion UI; OpenCode uses Escape.
+# Codex uses a typed `x` to dismiss its suggestion UI.
 # Called from both send_cli_command (clear_command) and send_context_reset.
 send_startup_prompt() {
     # Poll until agent becomes idle (prompt ready) instead of fixed sleep.
@@ -651,35 +648,6 @@ send_startup_prompt() {
 # stale context from the previous task.
 # CLI mapping: claude→/clear, codex→/new, opencode→/new, copilot→/clear, kimi→/clear
 
-# OpenCode safety helper: double-Escape cancels the current mode/stream, and
-# a single Ctrl-C clears visible prompt text. Never send Ctrl-C on an empty prompt.
-opencode_prepare_input_reset() {
-    local cli_type="${1:-$(get_effective_cli_type)}"
-
-    if [[ "$cli_type" != "opencode" ]]; then
-        return 0
-    fi
-
-    timeout 5 tmux send-keys -t "$PANE_TARGET" Escape 2>/dev/null || true
-    sleep 0.2
-    timeout 5 tmux send-keys -t "$PANE_TARGET" Escape 2>/dev/null || true
-    sleep 0.3
-
-    local pane_capture
-    pane_capture=$(timeout 3 tmux capture-pane -t "$PANE_TARGET" -p 2>/dev/null || true)
-    if [ -z "$pane_capture" ]; then
-        return 0
-    fi
-
-    # If nothing visible remains, do not send Ctrl-C — empty OpenCode exits.
-    if ! printf '%s' "$pane_capture" | grep -q '[^[:space:]]'; then
-        return 0
-    fi
-
-    timeout 5 tmux send-keys -t "$PANE_TARGET" C-c 2>/dev/null || true
-    sleep 0.5
-}
-
 send_context_reset() {
     local effective_cli
     effective_cli=$(get_effective_cli_type)
@@ -709,15 +677,13 @@ send_context_reset() {
     # When called from clear_command path, NEW_CONTEXT_SENT=1 prevents reaching here.
     # When called for standalone task_assigned, this is the only /new send.
     if [[ "$effective_cli" == "codex" || "$effective_cli" == "opencode" ]]; then
-        # Dismiss suggestion UI + send /new
-        if [[ "$effective_cli" != "opencode" ]]; then
+        # Dismiss suggestion UI (Codex only) + send /new
+        if [[ "$effective_cli" == "codex" ]]; then
             timeout 5 tmux send-keys -t "$PANE_TARGET" "x" 2>/dev/null || true
             sleep 0.3
-            timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
-            sleep 0.3
-        else
-            opencode_prepare_input_reset "$effective_cli"
         fi
+        timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
+        sleep 0.3
         timeout 5 tmux send-keys -t "$PANE_TARGET" "/new" 2>/dev/null || true
         sleep 0.3
         timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
@@ -888,13 +854,9 @@ send_wakeup() {
     local max_retries=2
     local attempt=0
     while [ $attempt -le $max_retries ]; do
-        if [[ "$effective_cli_for_nudge" == "opencode" ]]; then
-            opencode_prepare_input_reset "$effective_cli_for_nudge"
-        else
-            # C-u で行をクリア
-            timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
-            sleep 0.3
-        fi
+        # C-u で行をクリア
+        timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
+        sleep 0.3
         # nudge 送信
         if ! timeout 5 tmux send-keys -t "$PANE_TARGET" "$nudge" 2>/dev/null; then
             echo "[$(date)] WARNING: send-keys nudge failed for $AGENT_ID (attempt $((attempt+1)))" >&2
@@ -916,12 +878,8 @@ send_wakeup() {
         if echo "$pane_content" | grep -qF "$nudge"; then
             # nudgeテキストが残存 → 送信失敗 → クリアしてリトライ
             echo "[$(date)] WARNING: nudge text still visible in pane, retrying (attempt $((attempt+1)))" >&2
-            if [[ "$effective_cli_for_nudge" == "opencode" ]]; then
-                opencode_prepare_input_reset "$effective_cli_for_nudge"
-            else
-                timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
-                sleep 0.3
-            fi
+            timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
+            sleep 0.3
             attempt=$((attempt+1))
             continue
         fi
@@ -984,13 +942,9 @@ send_wakeup_with_escape() {
     fi
 
     echo "[$(date)] [SEND-KEYS] ESCALATION Phase 2: Escape×2 + nudge for $AGENT_ID (cli=$effective_cli)" >&2
-    # Escape×2 to exit any mode; OpenCode clears with the double input-clear helper.
-    if [[ "$effective_cli" == "opencode" ]]; then
-        opencode_prepare_input_reset "$effective_cli"
-    else
-        timeout 5 tmux send-keys -t "$PANE_TARGET" Escape Escape 2>/dev/null || true
-        sleep 0.5
-    fi
+    # Escape×2 to exit any mode.
+    timeout 5 tmux send-keys -t "$PANE_TARGET" Escape Escape 2>/dev/null || true
+    sleep 0.5
     if timeout 5 tmux send-keys -t "$PANE_TARGET" "$nudge" 2>/dev/null; then
         sleep 0.3
         timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
@@ -1029,8 +983,6 @@ process_unread() {
             # Shogun: only clear input when pane is not active (Lord is away)
             if [ "$AGENT_ID" = "shogun" ] && pane_is_active; then
                 : # Lord may be typing — skip C-u
-            elif [ "$effective_cli" = "opencode" ]; then
-                opencode_prepare_input_reset "$effective_cli"
             else
                 timeout 2 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
             fi

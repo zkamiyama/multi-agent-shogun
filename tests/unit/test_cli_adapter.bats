@@ -351,31 +351,63 @@ load_adapter_with() {
     [ "$result" = "kimi --yolo --model k2.5" ]
 }
 
-@test "build_cli_command: opencode explicit provider/model → pinned tui config + shogun question allow config + opencode --model openai/gpt-5.4-mini" {
+@test "build_cli_command: opencode shogun → pinned tui config + report deny + question allow" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     expected_prompt_arg=$(get_startup_prompt_arg "shogun")
     result=$(build_cli_command "shogun")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
-    expected_prefix=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/inbox/*":"deny"},"question":"allow"}}')
-    [ "$result" = "OPENCODE_TUI_CONFIG=$expected_tui_config OPENCODE_CONFIG_CONTENT=$expected_prefix opencode --model openai/gpt-5.4-mini $expected_prompt_arg" ]
+    [[ "$result" == "OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
+    [[ "$result" == *'opencode --model openai/gpt-5.4-mini '* ]]
+    [[ "$result" == *"$expected_prompt_arg" ]]
+    [[ "$result" == *'"question":"allow"'* ]]
+    [[ "$result" == *'"queue/reports/*":"deny"'* ]]
+    [[ "$result" == *'"queue/shogun_to_karo.yaml":"allow"'* ]]
+    [[ "$result" == *'"queue/ntfy_inbox.yaml":"allow"'* ]]
 }
 
-@test "build_cli_command: opencode shorthand gpt-5.4 → pinned tui config + deny question config + provider/model" {
+@test "build_cli_command: opencode karo → pinned tui config + report allow + question deny" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     expected_prompt_arg=$(get_startup_prompt_arg "karo")
     result=$(build_cli_command "karo")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
-    expected_prefix=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/inbox/*":"deny"},"question":"deny"}}')
-    [ "$result" = "OPENCODE_TUI_CONFIG=$expected_tui_config OPENCODE_CONFIG_CONTENT=$expected_prefix opencode --model openai/gpt-5.4 $expected_prompt_arg" ]
+    [[ "$result" == "OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
+    [[ "$result" == *'opencode --model openai/gpt-5.4 '* ]]
+    [[ "$result" == *"$expected_prompt_arg" ]]
+    [[ "$result" == *'"question":"deny"'* ]]
+    [[ "$result" == *'"queue/reports/*":"deny"'* ]]
+    [[ "$result" == *'"queue/reports/ashigaru*_report.yaml":"allow"'* ]]
+    [[ "$result" == *'"queue/reports/gunshi_report.yaml":"allow"'* ]]
+    [[ "$result" == *'"queue/tasks/ashigaru*.yaml":"allow"'* ]]
 }
 
-@test "build_cli_command: opencode shorthand k2.5 → pinned tui config + deny question config + moonshot/kimi-k2.5" {
+@test "build_cli_command: opencode ashigaru → pinned tui config + own task/report only" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     expected_prompt_arg=$(get_startup_prompt_arg "ashigaru1")
     result=$(build_cli_command "ashigaru1")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
-    expected_prefix=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/inbox/*":"deny"},"question":"deny"}}')
-    [ "$result" = "OPENCODE_TUI_CONFIG=$expected_tui_config OPENCODE_CONFIG_CONTENT=$expected_prefix opencode --model moonshot/kimi-k2.5 $expected_prompt_arg" ]
+    [[ "$result" == "OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
+    [[ "$result" == *'opencode --model moonshot/kimi-k2.5 '* ]]
+    [[ "$result" == *"$expected_prompt_arg" ]]
+    [[ "$result" == *'"question":"deny"'* ]]
+    [[ "$result" == *'"queue/reports/*":"deny"'* ]]
+    [[ "$result" == *'"queue/tasks/ashigaru1.yaml":"allow"'* ]]
+    [[ "$result" == *'"queue/reports/ashigaru1_report.yaml":"allow"'* ]]
+    [[ "$result" == *'"queue/shogun_to_karo.yaml":"allow"'* ]]
+}
+
+@test "build_cli_command: opencode gunshi → pinned tui config + read ashigaru reports only" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    expected_prompt_arg=$(get_startup_prompt_arg "gunshi")
+    result=$(build_cli_command "gunshi")
+    expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
+    [[ "$result" == "OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
+    [[ "$result" == *'opencode --model anthropic/claude-opus-4-6 '* ]]
+    [[ "$result" == *"$expected_prompt_arg" ]]
+    [[ "$result" == *'"question":"deny"'* ]]
+    [[ "$result" == *'"queue/reports/ashigaru*_report.yaml":"allow"'* ]]
+    [[ "$result" == *'"queue/reports/gunshi_report.yaml":"allow"'* ]]
+    [[ "$result" == *'"queue/tasks/ashigaru*.yaml":"deny"'* ]]
+    [[ "$result" == *'"queue/shogun_to_karo.yaml":"deny"'* ]]
 }
 
 @test "build_cli_command: opencode deterministic output" {
@@ -384,15 +416,17 @@ load_adapter_with() {
     first=$(build_cli_command "ashigaru3")
     second=$(build_cli_command "ashigaru3")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
-    expected_prefix=$(_cli_adapter_shell_quote '{"permission":{"*":"allow","edit":{"*":"allow","queue/inbox/*":"deny"},"question":"deny"}}')
-    [ "$first" = "$second" ]
-    [ "$first" = "OPENCODE_TUI_CONFIG=$expected_tui_config OPENCODE_CONFIG_CONTENT=$expected_prefix opencode --model anthropic/claude-sonnet-4-6 $expected_prompt_arg" ]
+    [[ "$first" == "$second" ]]
+    [[ "$first" == "OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
+    [[ "$first" == *'opencode --model anthropic/claude-sonnet-4-6 '* ]]
+    [[ "$first" == *"$expected_prompt_arg" ]]
+    [[ "$first" == *'"question":"deny"'* ]]
 }
 
 @test "opencode tui config pins app_exit and keybinds" {
     grep -q '"app_exit": "none"' "${PROJECT_ROOT}/config/opencode-tui.json"
     grep -q '"session_interrupt": "escape"' "${PROJECT_ROOT}/config/opencode-tui.json"
-    grep -q '"input_clear": "ctrl+c"' "${PROJECT_ROOT}/config/opencode-tui.json"
+    grep -q '"input_clear": "ctrl+c, ctrl+u"' "${PROJECT_ROOT}/config/opencode-tui.json"
 }
 
 @test "build_cli_command: cliセクションなし → claude フォールバック" {

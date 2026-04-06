@@ -691,7 +691,7 @@ This section describes OpenCode-specific tools, rules loading, and session-contr
 
 OpenCode starts the TUI by default with `opencode`, can run headless work with `opencode run`, and accepts an initial bootstrap message via `--prompt` on both interactive and run flows.
 
-- **Launch**: `OPENCODE_CONFIG_CONTENT='{"permission":"allow"}' opencode --model provider/model --prompt <bootstrap-prompt>`
+- **Launch**: `OPENCODE_CONFIG_CONTENT='<role-specific permission JSON>' opencode --model provider/model --prompt <bootstrap-prompt>`
 - **Headless mode**: `opencode run [message...]` for non-interactive automation
 - **Model format**: `provider/model` such as `openai/gpt-5.4` or `moonshot/kimi-k2.5`
 - **Stats**: `opencode stats` shows token usage and cost statistics
@@ -705,7 +705,7 @@ Guidelines:
 1. **Read before edit**: inspect relevant files before changing them
 2. **Use focused tools**: prefer `read`/`grep`/`glob` over shelling out for routine inspection
 3. **Use `skill` for reusable workflows**: OpenCode loads `SKILL.md` definitions on demand
-4. **Permissions in this repo**: OpenCode launches with a repo-pinned `OPENCODE_CONFIG_CONTENT` that allows normal tool use but denies direct writes to queue/instruction auto-load files; keep those files edited only through the repository scripts. The `question` tool is allowed only for the Shogun role; other roles have it denied so they do not stall on interactive prompts
+4. **Permissions in this repo**: OpenCode launches with a repo-pinned `OPENCODE_CONFIG_CONTENT` that encodes role-specific file boundaries. Shogun is blocked from `queue/reports/*`, Karo is limited to coordination files plus report aggregation, Ashigaru only touch their own task/report pair, and Gunshi reads ashigaru reports but only writes `gunshi_report.yaml`. The `question` tool is allowed only for the Shogun role; other roles have it denied so they do not stall on interactive prompts
 5. **Session titles**: the bootstrap prompt starts with `[Session Title: <Role>'s pane]` so OpenCode's auto-generated session title stays role-identifiable and unmistakable
 6. **tmux key handling**: use the repository-provided `config/opencode-tui.json` via `OPENCODE_TUI_CONFIG` so tmux automation sees stable keybinds
 7. **Keybind policy**: `app_exit` is disabled in that file, `session_interrupt` is `escape`, and `input_clear` is `ctrl+c`; do not rely on global user keybinds for these actions
