@@ -755,6 +755,13 @@ Guidelines:
 2. **Use focused tools**: prefer `read`/`grep`/`glob` over shelling out for routine inspection.
 3. **Use `skill` for reusable workflows**: load the matching `SKILL.md` when a task maps to an existing skill.
 4. **Prefer dedicated agents**: if a task fits a specialized OpenCode agent definition, select that agent instead of stretching the current prompt.
+5. **No-pretend rule (all OpenCode agents)**:
+   - Files, queues, and processes only change via tools (`read`/`write`/`edit`/`apply_patch`/`bash`, etc.), not by narrative.
+   - If your answer says you "updated" a file, "changed" a status, or "ran" a script, you **must** have actually invoked the corresponding tool in this turn and it must have completed without error.
+   - Do not describe fictitious tool calls or state changes. Once you have indicated that you have started working on a cmd or task, you must not end the turn with "plan only" and zero tool calls. For any cmd with `status: in_progress` or task with `status: assigned`, each turn must either:
+     - execute at least one concrete tool call that moves that cmd/task forward (YAML update, code/doc change, inbox_write, report write, etc.), or
+     - report a specific blocker (missing permissions, missing files, failing command, etc.) and state explicitly that there is no progress in this turn (do not pretend progress was made).
+   - If your role forbids a given operation (for example, Shogun executing project tasks directly), do not claim to have done it; delegate according to AGENTS.md and describe only what was actually executed.
 
 ## Custom Instructions
 
