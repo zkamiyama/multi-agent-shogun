@@ -557,14 +557,21 @@ The shared protocol requires processed inbox entries to be marked as read.
 
 In this environment, do not satisfy that requirement by directly editing `queue/inbox/*.yaml`.
 
-For `queue/inbox/*.yaml`, treat direct `edit` as forbidden even if other prompt layers describe inbox read-marking as an edit step.
+For `queue/inbox/*.yaml`, direct `edit` is forbidden even if another prompt layer describes inbox read-marking as an edit step.
 
-Use the dedicated inbox state update tool instead (for example `.opencode/tools/mark-as-read.ts`) when marking a processed entry from `read: false` to `read: true`.
+Mark processed inbox entries as read only via the dedicated inbox state update tool (for example `.opencode/tools/mark_as_read.ts`).
 
 Do not rewrite, reorder, or reformat inbox YAML.
 Do not use broad text edits to satisfy inbox state transitions.
 
-If the dedicated tool is unavailable or fails, report a blocker instead of editing the inbox file directly.
+Inbox read-marking is a maintenance state update, not the main work product.
+
+If the dedicated tool call fails:
+
+- do not edit the inbox file directly
+- continue the main assigned work if it is otherwise unblocked
+- report that inbox read-marking is still pending as a follow-up state update
+- treat this as the main blocker only when the current task is specifically inbox-state maintenance
 
 ## Tool usage
 
