@@ -269,11 +269,13 @@ setup() {
 }
 
 @test "opencode-agent: ashigaru1 read permissions allow own inbox/report/task [R6]" {
-    "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+    PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
 from pathlib import Path
+import os
 import yaml
 
-text = Path("/home/nanashi/repo/multi-agent-shogun/.opencode/agents/ashigaru1.md").read_text(encoding="utf-8")
+project_root = Path(os.environ["PROJECT_ROOT"])
+text = (project_root / ".opencode/agents/ashigaru1.md").read_text(encoding="utf-8")
 parts = text.split("---", 2)
 frontmatter = yaml.safe_load(parts[1])
 perm = frontmatter["permission"]
@@ -289,11 +291,12 @@ PYEOF
 }
 
 @test "opencode-agent: inbox edits are denied for every role [R6]" {
-    "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+    PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
 from pathlib import Path
+import os
 import yaml
 
-agents_dir = Path("/home/nanashi/repo/multi-agent-shogun/.opencode/agents")
+agents_dir = Path(os.environ["PROJECT_ROOT"]) / ".opencode/agents"
 for path in sorted(agents_dir.glob("*.md")):
     text = path.read_text(encoding="utf-8")
     frontmatter = yaml.safe_load(text.split("---", 2)[1])
@@ -308,12 +311,14 @@ PYEOF
 }
 
 @test "opencode-config: root edit permissions deny inbox YAML [R6]" {
-    "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+    PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
 from pathlib import Path
-import json
+import os
+import yaml
 
-config = json.loads(Path("/home/nanashi/repo/multi-agent-shogun/opencode.json").read_text(encoding="utf-8"))
-assert config["permission"]["edit"]["queue/inbox/*.yaml"] == "deny"
+config = yaml.safe_load((Path(os.environ["PROJECT_ROOT"]) / "config/opencode-permissions.yaml").read_text(encoding="utf-8"))
+assert config["common"]["edit_deny"]
+assert "queue/inbox/*.yaml" in config["common"]["edit_deny"]
 PYEOF
 }
 

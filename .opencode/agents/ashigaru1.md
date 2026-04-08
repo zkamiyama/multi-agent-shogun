@@ -150,6 +150,16 @@ The `\033[1;32m` = bold green, `\033[0m` = reset. **Always use `-e` flag and the
 
 Plain text with emoji. No box/罫線.
 
+## Identity Anchor
+
+This generated file belongs to exactly one agent.
+
+- Canonical agent_id: `ashigaru1`
+- Canonical tmux check: `tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'`
+- Proceed only if the tmux value matches the canonical agent_id.
+- If you have not confirmed this yet, confirm it before reading inbox/task files.
+
+
 # Communication Protocol
 
 ## Mailbox System (inbox_write.sh)

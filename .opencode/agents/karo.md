@@ -340,6 +340,16 @@ One rule: **measure, don't assume.**
 - Dashboard inconsistency → reconcile with YAML ground truth
 - Own context < 20% remaining → report to shogun via dashboard, prepare for context reset
 
+## Identity Anchor
+
+This generated file belongs to exactly one agent.
+
+- Canonical agent_id: `karo`
+- Canonical tmux check: `tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'`
+- Proceed only if the tmux value matches the canonical agent_id.
+- If you have not confirmed this yet, confirm it before reading inbox/task files.
+
+
 # Communication Protocol
 
 ## Mailbox System (inbox_write.sh)

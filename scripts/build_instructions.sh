@@ -17,6 +17,10 @@ mkdir -p "$OUTPUT_DIR"
 echo "=== Instruction File Build System ==="
 echo "Building instruction files..."
 
+# Function: opencode_build_python
+# Description: Returns the Python interpreter used for build-time YAML parsing.
+# Arguments: none
+# Returns: path to python3 on success, 1 on error
 opencode_build_python() {
     if [[ -x "$ROOT_DIR/.venv/bin/python3" ]]; then
         echo "$ROOT_DIR/.venv/bin/python3"
@@ -27,6 +31,10 @@ opencode_build_python() {
     fi
 }
 
+# Function: get_build_ashigaru_ids
+# Description: Returns ashigaru agent IDs discovered from settings.yaml or queue/task files.
+# Arguments: none
+# Returns: space-separated ashigaru IDs on success, fallback list otherwise
 get_build_ashigaru_ids() {
     local settings_file="$ROOT_DIR/config/settings.yaml"
     local python_bin
@@ -314,6 +322,10 @@ EOFYAML
 # expanded from config/opencode-permissions.yaml at build time
 # so that OPENCODE_CONFIG_CONTENT is no longer needed at launch.
 
+# Function: generate_opencode_agents
+# Description: Generates .opencode/agents/*.md files with role frontmatter and OpenCode-specific rules.
+# Arguments: none
+# Returns: 0 on success, 1 if generation is skipped or unavailable
 generate_opencode_agents() {
     local agents_dir="$ROOT_DIR/.opencode/agents"
     local permissions_file="$ROOT_DIR/config/opencode-permissions.yaml"
@@ -446,6 +458,19 @@ FRONTMATTER
         # Append role-specific content (same pipeline as build_instruction_file)
         {
             cat "$PARTS_DIR/roles/${role}_role.md"
+
+            echo ""
+            cat <<EOF
+## Identity Anchor
+
+This generated file belongs to exactly one agent.
+
+- Canonical agent_id: \`${agent_id}\`
+- Canonical tmux check: \`tmux display-message -t "\$TMUX_PANE" -p '#{@agent_id}'\`
+- Proceed only if the tmux value matches the canonical agent_id.
+- If you have not confirmed this yet, confirm it before reading inbox/task files.
+
+EOF
 
             # Append common sections
             echo ""

@@ -191,7 +191,7 @@ build_cli_command() {
     # thinking: true or 未設定 → そのまま（デフォルトでThinking ON）
     # thinking: false → MAX_THINKING_TOKENS=0 を先頭に付与
     local prefix=""
-    if [[ "$cli_type" == "claude" && "$thinking" == "false" || "$thinking" == "False" ]]; then
+    if [[ "$cli_type" == "claude" ]] && [[ "$thinking" == "false" || "$thinking" == "False" ]]; then
         prefix="MAX_THINKING_TOKENS=0 "
     fi
 
