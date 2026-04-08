@@ -7,6 +7,7 @@ permission:
   '*': allow
   edit: &id002
     .github/copilot-instructions.md: deny
+    .opencode/agents/*.md: deny
     AGENTS.md: deny
     agents/default/agent.yaml: deny
     agents/default/system.md: deny
@@ -403,7 +404,7 @@ Read-cost controls:
 | Elapsed | Action | Trigger |
 |---------|--------|---------|
 | 0〜2 min | Standard pty nudge | Normal delivery |
-| 2〜4 min | Escape×2 + recovery nudge | Copilot/Kimi use Escape×2 + Ctrl-C + nudge. Claude/Codex/OpenCode fall back to a plain nudge for safety |
+| 2〜4 min | Escape×2 + recovery nudge | Copilot/Kimi use Escape×2 + Ctrl-C + nudge. Claude/Codex/OpenCode use a plain nudge instead |
 | 4 min+ | Context reset sent (max once per 5 min, skipped for Codex) | Force session reset + YAML re-read |
 
 ## Inbox Processing Protocol (karo/ashigaru/gunshi)

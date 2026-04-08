@@ -8,6 +8,7 @@ common:
   edit_deny:
     - AGENTS.md
     - .github/copilot-instructions.md
+    - .opencode/agents/*.md
     - agents/default/agent.yaml
     - agents/default/system.md
     - config/opencode-permissions.yaml

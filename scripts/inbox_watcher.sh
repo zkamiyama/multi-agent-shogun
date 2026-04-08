@@ -17,7 +17,7 @@
 # エスカレーション（未読メッセージが放置されている場合）:
 #   0〜2分: 通常nudge（send-keys）。ただしWorking中はスキップ
 #   2〜4分: Copilot/Kimi は Escape×2 + Ctrl-C + nudge。
-#            Claude/Codex/OpenCode は安全のため通常nudgeへフォールバック
+#            Claude/Codex/OpenCode は通常nudgeへフォールバック
 #   4分〜 : /clear送信（5分に1回まで。強制リセット+YAML再読）
 # ═══════════════════════════════════════════════════════════════
 
@@ -56,7 +56,7 @@ if [ "${__INBOX_WATCHER_TESTING__:-}" != "1" ]; then
         echo "[$(date)] Created initial idle flag for $AGENT_ID (CLI starts idle)" >&2
     fi
 
-    # Source cli_adapter for get_startup_prompt() (Codex uses startup prompt after /new)
+    # Source cli_adapter for get_startup_prompt() (Codex needs startup prompt after /new)
     _cli_adapter="${SCRIPT_DIR}/lib/cli_adapter.sh"
     if [ -f "$_cli_adapter" ]; then
         source "$_cli_adapter"
@@ -457,7 +457,7 @@ PY
 # ─── Send CLI command via pty direct write ───
 # For /clear and /model only. These are CLI commands, not conversation messages.
 # CLI_TYPE別分岐: claude→そのまま, codex→/clear対応・/modelスキップ,
-#                  copilot→Ctrl-C+再起動・/modelスキップ, opencode→Ctrl-C禁止・OpenCode既定挙動
+#                  copilot→Ctrl-C+再起動・/modelスキップ, opencode→/clear→/new・/modelスキップ
 # 実行時にtmux paneの @agent_cli を再確認し、ドリフト時はpane値を優先する。
 send_cli_command() {
     local cmd="$1"
@@ -520,7 +520,7 @@ send_cli_command() {
                 timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
                 sleep 3
                 # Send startup prompt immediately (don't defer to context-reset cycle)
-                send_startup_prompt
+                send_codex_startup_prompt
                 NEW_CONTEXT_SENT=1
                 return 0
             fi
@@ -536,7 +536,7 @@ send_cli_command() {
                     echo "[$(date)] [SKIP] OpenCode /new already sent for $AGENT_ID — skipping duplicate clear_command" >&2
                     return 0
                 fi
-                echo "[$(date)] [SEND-KEYS] OpenCode /clear→/new: starting new conversation for $AGENT_ID" >&2
+                echo "[$(date)] [SEND-KEYS] OpenCode /new for clear_command: starting new conversation for $AGENT_ID" >&2
                 timeout 5 tmux send-keys -t "$PANE_TARGET" "/new" 2>/dev/null || true
                 sleep 0.3
                 timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
@@ -598,12 +598,11 @@ send_cli_command() {
     fi
 }
 
-# ─── Send startup prompt after context reset ───
+# ─── Send Codex startup prompt after /new ───
 # Waits for agent to become idle, then sends a startup prompt that includes
 # full recovery steps (identify, read task YAML, read inbox, start work).
-# Codex uses a typed `x` to dismiss its suggestion UI.
 # Called from both send_cli_command (clear_command) and send_context_reset.
-send_startup_prompt() {
+send_codex_startup_prompt() {
     # Poll until agent becomes idle (prompt ready) instead of fixed sleep.
     # Max 15s (3 attempts × 5s). If still busy after 15s, proceed anyway.
     local attempt
@@ -626,16 +625,12 @@ send_startup_prompt() {
     if [[ -z "$startup_prompt" ]]; then
         startup_prompt="Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message to identify yourself. 2) Read queue/tasks/${AGENT_ID}.yaml. 3) Read queue/inbox/${AGENT_ID}.yaml, mark read:true. 4) Read context_files. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until done."
     fi
-    local effective_cli
-    effective_cli=$(get_effective_cli_type)
-    echo "[$(date)] [STARTUP] Sending startup prompt to $AGENT_ID (${effective_cli}): ${startup_prompt:0:80}..." >&2
+    echo "[$(date)] [STARTUP] Sending startup prompt to $AGENT_ID (codex): ${startup_prompt:0:80}..." >&2
     # Dismiss suggestion UI, then send startup prompt
-    if [[ "$effective_cli" != "opencode" ]]; then
-        timeout 5 tmux send-keys -t "$PANE_TARGET" "x" 2>/dev/null || true
-        sleep 0.3
-        timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
-        sleep 0.3
-    fi
+    timeout 5 tmux send-keys -t "$PANE_TARGET" "x" 2>/dev/null || true
+    sleep 0.3
+    timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
+    sleep 0.3
     timeout 5 tmux send-keys -l -t "$PANE_TARGET" "$startup_prompt" 2>/dev/null || true
     sleep 0.3
     timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
@@ -673,7 +668,7 @@ send_context_reset() {
 
     echo "[$(date)] [CONTEXT-RESET] Sending $reset_cmd before task_assigned for $AGENT_ID ($effective_cli)" >&2
 
-    # Codex/OpenCode: send /new + startup prompt as a single atomic operation.
+    # Codex/OpenCode: send /new as a single atomic operation.
     # When called from clear_command path, NEW_CONTEXT_SENT=1 prevents reaching here.
     # When called for standalone task_assigned, this is the only /new send.
     if [[ "$effective_cli" == "codex" || "$effective_cli" == "opencode" ]]; then
@@ -691,7 +686,7 @@ send_context_reset() {
         # Codex: send startup prompt (agent has no auto-loaded instructions).
         # OpenCode: skip — agent definition is auto-loaded via --agent flag.
         if [[ "$effective_cli" == "codex" ]]; then
-            send_startup_prompt
+            send_codex_startup_prompt
         fi
         return 0
     fi
@@ -843,7 +838,7 @@ send_wakeup() {
 
     # Codex suggestion UI dismissal: typing any character dismisses the autocomplete
     # suggestion prompt (› Implement {feature} etc.) that traps idle agents.
-    # Sequence: dismiss key → clear input → nudge → Enter
+    # Sequence: "x" (dismiss suggestion) → C-u (clear input) → nudge → Enter
     local effective_cli_for_nudge
     effective_cli_for_nudge=$(get_effective_cli_type)
     if [[ "$effective_cli_for_nudge" == "codex" ]]; then
@@ -879,7 +874,7 @@ send_wakeup() {
         local pane_content
         pane_content=$(timeout 3 tmux capture-pane -t "$PANE_TARGET" -p 2>/dev/null | tail -5 || echo "")
         if echo "$pane_content" | grep -qF "$nudge"; then
-            # nudgeテキストが残存 → 送信失敗 → クリアしてリトライ
+            # nudgeテキストが残存 → 送信失敗 → C-u クリアしてリトライ
             echo "[$(date)] WARNING: nudge text still visible in pane, retrying (attempt $((attempt+1)))" >&2
             timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
             sleep 0.3
@@ -899,7 +894,7 @@ send_wakeup() {
 
 # ─── Send wake-up nudge with Escape prefix ───
 # Phase 2 escalation: Copilot/Kimi get Escape×2 + single Ctrl-C + nudge.
-# Claude/Codex/OpenCode fall back to a plain nudge for safety.
+# Claude/Codex/OpenCode fall back to a plain nudge.
 send_wakeup_with_escape() {
     local unread_count="$1"
     local nudge="inbox${unread_count}"
@@ -952,8 +947,8 @@ send_wakeup_with_escape() {
         return 0
     fi
 
-    echo "[$(date)] [SEND-KEYS] ESCALATION Phase 2: Escape×2 + recovery nudge for $AGENT_ID (cli=$effective_cli)" >&2
-    # Escape×2 to exit any mode.
+    echo "[$(date)] [SEND-KEYS] ESCALATION Phase 2: Escape×2 + nudge for $AGENT_ID (cli=$effective_cli)" >&2
+    # Escape×2 to exit any mode
     timeout 5 tmux send-keys -t "$PANE_TARGET" Escape Escape 2>/dev/null || true
     sleep 0.5
     if [[ "$effective_cli" == "copilot" || "$effective_cli" == "kimi" ]]; then
@@ -993,8 +988,6 @@ process_unread() {
         # Ensure idle flag exists (fast-path recovery)
         touch "${IDLE_FLAG_DIR:-/tmp}/shogun_idle_${AGENT_ID}" 2>/dev/null || true
         if ! agent_is_busy; then
-            local effective_cli
-            effective_cli=$(get_effective_cli_type)
             # Shogun: only clear input when pane is not active (Lord is away)
             if [ "$AGENT_ID" = "shogun" ] && pane_is_active; then
                 : # Lord may be typing — skip C-u

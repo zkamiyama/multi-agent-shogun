@@ -55,7 +55,6 @@ usage() {
     echo "  agent_id   Agent configured in config/settings.yaml (e.g. karo, ashigaru1, gunshi)"
     echo "  --type     claude | codex | copilot | kimi | opencode"
     echo "  --model    claude-sonnet-4-6 | claude-opus-4-6 | gpt-5.3-codex | openai/gpt-5.4-mini | etc."
-    echo "  OpenCode  : role definition uses --agent, /clear maps to /new, model changes require relaunch"
     echo ""
     echo "If --type/--model omitted, uses current settings.yaml values."
     exit 1
@@ -350,16 +349,21 @@ if [ -z "$PANE_TARGET" ]; then
 fi
 log "=== Starting CLI switch for ${AGENT_ID} (pane: ${PANE_TARGET}) ==="
 
-# Step 0.5: --model指定時に--type未指定なら、モデル名からCLI種別を自動推定
+# Step 0.5: --model指定時に--type未指定なら、CLI種別を安全に補完する
 if [[ -n "$NEW_MODEL" && -z "$NEW_TYPE" ]]; then
     case "$NEW_MODEL" in
         gpt-5.3-codex*|gpt-5-codex*)
             NEW_TYPE="codex"
             log "Auto-inferred type=codex from model=${NEW_MODEL}"
             ;;
-        openai/*|anthropic/*|moonshot/*)
-            NEW_TYPE="opencode"
-            log "Auto-inferred type=opencode from provider-qualified model=${NEW_MODEL}"
+        */*)
+            if [[ "$(get_cli_type "$AGENT_ID")" == "opencode" ]]; then
+                NEW_TYPE="opencode"
+                log "Preserving type=opencode for provider-qualified model=${NEW_MODEL}"
+            else
+                log "ERROR: provider-qualified model IDs are ambiguous without --type; use --type opencode --model ${NEW_MODEL}"
+                exit 1
+            fi
             ;;
         claude-*)
             NEW_TYPE="claude"

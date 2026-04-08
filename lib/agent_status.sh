@@ -11,7 +11,7 @@
 #   state=$(get_pane_state_label "multiagent:agents.3")
 
 # agent_is_busy_check <pane_target> [cli_type]
-# tmux paneのテキストからCLI固有のidle/busyパターンを検出する。
+# tmux paneの末尾5行からCLI固有のidle/busyパターンを検出する。
 # Returns: 0=busy, 1=idle, 2=pane不在
 #
 # Detection strategy:
@@ -30,27 +30,6 @@
 #     in scroll-back, so checking all 5 lines for 'esc to' causes false-busy
 #     (the bug T-BUSY-008 fixed). Solution: check ONLY the last line for
 #     'esc to' — the status bar is always at the bottom.
-opencode_has_busy_animation() {
-    local capture_text="$1"
-
-    if command -v python3 &>/dev/null; then
-        OPENCODE_CAPTURE_TEXT="$capture_text" python3 - <<'PY'
-import os
-import sys
-
-text = os.environ.get("OPENCODE_CAPTURE_TEXT", "")
-for line in text.splitlines():
-    glyphs = "".join(ch for ch in line if ch in "■⬝")
-    if len(glyphs) >= 8:
-        sys.exit(0)
-sys.exit(1)
-PY
-        return $?
-    fi
-
-    printf '%s\n' "$capture_text" | grep -qF '■⬝⬝⬝⬝⬝⬝⬝'
-}
-
 agent_is_busy_check() {
     local pane_target="$1"
     local cli_type="${2:-}"
@@ -135,6 +114,29 @@ agent_is_busy_check() {
     fi
 
     return 1  # idle (default)
+}
+
+# opencode_has_busy_animation <capture_text>
+# OpenCode paneの busy animation (`[■⬝]{8}`) を検出する。
+opencode_has_busy_animation() {
+    local capture_text="$1"
+
+    if command -v python3 &>/dev/null; then
+        OPENCODE_CAPTURE_TEXT="$capture_text" python3 - <<'PY'
+import os
+import sys
+
+text = os.environ.get("OPENCODE_CAPTURE_TEXT", "")
+for line in text.splitlines():
+    glyphs = "".join(ch for ch in line if ch in "■⬝")
+    if len(glyphs) >= 8:
+        sys.exit(0)
+sys.exit(1)
+PY
+        return $?
+    fi
+
+    printf '%s\n' "$capture_text" | grep -qF '■⬝⬝⬝⬝⬝⬝⬝'
 }
 
 # get_pane_state_label <pane_target>

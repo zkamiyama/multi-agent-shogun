@@ -588,7 +588,7 @@ if [[ ${#CODEX_AGENTS[@]} -gt 0 ]]; then
     fi
 fi
 
-# --- Other CLIs ---
+# --- OpenCode ---
 if [[ ${#OPENCODE_AGENTS[@]} -gt 0 ]]; then
     printf "\n── OpenCode ─────────────────────────\n"
     # OpenCode exposes usage/cost statistics via `opencode stats`; limits depend on the provider/subscription.
@@ -600,6 +600,7 @@ if [[ ${#OPENCODE_AGENTS[@]} -gt 0 ]]; then
     done
 fi
 
+# --- Other CLIs ---
 if [[ ${#OTHER_AGENTS[@]} -gt 0 ]]; then
     printf "\n── Other ─────────────────────────────\n"
     for agent in "${OTHER_AGENTS[@]}"; do

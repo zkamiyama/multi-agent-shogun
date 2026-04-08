@@ -1802,7 +1802,7 @@ mcp__memory__read_graph()
 <details>
 <summary><b>Agents asking for permissions?</b></summary>
 
-Agents should start with their CLI's unattended permission bypass. Claude uses `--dangerously-skip-permissions`, and OpenCode uses repo-pinned permissions so the `question` tool is available only to Shogun while other roles keep it disabled. This is handled automatically by `shutsujin_departure.sh`.
+Agents should start with the unattended permission settings for their CLI. This is handled automatically by `shutsujin_departure.sh`.
 
 </details>
 
@@ -1899,11 +1899,11 @@ Even if you're not comfortable with keyboard shortcuts, you can switch, scroll, 
 
 ## What's New in v3.0 — Multi-CLI
 
-> **Shogun is no longer Claude-only.** Mix and match 5 AI coding CLIs in a single army.
+> **Shogun is no longer Claude-only.** Mix and match 4 AI coding CLIs in a single army.
 
-- **Multi-CLI as first-class architecture** — `lib/cli_adapter.sh` dynamically selects CLI per agent. Change one line in `settings.yaml` to swap any worker between Claude Code, Codex, Copilot, Kimi, or OpenCode
+- **Multi-CLI as first-class architecture** — `lib/cli_adapter.sh` dynamically selects CLI per agent. Change one line in `settings.yaml` to swap any worker between Claude Code, Codex, Copilot, or Kimi
 - **OpenAI Codex CLI integration** — GPT-5.3-codex with `--dangerously-bypass-approvals-and-sandbox` for true autonomous execution. `--no-alt-screen` makes agent activity visible in tmux
-- **CLI bypass flag discovery** — `--full-auto` is NOT fully automatic (it's `-a on-request`). Documented the correct flags for all 5 CLIs
+- **CLI bypass flag discovery** — `--full-auto` is NOT fully automatic (it's `-a on-request`). Documented the correct flags for all 4 CLIs
 - **Hybrid architecture** — Command layer (Shogun + Karo) stays on Claude Code for Memory MCP and mailbox integration. Worker layer (Ashigaru) is CLI-agnostic
 - **Community-contributed CLI adapters** — Thanks to [@yuto-ts](https://github.com/yuto-ts) (cli_adapter.sh), [@circlemouth](https://github.com/circlemouth) (Codex support), [@koba6316](https://github.com/koba6316) (task routing)
 

@@ -191,7 +191,7 @@ build_cli_command() {
     # thinking: true or 未設定 → そのまま（デフォルトでThinking ON）
     # thinking: false → MAX_THINKING_TOKENS=0 を先頭に付与
     local prefix=""
-    if [[ "$cli_type" == "claude" && ( "$thinking" == "false" || "$thinking" == "False" ) ]]; then
+    if [[ "$cli_type" == "claude" && "$thinking" == "false" || "$thinking" == "False" ]]; then
         prefix="MAX_THINKING_TOKENS=0 "
     fi
 
@@ -385,6 +385,15 @@ get_model_display_name() {
     local thinking
     thinking=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.thinking" "")
 
+    if [[ "$cli_type" == "opencode" ]]; then
+        if [[ "$model" == */* ]]; then
+            echo "OpenCode (${model#*/})"
+        else
+            echo "OpenCode (${model})"
+        fi
+        return 0
+    fi
+
     # モデル名 → 短縮表示名
     local short=""
     case "$model" in
@@ -401,7 +410,6 @@ get_model_display_name() {
                 codex)   short="Codex" ;;
                 copilot) short="Copilot" ;;
                 kimi)    short="Kimi" ;;
-                opencode) short="${model#*/}" ;;
                 *)       short="$model" ;;
             esac
             ;;

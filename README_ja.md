@@ -759,11 +759,11 @@ asw_phase: 2 # Claude Code環境では推奨
 
 **3段階エスカレーション（v3.2）** — エージェントが応答しない場合:
 
-| フェーズ | タイミング | アクション                                                                                                |
-| -------- | ---------- | --------------------------------------------------------------------------------------------------------- |
-| Phase 1  | 0-2分      | 標準nudge（`inbox3` テキスト + Enter） — _ASW Phase 2以上ではbusyエージェントはスキップ_                  |
-| Phase 2  | 2-4分      | Copilot/Kimi: Escape×2 + 1回の Ctrl-C + nudge。Claude/Codex/OpenCode: 安全のため通常nudgeへフォールバック |
-| Phase 3  | 4分以上    | `/clear` 送信でセッション強制リセット（5分間に最大1回）                                                   |
+| フェーズ | タイミング | アクション                                                                                      |
+| -------- | ---------- | ----------------------------------------------------------------------------------------------- |
+| Phase 1  | 0-2分      | 標準nudge（`inbox3` テキスト + Enter） — _ASW Phase 2以上ではbusyエージェントはスキップ_        |
+| Phase 2  | 2-4分      | Copilot/Kimi: Escape×2 + 1回の Ctrl-C + nudge。Claude/Codex/OpenCode: 通常nudgeへフォールバック |
+| Phase 3  | 4分以上    | `/clear` 送信でセッション強制リセット（5分間に最大1回）                                         |
 
 **設計のポイント:**
 
@@ -1750,7 +1750,7 @@ mcp__memory__read_graph()  ← 動作！
 <details>
 <summary><b>エージェントが権限を求めてくる？</b></summary>
 
-CLI ごとの無人実行向け権限回避付きで起動していることを確認：Claude は `--dangerously-skip-permissions`、OpenCode は repo 固定の生成エージェント定義で `question` ツールを将軍だけに許可し、それ以外の役には無効化している。OpenCode への自動キー操作は `config/opencode-tui.json` を `OPENCODE_TUI_CONFIG` で読み込み、`app_exit` を無効化して `session_interrupt` と `input_clear` を固定している。
+CLIごとの無人実行向け権限設定で起動していることを確認。これは `shutsujin_departure.sh` が自動処理する。
 
 ```bash
 claude --dangerously-skip-permissions --system-prompt "..."

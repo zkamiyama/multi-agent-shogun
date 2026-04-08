@@ -348,9 +348,15 @@ generate_opencode_agents() {
         # Determine role title for description
         local role_title=""
         case "$agent_id" in
-            shogun)                   role_title="Shogun — strategic oversight and command issuance" ;;
-            karo)                     role_title="Karo — task decomposition, assignment, and coordination" ;;
-            gunshi)                   role_title="Gunshi — strategic analysis and quality control" ;;
+            shogun)
+                role_title="Shogun — strategic oversight and command issuance"
+                ;;
+            karo)
+                role_title="Karo — task decomposition, assignment, and coordination"
+                ;;
+            gunshi)
+                role_title="Gunshi — strategic analysis and quality control"
+                ;;
             ashigaru*)
                 local ashigaru_number="${agent_id#ashigaru}"
                 role_title="Ashigaru ${ashigaru_number} — front-line execution"
