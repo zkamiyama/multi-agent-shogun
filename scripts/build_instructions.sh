@@ -444,19 +444,21 @@ ${permission_yaml}
 FRONTMATTER
 
         # Append role-specific content (same pipeline as build_instruction_file)
-        cat "$PARTS_DIR/roles/${role}_role.md" >> "$output_path"
+        {
+            cat "$PARTS_DIR/roles/${role}_role.md"
 
-        # Append common sections
-        echo "" >> "$output_path"
-        cat "$PARTS_DIR/common/protocol.md" >> "$output_path"
-        echo "" >> "$output_path"
-        cat "$PARTS_DIR/common/task_flow.md" >> "$output_path"
-        echo "" >> "$output_path"
-        cat "$PARTS_DIR/common/forbidden_actions.md" >> "$output_path"
+            # Append common sections
+            echo ""
+            cat "$PARTS_DIR/common/protocol.md"
+            echo ""
+            cat "$PARTS_DIR/common/task_flow.md"
+            echo ""
+            cat "$PARTS_DIR/common/forbidden_actions.md"
 
-        # Append OpenCode-specific tools section
-        echo "" >> "$output_path"
-        cat "$PARTS_DIR/cli_specific/opencode_tools.md" >> "$output_path"
+            # Append OpenCode-specific tools section
+            echo ""
+            cat "$PARTS_DIR/cli_specific/opencode_tools.md"
+        } >> "$output_path"
 
         echo "  ✅ Created: .opencode/agents/${agent_id}.md"
     done
