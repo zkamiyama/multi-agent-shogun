@@ -63,6 +63,10 @@
 # Multi-CLI: OpenCode agent file
 !.opencode/agents/*.md
 
+# Multi-CLI: OpenCode custom tools
+!.opencode/tools/
+!.opencode/tools/mark-as-read.ts
+
 # Setup and deployment scripts
 !shutsujin_departure.sh
 !first_setup.sh

@@ -268,7 +268,7 @@ setup() {
     grep -q '^permission:' "$PROJECT_ROOT/.opencode/agents/shogun.md"
 }
 
-@test "opencode-agent: ashigaru1 permissions allow only own inbox/report/task [R6]" {
+@test "opencode-agent: ashigaru1 read permissions allow own inbox/report/task [R6]" {
     "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
 from pathlib import Path
 import yaml
@@ -285,6 +285,35 @@ assert perm["read"]["queue/tasks/*"] == "deny"
 assert perm["read"]["queue/tasks/ashigaru1.yaml"] == "allow"
 assert perm["read"]["queue/reports/*"] == "deny"
 assert perm["read"]["queue/reports/ashigaru1_report.yaml"] == "allow"
+PYEOF
+}
+
+@test "opencode-agent: inbox edits are denied for every role [R6]" {
+    "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+from pathlib import Path
+import yaml
+
+agents_dir = Path("/home/nanashi/repo/multi-agent-shogun/.opencode/agents")
+for path in sorted(agents_dir.glob("*.md")):
+    text = path.read_text(encoding="utf-8")
+    frontmatter = yaml.safe_load(text.split("---", 2)[1])
+    edit = frontmatter["permission"]["edit"]
+    inbox_rules = {key: value for key, value in edit.items() if key.startswith("queue/inbox/")}
+    exact_rule = edit.get("queue/inbox/*.yaml")
+    unexpected_rules = {key: value for key, value in inbox_rules.items() if key != "queue/inbox/*.yaml"}
+
+    assert exact_rule == "deny", f"{path.name}: queue/inbox/*.yaml edit rule missing or not deny: {exact_rule!r}"
+    assert not unexpected_rules, f"{path.name}: unexpected inbox edit rules: {unexpected_rules}"
+PYEOF
+}
+
+@test "opencode-config: root edit permissions deny inbox YAML [R6]" {
+    "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+from pathlib import Path
+import json
+
+config = json.loads(Path("/home/nanashi/repo/multi-agent-shogun/opencode.json").read_text(encoding="utf-8"))
+assert config["permission"]["edit"]["queue/inbox/*.yaml"] == "deny"
 PYEOF
 }
 

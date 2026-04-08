@@ -14,6 +14,7 @@ common:
     - config/opencode-permissions.yaml
     - config/opencode-tui.json
     - instructions/generated/*
+    - queue/inbox/*.yaml
 
 roles:
   shogun:
@@ -34,7 +35,6 @@ roles:
       - saytask/streaks.yaml
       - context/*
     edit_deny:
-      - queue/inbox/*
       - queue/tasks/ashigaru*.yaml
       - queue/tasks/gunshi.yaml
       - queue/tasks/pending.yaml
@@ -43,7 +43,6 @@ roles:
       - dashboard.md
       - saytask/*
     edit_allow:
-      - queue/inbox/shogun.yaml
       - queue/shogun_to_karo.yaml
       - queue/ntfy_inbox.yaml
       - saytask/tasks.yaml
@@ -68,12 +67,10 @@ roles:
       - saytask/streaks.yaml
       - context/*
     edit_deny:
-      - queue/inbox/*
       - queue/ntfy_inbox.yaml
       - queue/reports/*
       - saytask/tasks.yaml
     edit_allow:
-      - queue/inbox/karo.yaml
       - queue/shogun_to_karo.yaml
       - queue/shogun_to_karo_archive.yaml
       - queue/tasks/ashigaru*.yaml
@@ -99,7 +96,6 @@ roles:
       - queue/shogun_to_karo.yaml
       - context/*
     edit_deny:
-      - queue/inbox/*
       - queue/tasks/*
       - queue/reports/*
       - queue/ntfy_inbox.yaml
@@ -108,7 +104,6 @@ roles:
       - dashboard.md
       - saytask/*
     edit_allow:
-      - queue/inbox/{agent_id}.yaml
       - queue/tasks/{agent_id}.yaml
       - queue/reports/{agent_id}_report.yaml
 
@@ -130,7 +125,6 @@ roles:
       - dashboard.md
       - context/*
     edit_deny:
-      - queue/inbox/*
       - queue/tasks/ashigaru*.yaml
       - queue/tasks/pending.yaml
       - queue/shogun_to_karo.yaml
@@ -139,7 +133,6 @@ roles:
       - queue/reports/ashigaru*_report.yaml
       - saytask/*
     edit_allow:
-      - queue/inbox/gunshi.yaml
       - queue/tasks/gunshi.yaml
       - queue/reports/gunshi_report.yaml
       - dashboard.md

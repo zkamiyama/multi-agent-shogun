@@ -53,6 +53,21 @@ If an artifact is readable by many roles but writable by only one role, treat th
 
 If prose and permissions seem to disagree, operate within permissions and continue the task without inventing broader authority.
 
+## Inbox state updates
+
+The shared protocol requires processed inbox entries to be marked as read.
+
+In this environment, do not satisfy that requirement by directly editing `queue/inbox/*.yaml`.
+
+For `queue/inbox/*.yaml`, treat direct `edit` as forbidden even if other prompt layers describe inbox read-marking as an edit step.
+
+Use the dedicated inbox state update tool instead (for example `.opencode/tools/mark-as-read.ts`) when marking a processed entry from `read: false` to `read: true`.
+
+Do not rewrite, reorder, or reformat inbox YAML.
+Do not use broad text edits to satisfy inbox state transitions.
+
+If the dedicated tool is unavailable or fails, report a blocker instead of editing the inbox file directly.
+
 ## Tool usage
 
 Available tools may include `bash`, `read`, `edit`, `write`, `grep`, `glob`, `list`, `apply_patch`, `skill`, `todowrite`, `webfetch`, `websearch`, and `question`.
