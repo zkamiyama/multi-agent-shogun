@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [4.6.0] - 2026-04-19
+
+### Added
+- `shutsujin_departure.sh`: `--auto-mode-on` flag (maps to `--dangerously-skip-permissions`) and `--permission-mode <mode>` for custom permission flags (Issue #124)
+- `lib/cli_adapter.sh`: accept `PERMISSION_FLAG` override from departure script, backward-compatible
+
+### Fixed
+- Report flow unified to `Ashigaru → Gunshi → Karo` across all instruction files (`instructions/ashigaru.md`, `karo.md`, `gunshi.md`, `CLAUDE.md`, all generated CLI variants) (Issue #121)
+
+### Changed
+- `PERMISSION_FLAG` variable centralizes permission handling in `shutsujin_departure.sh` (10 call sites)
+- `tests/unit/test_cli_adapter.bats`: additional coverage for permission flag logic
+
 ## [4.5.0] - 2026-04-19
 
 ### Added
