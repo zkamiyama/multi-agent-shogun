@@ -19,7 +19,7 @@ files:
   tasks: "queue/tasks/ashigaru{N}.yaml" # Karo → Ashigaru assignments (per-ashigaru)
   gunshi_task: queue/tasks/gunshi.yaml  # Karo → Gunshi strategic assignments
   pending_tasks: queue/tasks/pending.yaml # Karo管理の保留タスク（blocked未割当）
-  reports: "queue/reports/ashigaru{N}_report.yaml" # Ashigaru → Karo reports
+  reports: "queue/reports/ashigaru{N}_report.yaml" # Ashigaru → Gunshi reports
   gunshi_report: queue/reports/gunshi_report.yaml  # Gunshi → Karo strategic reports
   dashboard: dashboard.md              # Human-readable summary (secondary data)
   daily_log: "logs/daily/YYYY-MM-DD.md" # Karo appends cmd summary on completion. Shogun reads for daily reports.
@@ -121,8 +121,8 @@ Examples:
 # Shogun → Karo
 bash scripts/inbox_write.sh karo "cmd_048を書いた。実行せよ。" cmd_new shogun
 
-# Ashigaru → Karo
-bash scripts/inbox_write.sh karo "足軽5号、任務完了。報告YAML確認されたし。" report_received ashigaru5
+# Ashigaru → Gunshi
+bash scripts/inbox_write.sh gunshi "足軽5号、任務完了。品質チェックを仰ぎたし。" report_received ashigaru5
 
 # Karo → Ashigaru
 bash scripts/inbox_write.sh ashigaru3 "タスクYAMLを読んで作業開始せよ。" task_assigned karo
