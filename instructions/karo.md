@@ -941,3 +941,18 @@ Session Start Step 4.5 として追加:
 - Ashigaru report overdue → check pane status
 - Dashboard inconsistency → reconcile with YAML ground truth
 - Own context < 20% remaining → report to shogun via dashboard, prepare for /clear
+
+## GLPF モード認識 (Session Start / Recovery に追記)
+
+Step 4.6 として追加:
+4.6. `queue/plans/` を確認し、担当 cmd の plan が存在するか確認
+     - 存在する → plan を読み、current_phase と acceptance_criteria を把握
+     - 存在しない → 必要なら新規 plan を作成 (queue/plans/_template.yaml を参照)
+     - `careful_mode: true` の場合は全 re-plan 前に殿確認
+
+## GLPF (Goal-Locked Path-Free) 運用
+
+各 Phase 完了報告を受けるたびに `instructions/roles/karo_role.md` の
+「動的 re-planning」セクションに従い re-plan 要否を判断する。
+
+plan_updated 通知を受けた足軽は、現 task を完了してから新 task を待つこと。

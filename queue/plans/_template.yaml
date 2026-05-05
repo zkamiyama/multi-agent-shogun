@@ -1,0 +1,45 @@
+# queue/plans/_template.yaml — Plan YAML schema reference
+# このファイルはテンプレート。実際の plan は queue/plans/{cmd_id}_plan.yaml として作成。
+
+cmd_id: cmd_XXX
+goal:
+  acceptance_criteria:
+    - "goal 1 (不変: locked)"
+    - "goal 2 (不変: locked)"
+  north_star: "北極星 (不変: locked)"
+
+current_phase: phase_1
+
+phases:
+  - id: phase_1
+    description: "Phase 1 の説明"
+    assignee: ashigaru1
+    status: pending   # pending / in_progress / completed / failed
+    started_at: ""
+    completed_at: ""
+    result_summary: ""
+  - id: phase_2
+    description: "Phase 2 の説明"
+    assignee: gunshi
+    status: pending
+    started_at: ""
+    completed_at: ""
+    result_summary: ""
+
+re_plan_history: []
+re_plan_count: 0
+re_plan_max: 5        # 超過時: critical 強制昇格 → 殿 ntfy + halt
+
+created_at: ""
+updated_at: ""
+
+# re_plan_history エントリの例:
+# - version: 1
+#   replanned_at: "2026-05-05T10:15:00+09:00"
+#   reason: "Phase 2 で依存ライブラリのバージョン問題が発覚、Phase 2.5 を追加"
+#   replan_severity: medium  # medium=自律 / high=軍議 / critical=殿
+#   replanned_by: karo
+
+# GLPF 不変性保証:
+locked_fields: [acceptance_criteria, north_star, cmd_id]
+mutable_fields: [current_phase, phases, re_plan_count, re_plan_history]

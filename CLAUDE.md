@@ -93,6 +93,22 @@ careful_mode: true 時の動作:
 
 詳細仕様は `instructions/modes/` 参照。
 
+## GLPF: Goal-Locked Path-Free Execution (cmd_378)
+
+| 項目 | 内容 |
+|------|------|
+| **固執しない** | 家老が plan を動的最適化 (acceptance_criteria のみ不変) |
+| **再計画** | 各 Phase 完了時に家老が「最適か?」を自問 → 必要なら re-plan |
+| **重要度判定** | medium=自律 / high=軍議 / critical=殿 (cmd_377 severity 連携) |
+| **乱用防止** | re_plan_max=5 + locked_fields + reason 必須 |
+
+plan は `queue/plans/{cmd_id}_plan.yaml` に保存。テンプレ: `queue/plans/_template.yaml`
+
+### 3 要素セット (cmd_376 + cmd_377 + cmd_378)
+- cmd_376: 止まらない (Autonomous-by-default)
+- cmd_377: 暴走しない (Preflight 安全弁)
+- cmd_378: 固執しない (GLPF 動的 re-planning)
+
 ## Session Start / Recovery (all agents)
 
 **This is ONE procedure for ALL situations**: fresh start, compaction, session continuation, or any state where you see CLAUDE.md. You cannot distinguish these cases, and you don't need to. **Always follow the same steps.**

@@ -77,6 +77,13 @@
 !queue/system/
 !queue/system/mode.yaml
 
+# GLPF plan schema template (actual plans remain private unless explicitly whitelisted)
+!queue/plans/
+!queue/plans/.gitkeep
+!queue/plans/_template.yaml
+!queue/plans/archive/
+!queue/plans/archive/.gitkeep
+
 # Templates
 !templates/
 !templates/**

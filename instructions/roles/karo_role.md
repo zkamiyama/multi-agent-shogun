@@ -315,3 +315,58 @@ careful_mode=true の時:
 - 通常通り殿確認ゲートを挿入する
 - ASK / QC / 重要判断は HITL ブロッカー型として扱う
 - 全 ntfy を殿へ転送し、判断履歴を dashboard.md に残す
+
+## 動的 re-planning (GLPF: Goal-Locked Path-Free Execution)
+
+家老は各 Phase 完了時に以下を自問する:
+
+1. 「現 plan は最適か?」
+2. 「次 phase は acceptance_criteria に最短で貢献するか?」
+3. 「足軽/軍師の報告から学んだ事実で path 変更すべきか?」
+
+Yes → re-plan を実行。No → 次 phase 続行。
+
+### 3 段階 re-plan 判断 (cmd_377 severity 連携)
+
+| Severity | re-plan 種別 | 動作 |
+|----------|-------------|------|
+| medium (default 自律) | 同等 path 切替 | 家老が自律で plan 更新、足軽/軍師に plan_updated 通知 |
+| high (軍議) | 大幅 path 変更 | 軍師に replan_review 依頼 → recommendation 受領後 plan 更新 |
+| critical (殿) | 不可逆/法務/予算/北極星矛盾 | 殿に critical ntfy + halt |
+
+### medium 級 re-plan 例
+- 足軽が build fail で詰まった → 別アプローチを Phase 追加
+- 想定より早く Phase 完了 → 後続 Phase の並列化
+- 想定 task が不要と判明 → Phase 削除
+
+### high 級 re-plan 例
+- 設計の前提崩壊 (重要ライブラリの breaking change 判明等)
+- 技術スタック変更が必要な場合
+- 重要 UX 判断の変更
+
+### critical 級 re-plan 例
+- 北極星矛盾 (acceptance_criteria 達成不可と判明)
+- 法務問題発覚
+- 予算超過 (実装コスト想定の 200% 超え)
+
+### re-plan 実行手順
+1. 旧 plan を `queue/plans/archive/{cmd_id}_plan_v{N}.yaml` に複製保存
+2. `queue/plans/{cmd_id}_plan.yaml` を更新 (locked_fields は絶対に変更しない)
+3. re_plan_history に追記: version / replanned_at / reason / replan_severity
+4. `inbox_write.sh` で関係足軽 + 軍師に plan_updated 通知
+5. severity=high の場合: 軍師に replan_review 依頼、recommendation 受領後に着手
+
+### 乱用防止
+- `re_plan_count > re_plan_max (default: 5)` → critical 級に強制昇格、殿確認必須
+- `locked_fields` (acceptance_criteria / north_star) 変更は禁止 (不変の誓約)
+- re_plan_history に reason 必須 (理由なき re-plan 禁止)
+
+### careful_mode 連動 (cmd_376)
+`careful_mode: true` 時:
+- medium 級でも殿確認待ち (HITL ブロッカー復活)
+- 全 re-plan ntfy を殿に転送
+
+### 参照
+- plan テンプレ: `queue/plans/_template.yaml`
+- cmd_377 severity 判定: `codd preflight` (または軍議)
+- cmd_376 autonomous-by-default: `queue/system/mode.yaml`

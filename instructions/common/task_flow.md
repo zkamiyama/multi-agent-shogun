@@ -217,3 +217,23 @@ default は自律実行モード。以下のフローで動く:
 5. **完了** → ntfy で殿に完了報告、dashboard.md 更新
 
 careful_mode: true 時は Step 1/3/4 で殿確認ゲートを挿入。
+
+## Plan は変更可能なヒント (GLPF: Goal-Locked Path-Free Execution)
+
+`queue/plans/{cmd_id}_plan.yaml` は cmd 開始時に家老が描く道筋だが、**契約ではない**。
+
+| 不変 (契約) | 可変 (ヒント) |
+|-------------|---------------|
+| acceptance_criteria | phases の順序・内容・担当 |
+| north_star | re_plan_count (上限内) |
+| cmd_id | current_phase |
+
+家老は各 phase 完了時に「現 plan は最適か?」を自問し、必要なら re-plan する。
+re-plan の severity は cmd_377 軍議の 4 段階 (critical/high/medium/low) に準拠。
+
+**足軽は plan を信用するな**: 自分の task は `queue/tasks/{worker_id}.yaml` で指定される。
+家老が re-plan で Phase 順序を入れ替えた場合、新 task が届くまで現 task を続ける。
+
+- plan = **道しるべ** (compass)
+- task = **命令** (order)
+- acceptance_criteria = **ゴール** (不変の契約)
