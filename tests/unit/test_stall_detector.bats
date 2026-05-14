@@ -14,16 +14,24 @@
 #   相対時刻で与えて threshold を出し分ける。
 # ═══════════════════════════════════════════════════════════════
 
+load "../fixtures/stall_detector/safe_cleanup"
+
 setup() {
     PROJECT_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     DETECTOR="$PROJECT_ROOT/scripts/stall_detector.sh"
     FIXTURES="$PROJECT_ROOT/tests/fixtures/stall_detector"
-    STALL_ROOT="$(mktemp -d "$BATS_TMPDIR/stall_detector.XXXXXX")"
+    # 一時 root は project-local の git-ignored tree に置く。$BATS_TMPDIR (通常 /tmp)
+    # は project working tree 外ゆえ、teardown の rm -rf が CLAUDE.md D002
+    # (project tree 外への rm -rf 禁止) 違反になる。
+    TEST_ROOT_BASE="$PROJECT_ROOT/tmp/stall_detector_tests"
+    mkdir -p "$TEST_ROOT_BASE"
+    STALL_ROOT="$(mktemp -d "$TEST_ROOT_BASE/unit.XXXXXX")"
     mkdir -p "$STALL_ROOT/queue/tasks" "$STALL_ROOT/queue/reports" "$STALL_ROOT/queue/inbox"
 }
 
 teardown() {
-    [ -n "${STALL_ROOT:-}" ] && rm -rf "$STALL_ROOT"
+    # project-bounded cleanup: rm -rf は tmp/stall_detector_tests/ 配下に限定。
+    safe_rm_test_root "$PROJECT_ROOT" "${STALL_ROOT:-}"
 }
 
 # ─── helpers ───
