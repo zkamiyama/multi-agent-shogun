@@ -40,6 +40,18 @@ start_watcher_if_missing() {
     nohup bash scripts/inbox_watcher.sh "$agent" "$pane" "$cli" >> "$log_file" 2>&1 &
 }
 
+start_stall_detector_if_missing() {
+    # stall_detector.sh は 60 秒周期で task/report stall を scan する永続 daemon。
+    # supervisor は inbox_watcher と同じ作法で liveness のみ監督し、missing/死亡なら起動する。
+    # scan ロジックは detector の責務ゆえ supervisor には持ち込まない。
+    # pattern を行末 $ で anchor するのは `stall_detector.sh --once` (test/verify 用の
+    # 短命プロセス) を daemon と誤検知しないため。
+    if pgrep -f "scripts/stall_detector.sh$" >/dev/null 2>&1; then
+        return 0
+    fi
+    nohup bash scripts/stall_detector.sh >> logs/stall_detector.log 2>&1 &
+}
+
 while true; do
     start_watcher_if_missing "shogun" "shogun:main.0" "logs/inbox_watcher_shogun.log"
     start_watcher_if_missing "karo" "multiagent:agents.0" "logs/inbox_watcher_karo.log"
@@ -51,5 +63,6 @@ while true; do
     start_watcher_if_missing "ashigaru6" "multiagent:agents.6" "logs/inbox_watcher_ashigaru6.log"
     start_watcher_if_missing "ashigaru7" "multiagent:agents.7" "logs/inbox_watcher_ashigaru7.log"
     start_watcher_if_missing "gunshi" "multiagent:agents.8" "logs/inbox_watcher_gunshi.log"
+    start_stall_detector_if_missing
     sleep 5
 done
