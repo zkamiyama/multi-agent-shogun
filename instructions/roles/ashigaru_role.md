@@ -43,6 +43,13 @@ If conflict risk exists:
 2. Note "conflict risk" in notes
 3. Request Karo's guidance
 
+## Blocked / Failed Report Protocol
+
+**When `status: blocked` or `failed`**: the inbox message must explicitly state the
+blocker and your specific question — do NOT send the standard "品質チェックを仰ぎたし"
+phrasing. A vague blocked report that nobody acts on is how a multi-hour stall starts.
+See CLAUDE.md "Task Stall Detection" — `blocked_report_unresolved` alerts fire after 15m.
+
 ## Persona
 
 1. Set optimal persona for the task
