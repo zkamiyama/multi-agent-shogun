@@ -17,6 +17,8 @@
 # テスト用フック (Phase 2 bats が利用する interface):
 #   STALL_ROOT=<dir>   全 queue/ パスをこの root 配下に切り替える (fixture 隔離)
 #   STALL_NOW=<epoch>  「現在時刻」を固定する (閾値テスト用)
+#   STALL_PANE_STATES_OVERRIDE=<json>  pane 状態を tmux 非依存で固定する
+#       (例: '{"ashigaru1":"idle"}'。worktree progress fixture の idle streak 制御用)
 #   STALL_ROOT が実 repo と異なる場合は Karo inbox への実通知を抑止し、
 #   stall_alerts.yaml への append のみ行う (test 隔離)。
 #
@@ -144,7 +146,13 @@ escalate_secondary() {
 # ─── 1 回の scan ───
 run_scan() {
     local pane_states
-    pane_states="$(compute_pane_states)"
+    # テスト用フック: STALL_PANE_STATES_OVERRIDE が設定されていれば tmux capture を
+    # 行わず、その JSON をそのまま pane 状態として使う (fixture の idle streak 制御用)。
+    if [ -n "${STALL_PANE_STATES_OVERRIDE:-}" ]; then
+        pane_states="$STALL_PANE_STATES_OVERRIDE"
+    else
+        pane_states="$(compute_pane_states)"
+    fi
 
     local now_override="${STALL_NOW:-}"
 
@@ -167,6 +175,7 @@ import datetime
 import json
 import os
 import re
+import subprocess
 import sys
 import traceback
 
@@ -420,6 +429,93 @@ def task_type_threshold(agent, task):
 
 
 # ─────────────────────────────────────────────────────────────
+# worktree progress signature (false_positive_controls #3)
+#   commit や file 編集はしているが report を出さない worker を stalled 扱いせぬよう、
+#   task.worktree の進捗を「安価」に追跡する。
+#   signature = git HEAD + bounded な最大 mtime。
+#   - .git / build* / node_modules 等の重い・無関係 dir は prune
+#   - worktree 直下の logs/ queue/ は detector 自身の書き込みで毎 scan 変化する
+#     ため root レベルで prune (signature の自家中毒を防ぐ)
+#   - file 走査は WT_WALK_FILE_CAP で上限を切り、巨大 repo でも軽量に保つ
+#   - 同一 scan 内は worktree path で memoize (複数 agent が同 worktree を共有)
+# ─────────────────────────────────────────────────────────────
+WT_PRUNE_ANY = {
+    ".git", ".hg", ".svn",
+    "build", "build-linux", "build-debug", "build-release",
+    "out", "bin", "obj", "dist", "target",
+    "node_modules", ".venv", "venv",
+    "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".cache",
+    ".serena", ".idea", ".vscode",
+}
+WT_PRUNE_ROOT = {"logs", "queue"}
+WT_WALK_FILE_CAP = 4000
+_WT_SIG_CACHE = {}
+
+
+def compute_worktree_signature(worktree):
+    """task.worktree の安価な progress signature。git repo でなくても mtime で機能。
+    取得不能 (path 無し / dir 不在) なら None。同一 scan 内は memoize。"""
+    if worktree in (None, "", "null", "None"):
+        return None
+    wt = os.path.expanduser(str(worktree).strip().strip('"').strip("'"))
+    if not wt or wt in ("null", "None"):
+        return None
+    try:
+        wt = os.path.realpath(wt)
+    except OSError:
+        pass
+    if wt in _WT_SIG_CACHE:
+        return _WT_SIG_CACHE[wt]
+    if not os.path.isdir(wt):
+        _WT_SIG_CACHE[wt] = None
+        return None
+    # 1. HEAD (commit 進捗を捕捉。git repo でなければ空文字のまま)
+    head = ""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", wt, "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if proc.returncode == 0:
+            head = proc.stdout.strip()
+    except Exception:
+        head = ""
+    # 2. bounded 最大 mtime (file 編集進捗を捕捉)
+    max_mtime = 0.0
+    examined = 0
+    try:
+        for dirpath, dirnames, filenames in os.walk(wt, topdown=True):
+            if dirpath == wt:
+                dirnames[:] = [d for d in dirnames
+                               if d not in WT_PRUNE_ANY and d not in WT_PRUNE_ROOT]
+            else:
+                dirnames[:] = [d for d in dirnames if d not in WT_PRUNE_ANY]
+            try:
+                m = os.stat(dirpath).st_mtime
+                if m > max_mtime:
+                    max_mtime = m
+            except OSError:
+                pass
+            for fn in filenames:
+                try:
+                    m = os.lstat(os.path.join(dirpath, fn)).st_mtime
+                    if m > max_mtime:
+                        max_mtime = m
+                except OSError:
+                    pass
+                examined += 1
+                if examined >= WT_WALK_FILE_CAP:
+                    break
+            if examined >= WT_WALK_FILE_CAP:
+                break
+    except Exception:
+        pass
+    sig = "%s:%d" % (head, int(max_mtime))
+    _WT_SIG_CACHE[wt] = sig
+    return sig
+
+
+# ─────────────────────────────────────────────────────────────
 # state / alerts file の読み込み (冪等性 / 再起動耐性)
 # ─────────────────────────────────────────────────────────────
 state = load_yaml_safe(STATE_FILE)
@@ -427,8 +523,11 @@ if not isinstance(state, dict):
     state = {}
 state.setdefault("pane_idle_streak", {})
 state.setdefault("scan_count", 0)
+state.setdefault("worktree_progress", {})
 if not isinstance(state.get("pane_idle_streak"), dict):
     state["pane_idle_streak"] = {}
+if not isinstance(state.get("worktree_progress"), dict):
+    state["worktree_progress"] = {}
 
 alerts_doc = load_yaml_safe(ALERTS_FILE)
 if not isinstance(alerts_doc, dict):
@@ -470,6 +569,7 @@ def idle_streak(agent):
 # 各 candidate は dedupe key を持つ。これと既存 alerts を突き合わせて
 # new / update / auto-resolve を決める (recompute-from-scratch = 冪等)。
 # ─────────────────────────────────────────────────────────────
+now_iso = iso(NOW)
 current = {}  # key -> candidate dict
 
 
@@ -542,36 +642,72 @@ for agent in ASHIGARU + ["gunshi"]:
     unread = inbox_unread_count(agent)
     mins_assigned = minutes_since(task_ts)
 
+    # ── worktree progress tracking (false_positive_controls #3) ──
+    # commit や file 編集だけして report を出さない worker を stalled 扱いせぬよう、
+    # task.worktree の HEAD+mtime signature を per-agent で persist し、signature が
+    # 変化したら last_progress_at を現在時刻に更新する。assigned 系の経過時間判定は
+    # task timestamp ではなく last_progress_at から測る。
+    wt_progress = state["worktree_progress"]
+    wt_path = task.get("worktree")
+    wt_sig = compute_worktree_signature(wt_path)
+    wp_entry = wt_progress.get(agent)
+    if not isinstance(wp_entry, dict) or wp_entry.get("task_id") != task_id:
+        # 新規 task → baseline は task timestamp (進捗履歴が無いので保守的)。
+        baseline = iso(task_ts) if task_ts else now_iso
+        wp_entry = {
+            "task_id": task_id,
+            "worktree": wt_path,
+            "signature": wt_sig,
+            "last_progress_at": baseline,
+        }
+        wt_progress[agent] = wp_entry
+    else:
+        if wt_sig is not None and wt_sig != wp_entry.get("signature"):
+            wp_entry["signature"] = wt_sig
+            wp_entry["last_progress_at"] = now_iso
+        wp_entry["worktree"] = wt_path
+    # report 更新も progress 信号: rep_ts が last_progress_at より新しければ採用。
+    last_progress_at = parse_ts(wp_entry.get("last_progress_at")) or task_ts
+    if rep_ts is not None and (last_progress_at is None or rep_ts > last_progress_at):
+        last_progress_at = rep_ts
+        wp_entry["last_progress_at"] = iso(rep_ts)
+    mins_since_progress = minutes_since(last_progress_at)
+    if mins_since_progress is None:
+        mins_since_progress = mins_assigned
+
     # ── kind: assigned_no_progress ──
-    # task assigned かつ task ts 以後 report 更新なし + worktree 進捗なし(下記) +
+    # task assigned かつ task ts 以後 report 更新なし + worktree 進捗なし +
     # inbox unread 0 + pane idle 2 連続 → alert。最新 report terminal なら除外。
+    # 経過時間は task timestamp ではなく last_progress_at (worktree/report 進捗) から測る。
     if (not latest_report_terminal
             and not report_newer_than_task
             and unread == 0
-            and mins_assigned is not None):
+            and mins_since_progress is not None):
         threshold = task_type_threshold(agent, task)
         if pane_busy(agent):
             # false_positive_controls #6: pane busy = progress 扱い。
             # ただし 3h 超なら informational alert に downgrade。
-            if mins_assigned >= BUSY_CEILING_MIN:
+            if mins_since_progress >= BUSY_CEILING_MIN:
                 src = iso(task_ts) if task_ts else "unknown"
-                ev = (f"task '{task_id}' assigned {int(mins_assigned)}m。"
-                      f"pane busy だが {BUSY_CEILING_MIN}m ceiling 超過 — "
-                      f"進捗 report 不在ゆえ informational。")
+                ev = (f"task '{task_id}' assigned {int(mins_assigned or 0)}m。"
+                      f"pane busy だが last_progress から {int(mins_since_progress)}m / "
+                      f"{BUSY_CEILING_MIN}m ceiling 超過 — 進捗 (worktree/report) 不在ゆえ "
+                      f"informational。")
                 add_candidate(agent, task_id, "assigned_no_progress",
                               src, "P3", ev)
-        elif idle_streak(agent) >= 2 and mins_assigned >= threshold:
-            sev = "P1" if mins_assigned >= ASSIGNED_P1_MIN else "P2"
+        elif idle_streak(agent) >= 2 and mins_since_progress >= threshold:
+            sev = "P1" if mins_since_progress >= ASSIGNED_P1_MIN else "P2"
             src = iso(task_ts) if task_ts else "unknown"
-            ev = (f"task '{task_id}' assigned {int(mins_assigned)}m 進捗なし "
+            ev = (f"task '{task_id}' assigned {int(mins_assigned or 0)}m、"
+                  f"last_progress から {int(mins_since_progress)}m 進捗なし "
                   f"(threshold {threshold}m、type={task.get('type')})。"
-                  f"task ts 以後 report 更新なし / inbox unread 0 / "
-                  f"pane idle {idle_streak(agent)} 連続。")
+                  f"worktree HEAD/mtime 不変 / task ts 以後 report 更新なし / "
+                  f"inbox unread 0 / pane idle {idle_streak(agent)} 連続。")
             add_candidate(agent, task_id, "assigned_no_progress",
                           src, sev, ev)
 
     # ── kind: idle_with_active_task ──
-    # pane idle + task assigned + latest report が terminal でない + task ts 以後
+    # pane idle + task assigned + latest report が terminal でない + worktree/report
     # 進捗なし + inbox unread 0 が連続 2 scan 以上 → alert。
     # assigned_no_progress (45m) より短い 30m で拾う補助信号。
     if (agent in ASHIGARU
@@ -579,13 +715,15 @@ for agent in ASHIGARU + ["gunshi"]:
             and not report_newer_than_task
             and unread == 0
             and idle_streak(agent) >= 2
-            and mins_assigned is not None
-            and mins_assigned >= IDLE_ACTIVE_MIN):
+            and mins_since_progress is not None
+            and mins_since_progress >= IDLE_ACTIVE_MIN):
         src = iso(task_ts) if task_ts else "unknown"
         ev = (f"pane idle {idle_streak(agent)} 連続だが task '{task_id}' を抱えたまま "
-              f"({int(mins_assigned)}m)。task ts 以後 report 更新なし、"
-              f"latest report status='{rep.get('status') if rep else 'none'}' "
-              f"(非 terminal)、inbox unread 0。")
+              f"(assigned {int(mins_assigned or 0)}m、last_progress から "
+              f"{int(mins_since_progress)}m)。worktree HEAD/mtime 不変、"
+              f"task ts 以後 report 更新なし、latest report "
+              f"status='{rep.get('status') if rep else 'none'}' (非 terminal)、"
+              f"inbox unread 0。")
         add_candidate(agent, task_id, "idle_with_active_task", src, "P2", ev)
 
 
@@ -629,7 +767,6 @@ def should_notify(alert, new_severity):
     return False
 
 
-now_iso = iso(NOW)
 PRIMARY_KINDS = ("blocked_report_unresolved", "assigned_no_progress",
                  "idle_with_active_task")
 
@@ -850,6 +987,7 @@ last_scan: null
 last_error: null
 scan_count: 0
 pane_idle_streak: {}
+worktree_progress: {}
 EOF
         log "initialized $STATE_FILE"
     fi
