@@ -1,0 +1,6 @@
+task:
+  task_id: fixture_assigned_wt_task
+  type: infra_implementation
+  status: assigned
+  worktree: "@@WORKTREE@@"
+  timestamp: "2026-05-15T00:00:00"

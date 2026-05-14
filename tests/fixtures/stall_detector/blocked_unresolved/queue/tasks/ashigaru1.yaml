@@ -1,0 +1,6 @@
+task:
+  task_id: fixture_blocked_task
+  type: infra_implementation
+  status: assigned
+  worktree: null
+  timestamp: "2026-05-14T22:00:00"
