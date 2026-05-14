@@ -1,0 +1,9 @@
+report:
+  - task_id: fixture_blocked_task
+    status: blocked
+    timestamp: "2026-05-15T00:00:00"
+    summary: "fixture — blocked awaiting Karo decision"
+  - task_id: fixture_blocked_task
+    status: done
+    timestamp: "2026-05-15T01:30:00"
+    summary: "fixture — blocker resolved, task completed"

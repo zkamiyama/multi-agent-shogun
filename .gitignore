@@ -169,6 +169,8 @@ tests/specs/osato_lms_*
 !tests/*.sh
 !tests/fixtures/
 !tests/fixtures/*.yaml
+!tests/fixtures/stall_detector/
+!tests/fixtures/stall_detector/**
 !tests/unit/
 !tests/unit/*.bats
 !tests/integration/

@@ -1,0 +1,5 @@
+report:
+  - task_id: fixture_blocked_by_task
+    status: blocked
+    timestamp: "2026-05-15T00:00:00"
+    summary: "fixture — blocked, but intentional dependency hold (blocked_by present)"
