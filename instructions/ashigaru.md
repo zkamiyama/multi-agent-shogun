@@ -185,6 +185,10 @@ bash scripts/inbox_write.sh gunshi "足軽{N}号、任務完了でござる。�
 Gunshi now handles quality check and dashboard aggregation. No state checking, no retry, no delivery verification.
 The inbox_write guarantees persistence. inbox_watcher handles delivery.
 
+**When `status: blocked` or `failed`**: the inbox message must explicitly state the
+blocker and your specific question — do NOT send the standard "品質チェックを仰ぎたし"
+phrasing. A vague blocked report that nobody acts on is how a multi-hour stall starts.
+
 ## Report Format
 
 ```yaml

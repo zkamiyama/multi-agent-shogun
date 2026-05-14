@@ -152,6 +152,31 @@ Special cases (CLI commands sent via `tmux send-keys`):
 | 2〜4 min | Escape×2 + nudge | Cursor position bug workaround |
 | 4 min+ | `/clear` sent (max once per 5 min) | Force session reset + YAML re-read |
 
+## Task Stall Detection
+
+`scripts/stall_detector.sh` is a persistent daemon (60s scan cycle) started and
+supervised by `watcher_supervisor.sh`. Each scan reads `queue/tasks/`,
+`queue/reports/`, pane idle state, and Karo inbox unread, then sends
+`type: stall_alert` to Karo's inbox with per-alert dedupe + 30m cooldown. Alert
+history and detector state live in `queue/stall_alerts.yaml` /
+`queue/stall_detector_state.yaml`; an alert auto-resolves once its target task or
+report advances.
+
+| Kind | Threshold | Severity |
+|------|-----------|----------|
+| `blocked_report_unresolved` | 15m | P1, escalates to P0 at 60m |
+| `assigned_no_progress` | 45m (build/test/simulate/e2e: 90m; gunshi L5/L6: 60m) | P2, escalates to P1 at 120m; P3 informational if pane busy >3h |
+| `idle_with_active_task` | 30m | P2 |
+| `karo_unresponsive_to_stall_alert` | 30m after a primary alert stays open | P0 |
+
+**vs. the Escalation table above**: delivery escalation re-sends *unread messages*;
+stall detection tracks *task/report state over the time axis* after delivery already
+succeeded — e.g. a report left `blocked`, or an `assigned` task with no progress. The
+two mechanisms are independent.
+
+**v1 scope**: Karo inbox alert only. ntfy / phone notification is not implemented
+(殿裁可) — `escalate_secondary()` is a structured no-op hook reserved for a future v2.
+
 ## Inbox Processing Protocol (karo/ashigaru/gunshi)
 
 When you receive `inboxN` (e.g. `inbox3`):

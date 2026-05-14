@@ -944,3 +944,32 @@ External PRs are reinforcements. Treat with respect.
 - Ashigaru report overdue → check pane status
 - Dashboard inconsistency → reconcile with YAML ground truth
 - Own context < 20% remaining → report to shogun via dashboard, prepare for /clear
+
+## Stall Alert Handling
+
+`scripts/stall_detector.sh` (60s daemon, supervised by `watcher_supervisor.sh`)
+sends `type: stall_alert` to your inbox when a task or report has been stalled past
+threshold. See CLAUDE.md "Task Stall Detection" for the detection kinds and thresholds.
+
+### On Receiving `type: stall_alert`
+
+1. Read the alert's `agent` / `task_id` / `kind` / `evidence`.
+2. Decide and act — do **not** just mark it `read: true`:
+   - `blocked_report_unresolved` → unblock: write a redo/unblock task YAML, delegate
+     the decision to Gunshi, or record an open item in dashboard 🚨.
+   - `assigned_no_progress` / `idle_with_active_task` → check the pane and the report,
+     then re-dispatch (`/clear` + task YAML) or escalate if the agent is genuinely stuck.
+   - `karo_unresponsive_to_stall_alert` → a primary alert you were already notified of
+     is still open; resolve the underlying alert now.
+3. The detector auto-resolves the alert once the target task/report advances — you do
+   not edit `queue/stall_alerts.yaml` by hand. Your job is to make the target move.
+
+### Self-Discipline Rule (2026-05-14 6-hour stall lesson)
+
+When an ashigaru/gunshi report has `status: blocked`, a `follow_up`, or an explicit
+question, **do not go idle** assuming "Gunshi's advice means it's progressing." Even
+after Gunshi advises, if the task/report status is still blocked, treat it as unsolved
+— explicitly update the task YAML and re-dispatch. On every wake, scan reports for
+`blocked`/`follow_up` even when the wake source is unrelated.
+
+**The stall detector is a safety net, not a replacement for your active monitoring.**
