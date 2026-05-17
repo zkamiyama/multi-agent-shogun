@@ -116,6 +116,7 @@ logs/
 # Docs
 !docs/
 !docs/philosophy.md
+!docs/vps_pr118_verification_plan.md
 
 # Screenshots (masked — no secrets)
 !images/
