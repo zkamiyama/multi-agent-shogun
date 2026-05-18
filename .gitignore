@@ -194,4 +194,7 @@ tests/specs/osato_lms_*
 # Android companion app
 !android/
 !android/**
+
+# QC / verification reports (OSS-shareable)
+!reports/cmd_334_pr118_verification.md
 .claude/settings.local.json
