@@ -36,6 +36,7 @@
 #   T-CODEX-010: unresolved CLI type falls back to codex-safe path
 #   T-CODEX-011: clear_command処理でauto-recovery task_assignedを自動投入
 #   T-CODEX-012: auto-recovery task_assignedは重複投入しない
+#   T-CODEX-016: Codex transcript echo is not treated as stuck input
 #   T-SHOGUN-001: session_has_client — returns 0 when client attached
 #   T-SHOGUN-002: session_has_client — returns 1 when no client
 #   T-SHOGUN-003: send_wakeup — shogun + active + attached → send-keys (post PR#75)
@@ -1054,6 +1055,45 @@ YAML
     '
     [ "$status" -eq 0 ]
     echo "$output" | grep -q "rc1=1 rc2=1"  # Both pass through (count changed)
+}
+
+# --- T-SHOOK-004: all-read reset clears nudge throttle for next inbox1 batch ---
+
+@test "T-SHOOK-004: all-read reset clears nudge throttle for same-count next batch" {
+    run bash -c '
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="codex"
+        cat > "$INBOX" <<YAML
+messages: []
+YAML
+        LAST_NUDGE_TS=$(date +%s)
+        LAST_NUDGE_COUNT=1
+        FIRST_UNREAD_SEEN=123
+
+        process_unread event
+
+        should_throttle_nudge 1
+        rc=$?
+        echo "last_ts=$LAST_NUDGE_TS last_count=${LAST_NUDGE_COUNT:-empty} rc=$rc"
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "rc=1"  # 1 = not throttled
+}
+
+# --- T-CODEX-016: Codex transcript echo is not treated as stuck input ---
+
+@test "T-CODEX-016: send_wakeup codex treats transcript echo as delivered" {
+    run bash -c '
+        MOCK_CAPTURE_PANE="$(printf "› inbox1\n  gpt-5.5 xhigh · ~/repo\n")"
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="codex"
+        send_wakeup 1
+    '
+    [ "$status" -eq 0 ]
+
+    echo "$output" | grep -q "cli=codex"
+    ! echo "$output" | grep -q "nudge text still visible"
+    [ "$(grep -c "send-keys -t test:0.0 inbox1" "$MOCK_LOG")" -eq 1 ]
 }
 
 # --- T-CRESET-001: send_context_reset suppresses /clear for karo ---
