@@ -203,7 +203,6 @@ build_cli_command() {
                 cmd="$cmd --model $model"
             fi
             cmd="$cmd $permission_flag"
-            echo "${prefix}${cmd}"
             ;;
         codex)
             cmd="codex"

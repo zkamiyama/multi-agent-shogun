@@ -520,7 +520,7 @@ send_cli_command() {
                 timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
                 sleep 3
                 # Send startup prompt immediately (don't defer to context-reset cycle)
-                send_codex_startup_prompt
+                send_startup_prompt
                 NEW_CONTEXT_SENT=1
                 return 0
             fi
@@ -598,11 +598,12 @@ send_cli_command() {
     fi
 }
 
-# ─── Send Codex startup prompt after /new ───
+# ─── Send startup prompt after context reset ───
 # Waits for agent to become idle, then sends a startup prompt that includes
 # full recovery steps (identify, read task YAML, read inbox, start work).
+# Codex uses a typed `x` to dismiss its suggestion UI.
 # Called from both send_cli_command (clear_command) and send_context_reset.
-send_codex_startup_prompt() {
+send_startup_prompt() {
     # Poll until agent becomes idle (prompt ready) instead of fixed sleep.
     # Max 15s (3 attempts × 5s). If still busy after 15s, proceed anyway.
     local attempt
@@ -625,12 +626,16 @@ send_codex_startup_prompt() {
     if [[ -z "$startup_prompt" ]]; then
         startup_prompt="Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message to identify yourself. 2) Read queue/tasks/${AGENT_ID}.yaml. 3) Read queue/inbox/${AGENT_ID}.yaml, mark read:true. 4) Read context_files. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until done."
     fi
-    echo "[$(date)] [STARTUP] Sending startup prompt to $AGENT_ID (codex): ${startup_prompt:0:80}..." >&2
+    local effective_cli
+    effective_cli=$(get_effective_cli_type)
+    echo "[$(date)] [STARTUP] Sending startup prompt to $AGENT_ID (${effective_cli}): ${startup_prompt:0:80}..." >&2
     # Dismiss suggestion UI, then send startup prompt
-    timeout 5 tmux send-keys -t "$PANE_TARGET" "x" 2>/dev/null || true
-    sleep 0.3
-    timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
-    sleep 0.3
+    if [[ "$effective_cli" != "opencode" ]]; then
+        timeout 5 tmux send-keys -t "$PANE_TARGET" "x" 2>/dev/null || true
+        sleep 0.3
+        timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
+        sleep 0.3
+    fi
     timeout 5 tmux send-keys -l -t "$PANE_TARGET" "$startup_prompt" 2>/dev/null || true
     sleep 0.3
     timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
@@ -686,7 +691,7 @@ send_context_reset() {
         # Codex: send startup prompt (agent has no auto-loaded instructions).
         # OpenCode: skip — agent definition is auto-loaded via --agent flag.
         if [[ "$effective_cli" == "codex" ]]; then
-            send_codex_startup_prompt
+            send_startup_prompt
         fi
         return 0
     fi
