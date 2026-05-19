@@ -195,4 +195,8 @@ tests/specs/osato_lms_*
 !android/
 !android/**
 
+# reports/ (empty placeholder only — content is intentionally local-only)
+!reports/
+!reports/.gitkeep
+
 .claude/settings.local.json
