@@ -134,6 +134,28 @@ reset_nudge_throttle() {
     LAST_NUDGE_COUNT=""
 }
 
+acquire_inbox_lock() {
+    local lock_dir="${LOCKFILE}.d"
+    local i=0
+
+    while ! mkdir "$lock_dir" 2>/dev/null; do
+        sleep 0.1
+        i=$((i + 1))
+        [ "$i" -ge 300 ] && return 1
+    done
+
+    if command -v flock &>/dev/null; then
+        flock -x 200 || {
+            rmdir "$lock_dir" 2>/dev/null
+            return 1
+        }
+    fi
+}
+
+release_inbox_lock() {
+    rmdir "${LOCKFILE}.d" 2>/dev/null || true
+}
+
 # ─── Context reset tracking ───
 # Tracks whether we've sent /new or /clear for the current task_assigned batch.
 # Resets to 0 when all messages are read (FIRST_UNREAD_SEEN → 0).
@@ -294,7 +316,12 @@ normalize_special_command() {
 
 enqueue_recovery_task_assigned() {
     (
-        _ld="${LOCKFILE}.d"; _i=0; while ! mkdir "$_ld" 2>/dev/null; do sleep 0.1; _i=$((_i+1)); [ $_i -ge 300 ] && break; done; trap "rmdir '$_ld' 2>/dev/null" EXIT; if command -v flock &>/dev/null; then flock -x 200; fi
+        # acquire_inbox_lock also takes flock when available.
+        if ! acquire_inbox_lock; then
+            echo "ERROR"
+            exit 0
+        fi
+        trap release_inbox_lock EXIT
         INBOX_PATH="$INBOX" AGENT_ID="$AGENT_ID" "$SCRIPT_DIR/.venv/bin/python3" - << 'PY'
 import datetime
 import os
@@ -407,7 +434,12 @@ PY
 # Test anchor for bats awk pattern: get_unread_info\\(\\)
 get_unread_info() {
     (
-        _ld="${LOCKFILE}.d"; _i=0; while ! mkdir "$_ld" 2>/dev/null; do sleep 0.1; _i=$((_i+1)); [ $_i -ge 300 ] && break; done; trap "rmdir '$_ld' 2>/dev/null" EXIT; if command -v flock &>/dev/null; then flock -x 200; fi
+        # acquire_inbox_lock also takes flock when available.
+        if ! acquire_inbox_lock; then
+            echo '{"count": 0, "specials": []}'
+            exit 0
+        fi
+        trap release_inbox_lock EXIT
         INBOX_PATH="$INBOX" "$SCRIPT_DIR/.venv/bin/python3" - << 'PY'
 import json
 import os

@@ -62,7 +62,7 @@ _release_lock() {
     if command -v flock &>/dev/null; then
         exec 200>&-
     fi
-    rmdir "$LOCK_DIR" 2>/dev/null
+    rmdir "$LOCK_DIR" 2>/dev/null || true
 }
 
 # Atomic write with lock (3 retries)
@@ -71,7 +71,8 @@ max_attempts=3
 
 while [ $attempt -lt $max_attempts ]; do
     if _acquire_lock; then
-        "$SCRIPT_DIR/.venv/bin/python3" -c "
+        trap _release_lock EXIT
+        if "$SCRIPT_DIR/.venv/bin/python3" -c "
 import yaml, sys
 
 try:
@@ -118,9 +119,13 @@ try:
 except Exception as e:
     print(f'ERROR: {e}', file=sys.stderr)
     sys.exit(1)
-"
-        STATUS=$?
+"; then
+            STATUS=0
+        else
+            STATUS=$?
+        fi
         _release_lock
+        trap - EXIT
         [ $STATUS -eq 0 ] && exit 0
         attempt=$((attempt + 1))
         [ $attempt -lt $max_attempts ] && sleep 1
