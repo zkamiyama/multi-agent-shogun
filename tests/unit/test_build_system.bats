@@ -103,6 +103,24 @@ setup() {
     [ -f "$OUTPUT_DIR/opencode-gunshi.md" ]
 }
 
+@test "opencode: generated markdown is LF-only and has no trailing whitespace [R6]" {
+    local file
+
+    for file in "$OUTPUT_DIR"/opencode-*.md "$PROJECT_ROOT"/.opencode/agents/*.md; do
+        [ -f "$file" ] || continue
+
+        if LC_ALL=C grep -n $'\r' "$file"; then
+            echo "CR line ending found in $file" >&2
+            return 1
+        fi
+
+        if grep -nE '[[:blank:]]+$' "$file"; then
+            echo "Trailing whitespace found in $file" >&2
+            return 1
+        fi
+    done
+}
+
 # =============================================================================
 # ファイル生成テスト — Copilot (Phase 2+3 受入基準)
 # =============================================================================

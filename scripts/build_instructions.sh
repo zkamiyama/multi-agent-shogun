@@ -87,6 +87,18 @@ PYEOF
     echo "ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 ashigaru6 ashigaru7"
 }
 
+# Function: normalize_generated_markdown
+# Description: Normalizes generated markdown so diff hygiene does not depend on source file line endings.
+normalize_generated_markdown() {
+    local output_path="$1"
+    local tmp_path="${output_path}.tmp.$$"
+
+    [ -f "$output_path" ] || return 0
+
+    awk '{ sub(/\r$/, ""); sub(/[ \t]+$/, ""); print }' "$output_path" > "$tmp_path"
+    mv "$tmp_path" "$output_path"
+}
+
 # ============================================================
 # Helper function: Build a complete instruction file
 # ============================================================
@@ -145,6 +157,10 @@ EOFYAML
             cat "$PARTS_DIR/cli_specific/opencode_tools.md" >> "$output_path"
             ;;
     esac
+
+    if [[ "$cli_type" == "opencode" ]]; then
+        normalize_generated_markdown "$output_path"
+    fi
 
     echo "  ✅ Created: $output_filename"
 }
@@ -484,6 +500,8 @@ EOF
             echo ""
             cat "$PARTS_DIR/cli_specific/opencode_tools.md"
         } >> "$output_path"
+
+        normalize_generated_markdown "$output_path"
 
         echo "  ✅ Created: .opencode/agents/${agent_id}.md"
     done
