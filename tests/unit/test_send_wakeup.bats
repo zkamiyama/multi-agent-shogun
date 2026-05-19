@@ -54,6 +54,7 @@
 #   T-BUSY-013: agent_is_busy — OpenCode sidebar busy state detected as busy
 #   T-BUSY-014: agent_is_busy — OpenCode animation row detected as busy
 #   T-BUSY-015: agent_is_busy — blank OpenCode pane falls back to idle
+#   T-BUSY-016: agent_is_busy — OpenCode animation fallback works without python3
 #   T-SHOOK-001: Claude Code throttle uses 60s cooldown (stop-hook-supplementary)
 #   T-SHOOK-002: Claude Code count change bypasses throttle (stop-hook-supplementary)
 #   T-SHOOK-003: Non-Claude CLIs still bypass throttle on count change
@@ -1091,6 +1092,15 @@ YAML
         agent_is_busy
     '
     [ "$status" -eq 1 ]
+}
+
+@test "T-BUSY-016: OpenCode busy animation fallback works without python3" {
+    run bash -c '
+        PATH="/nonexistent"
+        source "'"$PROJECT_ROOT"'/lib/agent_status.sh"
+        opencode_has_busy_animation "$(printf "   ⬝⬝■⬝⬝⬝⬝⬝  esc interrupt\n")"
+    '
+    [ "$status" -eq 0 ]
 }
 
 # --- T-SHOOK-001: Claude Code throttle uses 60s cooldown (post PR#75: stop-hook supplementary) ---

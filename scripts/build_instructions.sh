@@ -393,7 +393,7 @@ generate_opencode_agents() {
 
         # Generate permission YAML via the same Python logic used in cli_adapter.sh
         local permission_yaml
-        permission_yaml=$("$python_bin" - "$permissions_file" "$agent_id" <<'PYEOF'
+        if ! permission_yaml=$("$python_bin" - "$permissions_file" "$agent_id" <<'PYEOF'
 import json, sys, yaml
 
 permissions_file = sys.argv[1]
@@ -455,7 +455,10 @@ permission = {
 # Output as YAML (indented) for embedding in frontmatter
 print(yaml.dump({'permission': permission}, default_flow_style=False, allow_unicode=True).rstrip())
 PYEOF
-        )
+        ); then
+            echo "  ❌ Failed to generate OpenCode permissions for ${agent_id}" >&2
+            return 1
+        fi
 
         local output_path="$agents_dir/${agent_id}.md"
 

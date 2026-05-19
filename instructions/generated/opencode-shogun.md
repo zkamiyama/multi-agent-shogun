@@ -622,7 +622,7 @@ In this environment, do not satisfy that requirement by directly editing `queue/
 
 For `queue/inbox/*.yaml`, direct `edit` is forbidden even if another prompt layer describes inbox read-marking as an edit step.
 
-Mark processed inbox entries as read only via the dedicated inbox state update tool (for example `.opencode/tools/mark_as_read.ts`).
+Mark processed inbox entries as read only via the dedicated inbox state update tool (for example `.opencode/tools/mark-as-read.ts`).
 
 Do not rewrite, reorder, or reformat inbox YAML.
 Do not use broad text edits to satisfy inbox state transitions.
