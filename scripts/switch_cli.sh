@@ -36,6 +36,7 @@ LOG_FILE="${PROJECT_ROOT}/logs/switch_cli.log"
 
 # cli_adapter.sh をロード
 source "${PROJECT_ROOT}/lib/cli_adapter.sh"
+source "${PROJECT_ROOT}/lib/agent_registry.sh"
 
 # ─── ログ ───
 log() {
@@ -48,7 +49,7 @@ log() {
 usage() {
     echo "Usage: $0 <agent_id> [--type <cli_type>] [--model <model_name>]"
     echo ""
-    echo "  agent_id   karo, ashigaru1-7, gunshi"
+    echo "  agent_id   Agent configured in config/settings.yaml (e.g. karo, ashigaru1, gunshi)"
     echo "  --type     claude | codex | copilot | kimi"
     echo "  --model    claude-sonnet-4-6 | claude-opus-4-6 | gpt-5.3-codex | etc."
     echo ""
@@ -77,25 +78,16 @@ resolve_pane() {
         log "WARN: @agent_id=$agent_id not found in any pane. Falling back to fixed mapping."
     fi
 
-    # Phase 2: フォールバック（従来の固定マッピング）
+    # Phase 2: フォールバック（settings.yaml の編成順から解決）
     local pane_base
     pane_base=$(tmux show-options -t multiagent -v @pane_base 2>/dev/null || echo "0")
 
-    case "$agent_id" in
-        karo)       echo "multiagent:agents.$((pane_base + 0))" ;;
-        ashigaru1)  echo "multiagent:agents.$((pane_base + 1))" ;;
-        ashigaru2)  echo "multiagent:agents.$((pane_base + 2))" ;;
-        ashigaru3)  echo "multiagent:agents.$((pane_base + 3))" ;;
-        ashigaru4)  echo "multiagent:agents.$((pane_base + 4))" ;;
-        ashigaru5)  echo "multiagent:agents.$((pane_base + 5))" ;;
-        ashigaru6)  echo "multiagent:agents.$((pane_base + 6))" ;;
-        ashigaru7)  echo "multiagent:agents.$((pane_base + 7))" ;;
-        gunshi)     echo "multiagent:agents.$((pane_base + 8))" ;;
-        *)
-            log "ERROR: Unknown agent_id: $agent_id"
-            return 1
-            ;;
-    esac
+    if agent_registry_multiagent_pane_for_agent "$agent_id" "$pane_base"; then
+        return 0
+    fi
+
+    log "ERROR: Unknown agent_id: $agent_id"
+    return 1
 }
 
 # ─── settings.yaml 更新 (Python使用) ───

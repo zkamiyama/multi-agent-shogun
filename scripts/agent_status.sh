@@ -147,6 +147,10 @@ if [[ -f "$SCRIPT_DIR/lib/cli_adapter.sh" ]]; then
     CLI_ADAPTER_AVAILABLE=true
 fi
 
+if [[ -f "$SCRIPT_DIR/lib/agent_registry.sh" ]]; then
+    source "$SCRIPT_DIR/lib/agent_registry.sh"
+fi
+
 # Python (PyYAML)
 PYTHON="${SCRIPT_DIR}/.venv/bin/python3"
 PYTHON_AVAILABLE=false
@@ -154,8 +158,16 @@ if [[ -x "$PYTHON" ]]; then
     PYTHON_AVAILABLE=true
 fi
 
-# Agent definitions (from shutsujin_departure.sh)
-AGENTS=("karo" "ashigaru1" "ashigaru2" "ashigaru3" "ashigaru4" "ashigaru5" "ashigaru6" "ashigaru7" "gunshi")
+# Agent definitions (from settings.yaml formation; legacy partial configs fall back)
+AGENTS=()
+if declare -f agent_registry_multiagent_agents >/dev/null 2>&1; then
+    while IFS= read -r _agent; do
+        [ -n "$_agent" ] && AGENTS+=("$_agent")
+    done < <(agent_registry_multiagent_agents)
+fi
+if [ "${#AGENTS[@]}" -eq 0 ]; then
+    AGENTS=("karo" "ashigaru1" "ashigaru2" "ashigaru3" "ashigaru4" "ashigaru5" "ashigaru6" "ashigaru7" "gunshi")
+fi
 
 # pane-base-index
 PANE_BASE=$(tmux show-options -gv pane-base-index 2>/dev/null || echo 0)
