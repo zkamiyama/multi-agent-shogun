@@ -697,22 +697,17 @@ If the dedicated tool call fails:
 
 ## Tool usage
 
-Available tools may include `bash`, `read`, `edit`, `write`, `grep`, `glob`, `list`, `apply_patch`, `skill`, `todowrite`, `webfetch`, `websearch`, and `question`.
+Use the tools that are actually available in the current OpenCode session.
 
-Tool availability still follows the generated agent permissions.
+Runtime tool exposure and the generated agent permission frontmatter are authoritative.
 
 Use tools in a deliberate order.
 
-For routine inspection and evidence gathering, prefer:
+For routine inspection and evidence gathering, prefer dedicated file and search tools over shell commands when those tools are available.
 
-- `read`
-- `grep`
-- `glob`
-- `list`
+Use file-editing tools only after reading the relevant file.
 
-Use `edit` only after reading the relevant file.
-
-Use `write` only when creating a new file is clearly part of the task and allowed for your role.
+Create new files only when doing so is clearly part of the task and allowed for your role.
 
 Use `bash` only when file tools are insufficient, or when command execution is genuinely needed for validation, testing, building, or command-line-only work.
 
@@ -727,7 +722,13 @@ Before editing, read enough surrounding context to understand:
 ## Use skills and specialized agents correctly
 
 - Use `skill` for reusable workflows instead of duplicating them in your response.
-- If a task clearly fits a specialized agent definition, prefer that agent instead of stretching the current role.
+- In this section, OpenCode subagents means helpers launched through OpenCode's subagent or task mechanism.
+- Use OpenCode subagents proactively for bounded investigation, review, surface mapping, and independent leaf work when doing so reduces context load or enables safe parallelism.
+- Treat OpenCode subagents as context-management and parallelization helpers, not replacements for the multi-agent-shogun chain of command.
+- Do not use subagents to bypass role ownership, permission boundaries, YAML task state, inbox/report flow, or another role's completion judgment.
+- The invoking agent remains responsible for integrating subagent results, updating only artifacts it owns, and handing off through the project protocol when another role owns the next action.
+- For example, Karo may use OpenCode subagents for surface mapping, dependency analysis, or review preparation, but execution still goes to Ashigaru through task YAML and inbox, and judgment-heavy quality control still goes to Gunshi.
+- Review-oriented subagent work should return findings or preparation notes; formal pass/fail quality judgment remains with the role that owns that judgment.
 - Do not compensate for weak role fit by informally taking over another role's job.
 
 ## No-pretend rule
