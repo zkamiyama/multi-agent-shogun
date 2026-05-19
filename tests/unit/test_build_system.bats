@@ -306,13 +306,47 @@ assert perm["read"]["queue/tasks/ashigaru1.yaml"] == "allow"
 assert perm["read"]["queue/reports/*"] == "deny"
 assert perm["read"]["queue/reports/ashigaru1_report.yaml"] == "allow"
 
-for tool_name in ("grep", "glob", "list"):
+for tool_name in ("glob", "list"):
     assert perm[tool_name]["queue/inbox/*"] == "deny"
     assert perm[tool_name]["queue/inbox/ashigaru1.yaml"] == "allow"
     assert perm[tool_name]["queue/tasks/*"] == "deny"
     assert perm[tool_name]["queue/tasks/ashigaru1.yaml"] == "allow"
     assert perm[tool_name]["queue/reports/*"] == "deny"
     assert perm[tool_name]["queue/reports/ashigaru1_report.yaml"] == "allow"
+PYEOF
+}
+
+@test "opencode-agent: grep permission is intentionally not path-scoped [R6]" {
+    PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+from pathlib import Path
+import os
+import yaml
+
+agents_dir = Path(os.environ["PROJECT_ROOT"]) / ".opencode/agents"
+for path in sorted(agents_dir.glob("*.md")):
+    text = path.read_text(encoding="utf-8")
+    frontmatter = yaml.safe_load(text.split("---", 2)[1])
+    perm = frontmatter["permission"]
+    assert "grep" not in perm, f"{path.name}: grep must inherit '*: allow', not path-scoped rules"
+    assert "grep intentionally inherits '*: allow'" in text, f"{path.name}: missing intentional grep comment"
+PYEOF
+}
+
+@test "opencode-agent: shogun can read reports for oversight [R6]" {
+    PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+from pathlib import Path
+import os
+import yaml
+
+path = Path(os.environ["PROJECT_ROOT"]) / ".opencode/agents/shogun.md"
+text = path.read_text(encoding="utf-8")
+frontmatter = yaml.safe_load(text.split("---", 2)[1])
+perm = frontmatter["permission"]
+
+assert perm["read"]["queue/reports/*"] == "allow"
+assert perm["glob"]["queue/reports/*"] == "allow"
+assert perm["list"]["queue/reports/*"] == "allow"
+assert perm["edit"]["queue/reports/*"] == "deny"
 PYEOF
 }
 

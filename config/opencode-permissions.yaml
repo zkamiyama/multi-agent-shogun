@@ -24,12 +24,12 @@ roles:
       - queue/tasks/ashigaru*.yaml
       - queue/tasks/gunshi.yaml
       - queue/tasks/pending.yaml
-      - queue/reports/*
       - queue/shogun_to_karo_archive.yaml
     read_allow:
       - queue/inbox/shogun.yaml
       - queue/shogun_to_karo.yaml
       - queue/ntfy_inbox.yaml
+      - queue/reports/*
       - dashboard.md
       - saytask/tasks.yaml
       - saytask/streaks.yaml
