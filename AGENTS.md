@@ -141,7 +141,7 @@ The nudge is minimal: `inboxN` (e.g. `inbox3` = 3 unread). That's it.
 **Agent reads the inbox file itself.** Message content never travels through tmux — only a short wake-up signal.
 
 Special cases (CLI commands sent via `tmux send-keys`):
-- `type: clear_command` → sends context reset command via send-keys (Codex CLI: `/clear`, Codex/OpenCode: `/new`)
+- `type: clear_command` → sends context reset command via send-keys (Claude/Copilot/Kimi: `/clear`, Codex/OpenCode: `/new`)
 - `type: model_switch` → sends the /model command via send-keys
 
 **Escalation** (when nudge is not processed):

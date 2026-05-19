@@ -754,11 +754,11 @@ Or set the default directly in `scripts/inbox_watcher.sh` (`ASW_PHASE` variable)
 
 **3-Phase Escalation (v3.2)** — If agent doesn't respond:
 
-| Phase   | Timing  | Action                                                                                      |
-| ------- | ------- | ------------------------------------------------------------------------------------------- |
-| Phase 1 | 0-2 min | Standard nudge (`inbox3` text + Enter) — _skipped for busy agents in ASW Phase 2+_          |
-| Phase 2 | 2-4 min | Copilot/Kimi: Escape×2 + single Ctrl-C + nudge. Claude/Codex/OpenCode: plain nudge fallback |
-| Phase 3 | 4+ min  | Send `/clear` to force session reset (max once per 5 min)                                   |
+| Phase   | Timing  | Action                                                                                                            |
+| ------- | ------- | ----------------------------------------------------------------------------------------------------------------- |
+| Phase 1 | 0-2 min | Standard nudge (`inbox3` text + Enter) — _skipped for busy agents in ASW Phase 2+_                                |
+| Phase 2 | 2-4 min | Copilot/Kimi: Escape×2 + single Ctrl-C + nudge. Claude/Codex/OpenCode: plain nudge fallback                       |
+| Phase 3 | 4+ min  | Send CLI-specific context reset: Claude/Copilot/Kimi use `/clear`, Codex/OpenCode use `/new` (max once per 5 min) |
 
 **Key design choices:**
 

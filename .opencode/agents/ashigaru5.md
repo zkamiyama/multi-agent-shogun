@@ -202,7 +202,7 @@ Safety note (shogun):
 - Escalation keystrokes (`Escape×2`, context reset, `C-u`) must be suppressed for shogun to avoid clobbering human input.
 
 Special cases (CLI commands sent via `tmux send-keys`):
-- `type: clear_command` → sends context reset command via send-keys (Claude Code: `/clear`, Codex: `/new` — auto-converted to /new for Codex)
+- `type: clear_command` → sends context reset command via send-keys (Claude/Copilot/Kimi: `/clear`, Codex/OpenCode: `/new`)
 - `type: model_switch` → sends the /model command via send-keys
 
 ## Agent Self-Watch Phase Policy (cmd_107)
@@ -252,7 +252,7 @@ When Karo determines a task needs to be redone:
 
 1. Karo writes new task YAML with new task_id (e.g., `subtask_097d` → `subtask_097d2`), adds `redo_of` field
 2. Karo sends `clear_command` type inbox message (NOT `task_assigned`)
-3. inbox_watcher delivers context reset to the agent（Claude Code: `/clear`, Codex: `/new`）→ session reset
+3. inbox_watcher delivers context reset to the agent（Claude/Copilot/Kimi: `/clear`, Codex/OpenCode: `/new`）→ session reset
 4. Agent recovers via Session Start procedure, reads new task YAML, starts fresh
 
 Race condition is eliminated: context reset wipes old context. Agent re-reads YAML with new task_id.

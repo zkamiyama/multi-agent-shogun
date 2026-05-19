@@ -18,73 +18,21 @@ echo "=== Instruction File Build System ==="
 echo "Building instruction files..."
 
 # Function: opencode_build_python
-# Description: Returns the Python interpreter used for build-time YAML parsing.
+# Description: Returns a Python interpreter with PyYAML for build-time YAML parsing.
 # Arguments: none
 # Returns: path to python3 on success, 1 on error
 opencode_build_python() {
-    if [[ -x "$ROOT_DIR/.venv/bin/python3" ]]; then
-        echo "$ROOT_DIR/.venv/bin/python3"
-    elif command -v python3 &>/dev/null; then
-        command -v python3
-    else
-        return 1
-    fi
-}
-
-# Function: get_build_ashigaru_ids
-# Description: Returns ashigaru agent IDs discovered from settings.yaml or queue/task files.
-# Arguments: none
-# Returns: space-separated ashigaru IDs on success, fallback list otherwise
-get_build_ashigaru_ids() {
-    local settings_file="$ROOT_DIR/config/settings.yaml"
-    local python_bin
-    python_bin=$(opencode_build_python 2>/dev/null || true)
-
-    if [[ -n "$python_bin" && -f "$settings_file" ]]; then
-        local result
-        result=$("$python_bin" - "$settings_file" "$ROOT_DIR" <<'PYEOF'
-import sys
-from pathlib import Path
-import yaml
-
-settings_file = sys.argv[1]
-root_dir = Path(sys.argv[2])
-try:
-    with open(settings_file, encoding='utf-8') as fh:
-        data = yaml.safe_load(fh) or {}
-    cli_agents = (data.get('cli') or {}).get('agents') or {}
-    model_agents = data.get('models') or {}
-
-    ashigaru = {
-        str(agent_id)
-        for agent_id in cli_agents
-        if str(agent_id).startswith('ashigaru')
-    }
-    ashigaru.update(
-        str(agent_id)
-        for agent_id in model_agents
-        if str(agent_id).startswith('ashigaru')
-    )
-
-    if not ashigaru:
-        task_dir = root_dir / 'queue' / 'tasks'
-        if task_dir.exists():
-            ashigaru.update(path.stem for path in task_dir.glob('ashigaru*.yaml'))
-
-    ashigaru = list(ashigaru)
-    ashigaru.sort(key=lambda agent_id: int(str(agent_id).replace('ashigaru', '')) if str(agent_id).replace('ashigaru', '').isdigit() else 999)
-    print(' '.join(ashigaru))
-except Exception:
-    pass
-PYEOF
-        )
-        if [[ -n "$result" ]]; then
-            echo "$result"
+    local candidate
+    for candidate in "$ROOT_DIR/.venv/bin/python3" "$(command -v python3 2>/dev/null || true)"; do
+        [[ -n "$candidate" && -x "$candidate" ]] || continue
+        if "$candidate" -c 'import yaml' 2>/dev/null; then
+            echo "$candidate"
             return 0
         fi
-    fi
+    done
 
-    echo "ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 ashigaru6 ashigaru7"
+    echo "  ❌ PyYAML is required for OpenCode agent generation. Run: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
+    return 1
 }
 
 # Function: normalize_generated_markdown
@@ -357,13 +305,15 @@ generate_opencode_agents() {
     mkdir -p "$agents_dir"
 
     python_bin=$(opencode_build_python) || {
-        echo "  ⚠️  python3 not found. Skipping OpenCode agent generation."
+        echo "  ❌ Python with PyYAML not found. Cannot generate OpenCode agents." >&2
         return 1
     }
 
-    # Agent ID → role mapping
+    # Agent ID → role mapping.  Keep this tracked output deterministic: do not
+    # derive generated file names from git-ignored config/settings.yaml or
+    # runtime queue/tasks state.
     local agent_ids
-    agent_ids="shogun karo gunshi $(get_build_ashigaru_ids)"
+    agent_ids="shogun karo gunshi ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 ashigaru6 ashigaru7"
 
     for agent_id in $agent_ids; do
         # Determine role (all ashigaru share the same role template)
