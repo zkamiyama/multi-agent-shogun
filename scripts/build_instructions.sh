@@ -292,7 +292,7 @@ EOFYAML
 # Returns: 0 on success, 1 if generation is skipped or unavailable
 generate_opencode_agents() {
     local agents_dir="$ROOT_DIR/.opencode/agents"
-    local permissions_file="$ROOT_DIR/config/opencode-permissions.yaml"
+    local permissions_file="${OPENCODE_PERMISSIONS_FILE:-$ROOT_DIR/config/opencode-permissions.yaml}"
     local python_bin
 
     echo "Generating: .opencode/agents/*.md (OpenCode agent definitions)"

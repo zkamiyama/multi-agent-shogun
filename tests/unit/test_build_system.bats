@@ -337,15 +337,11 @@ PYEOF
 }
 
 @test "opencode-agent: invalid permission YAML fails generation [R6]" {
-    local permissions_file backup_file
-    permissions_file="$PROJECT_ROOT/config/opencode-permissions.yaml"
-    backup_file="$BATS_TEST_TMPDIR/opencode-permissions.yaml.bak"
-    cp "$permissions_file" "$backup_file"
+    local permissions_file
+    permissions_file="$BATS_TEST_TMPDIR/opencode-permissions.invalid.yaml"
 
     printf 'roles: [invalid\n' > "$permissions_file"
-    run bash "$BUILD_SCRIPT"
-    cp "$backup_file" "$permissions_file"
-    bash "$BUILD_SCRIPT" > /dev/null 2>&1
+    run env OPENCODE_PERMISSIONS_FILE="$permissions_file" bash "$BUILD_SCRIPT"
 
     [ "$status" -ne 0 ]
 }
