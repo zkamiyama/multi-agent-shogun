@@ -1837,7 +1837,7 @@ tmux respawn-pane -t shogun:0.0 -k 'claude --model opus --dangerously-skip-permi
 - **E2Eテストスイート（19テスト、7シナリオ）** — モックCLIフレームワークが分離されたtmuxセッションでエージェント動作をシミュレート
 - **Stop hook inbox配信** — Claude Codeエージェントが `.claude/settings.json` のStop hookでターン終了時に自動的にinboxを確認。`send-keys` 割り込み問題を根絶
 - **モデルデフォルト更新** — 家老: Opus→Sonnet。軍師: Opus（深い推論）。全足軽: Sonnet（統一）
-- **Codex/OpenCode CLIスタートアッププロンプト** — `cli_adapter.sh` の `get_startup_prompt()` が Session Start プロンプトを返し、`get_startup_prompt_arg()` が Codex/OpenCode 向けの起動引数に変換する
+- **Codex/OpenCode 起動統合** — Codex は `get_startup_prompt()` / `get_startup_prompt_arg()` で Session Start 復旧を行い、OpenCode は生成済み `.opencode/agents/*.md` を `--agent` で読み込む
 - **YAMLスリム化ユーティリティ** — `scripts/slim_yaml.sh` が既読メッセージ・終端コマンドをアーカイブ。現行 top-level/旧 `task.status` の両形式に対応し、`--dry-run` は queue 清掃監査でファイルを書き換えない
 
 </details>

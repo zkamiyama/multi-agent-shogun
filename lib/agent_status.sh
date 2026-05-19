@@ -136,7 +136,16 @@ PY
         return $?
     fi
 
-    printf '%s\n' "$capture_text" | grep -qF '■⬝⬝⬝⬝⬝⬝⬝'
+    local line
+    while IFS= read -r line; do
+        # Python is preferred for Unicode handling.  This shell fallback keeps
+        # the same contract: any OpenCode spinner line with at least eight
+        # busy-animation glyphs is busy, regardless of the current frame.
+        if [[ "$line" =~ ([■⬝].*){8} ]]; then
+            return 0
+        fi
+    done <<< "$capture_text"
+    return 1
 }
 
 # get_pane_state_label <pane_target>
