@@ -397,7 +397,7 @@ load_adapter_with() {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     result=$(build_cli_command "shogun")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
-    [[ "$result" == "OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
+    [[ "$result" == "OPENCODE_AGENT_ID=shogun OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
     [[ "$result" == *'opencode --model openai/gpt-5.4-mini --agent shogun'* ]]
     # No OPENCODE_CONFIG_CONTENT — permissions are in .opencode/agents/shogun.md
     [[ "$result" != *'OPENCODE_CONFIG_CONTENT'* ]]
@@ -409,7 +409,7 @@ load_adapter_with() {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     result=$(build_cli_command "karo")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
-    [[ "$result" == "OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
+    [[ "$result" == "OPENCODE_AGENT_ID=karo OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
     [[ "$result" == *'opencode --model openai/gpt-5.4 --agent karo'* ]]
     [[ "$result" != *'OPENCODE_CONFIG_CONTENT'* ]]
     [[ "$result" != *'--prompt'* ]]
@@ -419,7 +419,7 @@ load_adapter_with() {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     result=$(build_cli_command "ashigaru1")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
-    [[ "$result" == "OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
+    [[ "$result" == "OPENCODE_AGENT_ID=ashigaru1 OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
     [[ "$result" == *'opencode --model moonshot/kimi-k2.5 --agent ashigaru1'* ]]
     [[ "$result" != *'OPENCODE_CONFIG_CONTENT'* ]]
     [[ "$result" != *'--prompt'* ]]
@@ -429,7 +429,7 @@ load_adapter_with() {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     result=$(build_cli_command "gunshi")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
-    [[ "$result" == "OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
+    [[ "$result" == "OPENCODE_AGENT_ID=gunshi OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
     [[ "$result" == *'opencode --model anthropic/claude-opus-4-6 --agent gunshi'* ]]
     [[ "$result" != *'OPENCODE_CONFIG_CONTENT'* ]]
     [[ "$result" != *'--prompt'* ]]
@@ -441,7 +441,7 @@ load_adapter_with() {
     second=$(build_cli_command "ashigaru3")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
     [[ "$first" == "$second" ]]
-    [[ "$first" == "OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
+    [[ "$first" == "OPENCODE_AGENT_ID=ashigaru3 OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
     [[ "$first" == *'opencode --model anthropic/claude-sonnet-4-6 --agent ashigaru3'* ]]
     [[ "$first" != *'OPENCODE_CONFIG_CONTENT'* ]]
     [[ "$first" != *'--prompt'* ]]

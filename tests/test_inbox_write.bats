@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # test_inbox_write.bats — inbox_write.sh ユニットテスト
-# リグレッションテスト仕様書 T-001 ~ T-012 実装
+# リグレッションテスト仕様書 T-001 ~ T-013 実装
 #
 # テスト構成:
 #   T-001~T-002: 引数バリデーション
@@ -11,6 +11,7 @@
 #   T-010: flock競合時のリトライ
 #   T-011: 特殊文字のエスケープ処理
 #   T-012: inbox初期化（ディレクトリ自動作成）
+#   T-013: lock directory解放
 
 # --- セットアップ ---
 
@@ -440,4 +441,11 @@ assert len(data['messages']) == 1, 'Expected 1 message after auto-create'
 
 print('T-012: PASS')
 EOF
+}
+
+@test "T-013: lock directory is released after successful write" {
+    run bash "$TEST_INBOX_WRITE" "test_agent" "lock release" "test_type" "other_sender"
+    [ "$status" -eq 0 ]
+
+    [ ! -d "$TEST_INBOX_DIR/test_agent.yaml.lock.d" ]
 }

@@ -123,7 +123,7 @@ if $STANDALONE; then
         agent_id=$(timeout 2 tmux display-message -t "$pane_target" -p '#{@agent_id}' 2>/dev/null || echo "---")
         [[ -z "$agent_id" ]] && agent_id="---"
 
-        agent_is_busy_check "$pane_target" "$cli_type" && rc=0 || rc=$?
+        agent_is_busy_check "$pane_target" && rc=0 || rc=$?
         label=$(state_label "$rc")
 
         print_padded "$pane_target" 30

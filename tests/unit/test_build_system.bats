@@ -354,6 +354,15 @@ assert "queue/inbox/*.yaml" in config["common"]["edit_deny"]
 PYEOF
 }
 
+@test "opencode-tool: mark-as-read enforces current agent and inbox lock [R6]" {
+    local tool_file="$PROJECT_ROOT/.opencode/tools/mark-as-read.ts"
+
+    grep -q 'process.env.OPENCODE_AGENT_ID' "$tool_file"
+    grep -q 'Refusing to mark another agent' "$tool_file"
+    grep -q 'withInboxLock' "$tool_file"
+    grep -q '.lock.d' "$tool_file"
+}
+
 # =============================================================================
 # copilot-instructions.md 生成テスト (Phase 2+3 受入基準)
 # =============================================================================

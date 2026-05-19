@@ -294,7 +294,7 @@ normalize_special_command() {
 
 enqueue_recovery_task_assigned() {
     (
-        if command -v flock &>/dev/null; then flock -x 200; else _ld="${LOCKFILE}.d"; _i=0; while ! mkdir "$_ld" 2>/dev/null; do sleep 0.1; _i=$((_i+1)); [ $_i -ge 300 ] && break; done; trap "rmdir '$_ld' 2>/dev/null" EXIT; fi
+        _ld="${LOCKFILE}.d"; _i=0; while ! mkdir "$_ld" 2>/dev/null; do sleep 0.1; _i=$((_i+1)); [ $_i -ge 300 ] && break; done; trap "rmdir '$_ld' 2>/dev/null" EXIT; if command -v flock &>/dev/null; then flock -x 200; fi
         INBOX_PATH="$INBOX" AGENT_ID="$AGENT_ID" "$SCRIPT_DIR/.venv/bin/python3" - << 'PY'
 import datetime
 import os
@@ -402,12 +402,12 @@ except Exception:
 PY
 }
 
-# ─── Extract unread message info (lock-free read) ───
+# ─── Extract unread message info ───
 # Returns JSON lines: {"count": N, "has_special": true/false, "specials": [...]}
 # Test anchor for bats awk pattern: get_unread_info\\(\\)
 get_unread_info() {
     (
-        if command -v flock &>/dev/null; then flock -x 200; else _ld="${LOCKFILE}.d"; _i=0; while ! mkdir "$_ld" 2>/dev/null; do sleep 0.1; _i=$((_i+1)); [ $_i -ge 300 ] && break; done; trap "rmdir '$_ld' 2>/dev/null" EXIT; fi
+        _ld="${LOCKFILE}.d"; _i=0; while ! mkdir "$_ld" 2>/dev/null; do sleep 0.1; _i=$((_i+1)); [ $_i -ge 300 ] && break; done; trap "rmdir '$_ld' 2>/dev/null" EXIT; if command -v flock &>/dev/null; then flock -x 200; fi
         INBOX_PATH="$INBOX" "$SCRIPT_DIR/.venv/bin/python3" - << 'PY'
 import json
 import os

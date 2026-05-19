@@ -216,6 +216,8 @@ build_cli_command() {
             local tui_config_path
             normalized_model=$(normalize_opencode_model "$model")
             tui_config_path=$(_cli_adapter_shell_quote "$CLI_ADAPTER_PROJECT_ROOT/config/opencode-tui.json")
+            local quoted_agent_id
+            quoted_agent_id=$(_cli_adapter_shell_quote "$agent_id")
             cmd="opencode"
             if [[ -n "$normalized_model" ]]; then
                 cmd="$cmd --model $normalized_model"
@@ -225,7 +227,7 @@ build_cli_command() {
             cmd="$cmd --agent $agent_id"
             # Use a project-pinned TUI config so tmux automation sees stable keybinds
             # even when the user has a different global tui.json.
-            cmd="OPENCODE_TUI_CONFIG=$tui_config_path $cmd"
+            cmd="OPENCODE_AGENT_ID=$quoted_agent_id OPENCODE_TUI_CONFIG=$tui_config_path $cmd"
             ;;
         copilot)
             cmd="copilot --yolo"

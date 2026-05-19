@@ -37,20 +37,23 @@ fi
 MSG_ID="msg_$(date +%Y%m%d_%H%M%S)_$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
 TIMESTAMP=$(date "+%Y-%m-%dT%H:%M:%S")
 
-# Cross-platform lock: flock (Linux) or mkdir (macOS fallback)
+# Cross-process lock: mkdir coordinates with OpenCode tools; flock is added when available.
 LOCK_DIR="${LOCKFILE}.d"
 
 _acquire_lock() {
+    local i=0
+    while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+        sleep 0.1
+        i=$((i + 1))
+        [ $i -ge 50 ] && return 1  # 5s timeout
+    done
+
     if command -v flock &>/dev/null; then
         exec 200>"$LOCKFILE"
-        flock -w 5 200 || return 1
-    else
-        local i=0
-        while ! mkdir "$LOCK_DIR" 2>/dev/null; do
-            sleep 0.1
-            i=$((i + 1))
-            [ $i -ge 50 ] && return 1  # 5s timeout
-        done
+        flock -w 5 200 || {
+            rmdir "$LOCK_DIR" 2>/dev/null
+            return 1
+        }
     fi
     return 0
 }
@@ -58,9 +61,8 @@ _acquire_lock() {
 _release_lock() {
     if command -v flock &>/dev/null; then
         exec 200>&-
-    else
-        rmdir "$LOCK_DIR" 2>/dev/null
     fi
+    rmdir "$LOCK_DIR" 2>/dev/null
 }
 
 # Atomic write with lock (3 retries)
