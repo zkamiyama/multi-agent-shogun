@@ -83,6 +83,15 @@ log_war() {
     echo -e "\033[1;31m【戦】\033[0m $1"
 }
 
+# OpenCode は複数プロセスを短時間に連続起動すると WSL2 上で SIGILL に
+# なることがあるため、OpenCode のときだけ起動間隔を少し空ける。
+opencode_startup_delay() {
+    local cli_type="$1"
+    if [ "$cli_type" = "opencode" ]; then
+        sleep 1
+    fi
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # プロンプト生成関数（bash/zsh対応）
 # ───────────────────────────────────────────────────────────────────────────────
@@ -701,6 +710,7 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
     tmux set-option -p -t "shogun:main" @agent_cli "$_shogun_cli_type"
     tmux send-keys -t shogun:main "$_shogun_cmd"
     tmux send-keys -t shogun:main Enter
+    opencode_startup_delay "$_shogun_cli_type"
     _shogun_display=$(get_model_display_name "shogun" 2>/dev/null || echo "Opus")
     tmux set-option -p -t "shogun:main" @model_name "$_shogun_display" 2>/dev/null || true
     log_info "  └─ 将軍（${_shogun_cli_type} / ${_shogun_display}）、召喚完了"
@@ -719,6 +729,7 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
     tmux set-option -p -t "multiagent:agents.${p}" @agent_cli "$_karo_cli_type"
     tmux send-keys -t "multiagent:agents.${p}" "$_karo_cmd"
     tmux send-keys -t "multiagent:agents.${p}" Enter
+    opencode_startup_delay "$_karo_cli_type"
     _karo_display=$(get_model_display_name "karo" 2>/dev/null || echo "Sonnet")
     tmux set-option -p -t "multiagent:agents.${p}" @model_name "$_karo_display" 2>/dev/null || true
     log_info "  └─ 家老（${_karo_display}）、召喚完了"
@@ -740,6 +751,7 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
             tmux set-option -p -t "multiagent:agents.${p}" @agent_cli "$_ashi_cli_type"
             tmux send-keys -t "multiagent:agents.${p}" "$_ashi_cmd"
             tmux send-keys -t "multiagent:agents.${p}" Enter
+            opencode_startup_delay "$_ashi_cli_type"
         done
         log_info "  └─ 足軽1-${_ASHIGARU_COUNT}（決戦の陣）、召喚完了"
     else
@@ -755,6 +767,7 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
             tmux set-option -p -t "multiagent:agents.${p}" @agent_cli "$_ashi_cli_type"
             tmux send-keys -t "multiagent:agents.${p}" "$_ashi_cmd"
             tmux send-keys -t "multiagent:agents.${p}" Enter
+            opencode_startup_delay "$_ashi_cli_type"
         done
         log_info "  └─ 足軽1-${_ASHIGARU_COUNT}（平時の陣）、召喚完了"
     fi
@@ -770,6 +783,7 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
     tmux set-option -p -t "multiagent:agents.${p}" @agent_cli "$_gunshi_cli_type"
     tmux send-keys -t "multiagent:agents.${p}" "$_gunshi_cmd"
     tmux send-keys -t "multiagent:agents.${p}" Enter
+    opencode_startup_delay "$_gunshi_cli_type"
     _gunshi_display=$(get_model_display_name "gunshi" 2>/dev/null || echo "Opus+T")
     tmux set-option -p -t "multiagent:agents.${p}" @model_name "$_gunshi_display" 2>/dev/null || true
     log_info "  └─ 軍師（${_gunshi_display}）、召喚完了"
