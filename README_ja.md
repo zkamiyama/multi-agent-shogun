@@ -135,7 +135,7 @@ bash shutsujin_departure.sh                # 全エージェント起動
 | **Kimi Code** | 無料プランあり、多言語サポート | Kimi k2 |
 | **OpenCode** | `AGENTS.md` 自動読込、`--agent` によるロール別エージェント定義、`/new` でのコンテキストリセット、モデル変更は再起動のみ、決定的な対話型 TUI 起動、`--model provider/model` ルーティング | provider/model |
 
-OpenCode の起動は `--agent` で生成済み `.opencode/agents/<agent>.md` を読み込み、リセットは `/new`、モデル変更は再起動で行う。ロール別の境界は生成されたエージェント frontmatter に埋め込まれており、将軍は `queue/reports/*` を直接扱えず、家老は分配と報告集約のみ、足軽は自分の task/report のみ、軍師は `gunshi_report.yaml` と足軽レポートを読む。
+OpenCode の起動は `--agent` で生成済み `.opencode/agents/<agent>.md` を読み込み、リセットは `/new`、モデル変更は再起動で行う。ロール別の境界は生成されたエージェント frontmatter に埋め込まれており、将軍は監督のため `queue/reports/*` を読めるが書けず、家老は分配と報告集約のみ、足軽は自分の task/report のみ、軍師は足軽レポートを読み `gunshi_report.yaml` だけを書く。
 
 統一ビルドシステムが共有テンプレートからCLI固有の指示書を自動生成：
 
@@ -585,8 +585,8 @@ notes: |
 陣営構成（誰にどのCLIを使わせるか）は `config/settings.yaml`：
 
 ```yaml
-agents:
-  cli_assignments:
+cli:
+  agents:
     ashigaru1:
       type: codex          # codex / claude / copilot / kimi / opencode
       model: gpt-5.5

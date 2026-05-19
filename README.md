@@ -135,7 +135,7 @@ Shogun isn't locked to one vendor. The system supports 5 CLI tools, each with un
 | **Kimi Code** | Free tier available, strong multilingual support | Kimi k2 |
 | **OpenCode** | Shared `AGENTS.md` instructions, role-specific agent definitions via `--agent`, `/new` context reset, restart-only model changes, deterministic interactive TUI launch, provider-qualified `--model` routing | provider/model |
 
-OpenCode sessions load the role-specific `.opencode/agents/<agent>.md` definition via `--agent` and keep automation resets on `/new`; model changes require a relaunch. Automation uses the repository-provided `config/opencode-tui.json` via `OPENCODE_TUI_CONFIG`, which disables `app_exit` and pins `session_interrupt`/`input_clear` to known bindings. Role boundaries are embedded in the generated agent frontmatter: Shogun is blocked from `queue/reports/*`, Karo is limited to coordination files plus report aggregation, Ashigaru only touch their own task/report pair, and Gunshi reads ashigaru reports but only writes `gunshi_report.yaml`.
+OpenCode sessions load the role-specific `.opencode/agents/<agent>.md` definition via `--agent` and keep automation resets on `/new`; model changes require a relaunch. Automation uses the repository-provided `config/opencode-tui.json` via `OPENCODE_TUI_CONFIG`, which disables `app_exit` and pins `session_interrupt`/`input_clear` to known bindings. Role boundaries are embedded in the generated agent frontmatter: Shogun can read `queue/reports/*` for oversight but cannot write them, Karo is limited to coordination files plus report aggregation, Ashigaru only touch their own task/report pair, and Gunshi reads ashigaru reports but only writes `gunshi_report.yaml`.
 
 A unified instruction build system generates CLI-specific instruction files from shared templates:
 
@@ -581,8 +581,8 @@ Detailed project knowledge (requirements, design, past feedback) lives in `conte
 The agent formation (which CLI each agent uses) lives in `config/settings.yaml`:
 
 ```yaml
-agents:
-  cli_assignments:
+cli:
+  agents:
     ashigaru1:
       type: codex          # codex / claude / copilot / kimi / opencode
       model: gpt-5.5
