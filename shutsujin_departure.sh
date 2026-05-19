@@ -88,7 +88,7 @@ log_war() {
 opencode_startup_delay() {
     local cli_type="$1"
     if [ "$cli_type" = "opencode" ]; then
-        sleep 1
+        sleep 0.1
     fi
 }
 
