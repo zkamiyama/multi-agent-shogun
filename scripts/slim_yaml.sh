@@ -11,10 +11,16 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 QUEUE_DIR="${SHOGUN_QUEUE_DIR:-${SCRIPT_DIR}/../queue}"
 LOCK_FILE="${QUEUE_DIR}/.slim_yaml.lock"
 LOCK_TIMEOUT=10
 DRY_RUN=false
+PYTHON_BIN="${SHOGUN_PYTHON_BIN:-${PROJECT_ROOT}/.venv/bin/python3}"
+
+if [ ! -x "$PYTHON_BIN" ]; then
+    PYTHON_BIN="python3"
+fi
 
 for arg in "$@"; do
     if [ "$arg" = "--dry-run" ]; then
@@ -43,8 +49,9 @@ if [ "$DRY_RUN" != true ]; then
     fi
 fi
 
-# Call the Python implementation
-python3 "$(dirname "$0")/slim_yaml.py" "$@"
+# Call the Python implementation. Prefer the project venv because CI installs
+# PyYAML there on macOS and does not install it into the system Python.
+"$PYTHON_BIN" "$(dirname "$0")/slim_yaml.py" "$@"
 exit_code=$?
 
 # Lock is automatically released when file descriptor is closed

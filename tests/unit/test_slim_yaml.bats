@@ -7,6 +7,8 @@ setup() {
     export PROJECT_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     export TEST_TMPDIR="$(mktemp -d "$BATS_TMPDIR/slim_yaml.XXXXXX")"
     export SHOGUN_QUEUE_DIR="$TEST_TMPDIR/queue"
+    export TEST_PYTHON="$PROJECT_ROOT/.venv/bin/python3"
+    [ -x "$TEST_PYTHON" ] || TEST_PYTHON="python3"
     mkdir -p "$SHOGUN_QUEUE_DIR"/{tasks,reports,inbox}
 }
 
@@ -21,7 +23,7 @@ write_yaml() {
 }
 
 run_slim() {
-    python3 "$PROJECT_ROOT/scripts/slim_yaml.py" "$@"
+    "$TEST_PYTHON" "$PROJECT_ROOT/scripts/slim_yaml.py" "$@"
 }
 
 run_slim_wrapper() {
@@ -30,7 +32,7 @@ run_slim_wrapper() {
 
 yaml_value() {
     local file="$1" expr="$2"
-    python3 - "$file" "$expr" <<'PY'
+    "$TEST_PYTHON" - "$file" "$expr" <<'PY'
 import sys
 import yaml
 
@@ -78,7 +80,7 @@ PY
 
     [ ! -e "$SHOGUN_QUEUE_DIR/.slim_yaml.lock" ]
     [ "$(yaml_value "$SHOGUN_QUEUE_DIR/shogun_to_karo.yaml" "queue.0.id")" = "" ]
-    python3 - "$SHOGUN_QUEUE_DIR/shogun_to_karo.yaml" <<'PY'
+    "$TEST_PYTHON" - "$SHOGUN_QUEUE_DIR/shogun_to_karo.yaml" <<'PY'
 import sys, yaml
 data = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
 assert data["queue"][0]["id"] == "cmd_done"
@@ -92,7 +94,7 @@ PY
     assert_success
 
     [ "$(yaml_value "$SHOGUN_QUEUE_DIR/shogun_to_karo.yaml" "queue.0.id")" = "" ]
-    python3 - "$SHOGUN_QUEUE_DIR/shogun_to_karo.yaml" <<'PY'
+    "$TEST_PYTHON" - "$SHOGUN_QUEUE_DIR/shogun_to_karo.yaml" <<'PY'
 import sys, yaml
 data = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
 ids = [item["id"] for item in data["queue"]]
@@ -134,7 +136,7 @@ PY
     run run_slim karo
     assert_success
 
-    python3 - "$SHOGUN_QUEUE_DIR/inbox/karo.yaml" <<'PY'
+    "$TEST_PYTHON" - "$SHOGUN_QUEUE_DIR/inbox/karo.yaml" <<'PY'
 import sys, yaml
 data = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
 ids = [item["id"] for item in data["messages"]]
@@ -154,7 +156,7 @@ PY
     assert_output --partial "old ntfy terminal entries available for explicit cleanup"
 
     [ "$(yaml_value "$SHOGUN_QUEUE_DIR/ntfy_inbox.yaml" "inbox.0.id")" = "" ]
-    python3 - "$SHOGUN_QUEUE_DIR/ntfy_inbox.yaml" <<'PY'
+    "$TEST_PYTHON" - "$SHOGUN_QUEUE_DIR/ntfy_inbox.yaml" <<'PY'
 import sys, yaml
 data = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
 ids = [item["id"] for item in data["inbox"]]
