@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - OpenCode first-class CLI support across Shogun, Karo, Ashigaru 1-7, and Gunshi
-- Generated `.opencode/agents/*.md` role definitions from the shared instruction build system
+- Generated `.opencode/agents/*.md` agent definitions from the shared instruction build system
 - `instructions/cli_specific/opencode_tools.md` for OpenCode-specific operational rules
 - `config/opencode-permissions.yaml` to generate role-scoped OpenCode permission frontmatter
 - `config/opencode-tui.json` to pin tmux-safe OpenCode keybindings
@@ -14,7 +14,7 @@ All notable changes to this project will be documented in this file.
 - OpenCode startup E2E coverage and build checks for generated agent files
 
 ### Changed
-- `lib/cli_adapter.sh` can launch OpenCode with `--agent <role>` and `OPENCODE_TUI_CONFIG`
+- `lib/cli_adapter.sh` can launch OpenCode with `--agent <agent_id>` and `OPENCODE_TUI_CONFIG`
 - `scripts/build_instructions.sh` now checks generated instruction files and OpenCode agent files together
 - README and README_ja document OpenCode setup, model IDs, generated agents, and VPS validation
 
