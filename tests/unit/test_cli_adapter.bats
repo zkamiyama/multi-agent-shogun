@@ -125,6 +125,76 @@ YAML
 cli:
   default: kimi
 YAML
+
+    # opencode settings
+    cat > "${TEST_TMP}/settings_opencode.yaml" << 'YAML'
+cli:
+  default: opencode
+  agents:
+    shogun:
+      type: opencode
+      model: openai/gpt-5.4-mini
+    karo:
+      type: opencode
+      model: gpt-5.4
+    gunshi:
+      type: opencode
+      model: anthropic/claude-opus-4-6
+    ashigaru1:
+      type: opencode
+      model: k2.5
+    ashigaru2:
+      type: opencode
+      model: moonshot-k2.5
+    ashigaru3:
+      type: opencode
+      model: claude-sonnet-4-6
+    ashigaru4:
+      type: opencode
+      model: gpt-5.3-codex-spark
+YAML
+}
+
+# =============================================================================
+# normalize_opencode_model / shell quote テスト
+# =============================================================================
+
+@test "normalize_opencode_model: 空文字 → 空文字" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(normalize_opencode_model "")
+    [ "$result" = "" ]
+}
+
+@test "normalize_opencode_model: 既知aliasを provider/model に正規化" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    [ "$(normalize_opencode_model gpt-5.4-mini)" = "openai/gpt-5.4-mini" ]
+    [ "$(normalize_opencode_model gpt-5.3-codex-spark)" = "openai/gpt-5.3-codex-spark" ]
+    [ "$(normalize_opencode_model opus)" = "anthropic/claude-opus-4-6" ]
+    [ "$(normalize_opencode_model sonnet)" = "anthropic/claude-sonnet-4-6" ]
+    [ "$(normalize_opencode_model haiku)" = "anthropic/claude-haiku-4-5-20251001" ]
+    [ "$(normalize_opencode_model k2.5)" = "moonshot/kimi-k2.5" ]
+    [ "$(normalize_opencode_model moonshot-k2.5)" = "moonshot/kimi-k2.5" ]
+    [ "$(normalize_opencode_model kimi-k2.5)" = "moonshot/kimi-k2.5" ]
+    [ "$(normalize_opencode_model kimi-k2-turbo)" = "moonshot/kimi-k2-turbo" ]
+}
+
+@test "normalize_opencode_model: provider-qualified と未知モデルはそのまま" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    [ "$(normalize_opencode_model anthropic/claude-sonnet-4-6)" = "anthropic/claude-sonnet-4-6" ]
+    [ "$(normalize_opencode_model custom-provider/custom-model)" = "custom-provider/custom-model" ]
+    [ "$(normalize_opencode_model unknown-model)" = "unknown-model" ]
+}
+
+@test "_cli_adapter_shell_quote: .venv 不在時は bash fallback で quote" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    CLI_ADAPTER_PROJECT_ROOT="${TEST_TMP}/no_venv_root"
+    mkdir -p "$CLI_ADAPTER_PROJECT_ROOT"
+
+    sample='path with spaces $HOME'
+    quoted=$(_cli_adapter_shell_quote "$sample")
+    eval "roundtrip=$quoted"
+
+    [ "$roundtrip" = "$sample" ]
 }
 
 teardown() {
@@ -211,6 +281,18 @@ load_adapter_with() {
     [ "$result" = "kimi" ]
 }
 
+@test "get_cli_type: opencode設定 shogun → opencode" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(get_cli_type "shogun")
+    [ "$result" = "opencode" ]
+}
+
+@test "get_cli_type: opencode default → opencode" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(get_cli_type "unknown_agent")
+    [ "$result" = "opencode" ]
+}
+
 @test "get_cli_type: 未定義agent → default継承" {
     load_adapter_with "${TEST_TMP}/settings_codex_default.yaml"
     result=$(get_cli_type "ashigaru3")
@@ -288,8 +370,9 @@ load_adapter_with() {
 
 @test "build_cli_command: codex + default model → codex --model sonnet ..." {
     load_adapter_with "${TEST_TMP}/settings_mixed.yaml"
+    expected_prompt_arg=$(get_startup_prompt_arg "ashigaru5")
     result=$(build_cli_command "ashigaru5")
-    [ "$result" = "codex --model sonnet --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen" ]
+    [ "$result" = "codex --model sonnet --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen $expected_prompt_arg" ]
 }
 
 @test "build_cli_command: copilot → copilot --yolo" {
@@ -308,6 +391,66 @@ load_adapter_with() {
     load_adapter_with "${TEST_TMP}/settings_kimi.yaml"
     result=$(build_cli_command "ashigaru4")
     [ "$result" = "kimi --yolo --model k2.5" ]
+}
+
+@test "build_cli_command: opencode shogun → --agent shogun + pinned tui config" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(build_cli_command "shogun")
+    expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
+    [[ "$result" == "OPENCODE_AGENT_ID=shogun OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
+    [[ "$result" == *'opencode --model openai/gpt-5.4-mini --agent shogun'* ]]
+    # No OPENCODE_CONFIG_CONTENT — permissions are in .opencode/agents/shogun.md
+    [[ "$result" != *'OPENCODE_CONFIG_CONTENT'* ]]
+    # No --prompt — system prompt loaded from .opencode/agents/shogun.md
+    [[ "$result" != *'--prompt'* ]]
+}
+
+@test "build_cli_command: opencode karo → --agent karo + pinned tui config" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(build_cli_command "karo")
+    expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
+    [[ "$result" == "OPENCODE_AGENT_ID=karo OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
+    [[ "$result" == *'opencode --model openai/gpt-5.4 --agent karo'* ]]
+    [[ "$result" != *'OPENCODE_CONFIG_CONTENT'* ]]
+    [[ "$result" != *'--prompt'* ]]
+}
+
+@test "build_cli_command: opencode ashigaru → --agent ashigaru1 + pinned tui config" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(build_cli_command "ashigaru1")
+    expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
+    [[ "$result" == "OPENCODE_AGENT_ID=ashigaru1 OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
+    [[ "$result" == *'opencode --model moonshot/kimi-k2.5 --agent ashigaru1'* ]]
+    [[ "$result" != *'OPENCODE_CONFIG_CONTENT'* ]]
+    [[ "$result" != *'--prompt'* ]]
+}
+
+@test "build_cli_command: opencode gunshi → --agent gunshi + pinned tui config" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(build_cli_command "gunshi")
+    expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
+    [[ "$result" == "OPENCODE_AGENT_ID=gunshi OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
+    [[ "$result" == *'opencode --model anthropic/claude-opus-4-6 --agent gunshi'* ]]
+    [[ "$result" != *'OPENCODE_CONFIG_CONTENT'* ]]
+    [[ "$result" != *'--prompt'* ]]
+}
+
+@test "build_cli_command: opencode deterministic output" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    first=$(build_cli_command "ashigaru3")
+    second=$(build_cli_command "ashigaru3")
+    expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
+    [[ "$first" == "$second" ]]
+    [[ "$first" == "OPENCODE_AGENT_ID=ashigaru3 OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
+    [[ "$first" == *'opencode --model anthropic/claude-sonnet-4-6 --agent ashigaru3'* ]]
+    [[ "$first" != *'OPENCODE_CONFIG_CONTENT'* ]]
+    [[ "$first" != *'--prompt'* ]]
+}
+
+@test "opencode tui config pins app_exit and keybinds" {
+    grep -q '"app_exit": "none"' "${PROJECT_ROOT}/config/opencode-tui.json"
+    grep -q '"session_interrupt": "escape"' "${PROJECT_ROOT}/config/opencode-tui.json"
+    grep -q '"input_clear": "ctrl+c,ctrl+u"' "${PROJECT_ROOT}/config/opencode-tui.json"
 }
 
 @test "build_cli_command: cliセクションなし → claude フォールバック" {
@@ -406,6 +549,57 @@ load_adapter_with() {
     [ "$status" -eq 1 ]
 }
 
+@test "get_instruction_file: opencode + any role → instructions/generated/opencode-shogun.md" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(get_instruction_file "shogun")
+    [ "$result" = "instructions/generated/opencode-shogun.md" ]
+}
+
+# =============================================================================
+# get_startup_prompt テスト
+# =============================================================================
+
+@test "get_startup_prompt: opencode shogun → empty (uses --agent, no prompt needed)" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(get_startup_prompt "shogun")
+    [ -z "$result" ]
+}
+
+@test "get_startup_prompt: opencode karo → empty (uses --agent, no prompt needed)" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(get_startup_prompt "karo")
+    [ -z "$result" ]
+}
+
+@test "get_startup_prompt: opencode gunshi → empty (uses --agent, no prompt needed)" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(get_startup_prompt "gunshi")
+    [ -z "$result" ]
+}
+
+@test "get_startup_prompt: opencode ashigaru1 → empty (uses --agent, no prompt needed)" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(get_startup_prompt "ashigaru1")
+    [ -z "$result" ]
+}
+
+# =============================================================================
+# get_startup_prompt_arg テスト
+# =============================================================================
+
+@test "get_startup_prompt_arg: codex → positional prompt" {
+    load_adapter_with "${TEST_TMP}/settings_mixed.yaml"
+    result=$(get_startup_prompt_arg "ashigaru5")
+    [[ "$result" != --prompt* ]]
+    [[ "$result" == *"Session Start"* ]]
+}
+
+@test "get_startup_prompt_arg: opencode → empty (uses --agent instead)" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(get_startup_prompt_arg "shogun")
+    [[ "$result" == "" ]]
+}
+
 # =============================================================================
 # validate_cli_availability テスト
 # =============================================================================
@@ -464,6 +658,15 @@ load_adapter_with() {
     echo '#!/bin/bash' > "${TEST_TMP}/bin/kimi"
     chmod +x "${TEST_TMP}/bin/kimi"
     PATH="${TEST_TMP}/bin:$PATH" run validate_cli_availability "kimi"
+    [ "$status" -eq 0 ]
+}
+
+@test "validate_cli_availability: opencode mock (PATH操作)" {
+    load_adapter_with "${TEST_TMP}/settings_none.yaml"
+    mkdir -p "${TEST_TMP}/bin"
+    echo '#!/bin/bash' > "${TEST_TMP}/bin/opencode"
+    chmod +x "${TEST_TMP}/bin/opencode"
+    PATH="${TEST_TMP}/bin:$PATH" run validate_cli_availability "opencode"
     [ "$status" -eq 0 ]
 }
 

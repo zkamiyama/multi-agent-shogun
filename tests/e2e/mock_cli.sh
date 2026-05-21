@@ -6,7 +6,7 @@
 # without requiring real AI APIs.
 #
 # Environment variables:
-#   MOCK_CLI_TYPE          — claude | codex (default: claude)
+#   MOCK_CLI_TYPE          — claude | codex | opencode (default: claude)
 #   MOCK_PROCESSING_DELAY  — seconds to simulate processing (default: 2)
 #   MOCK_AGENT_ID          — agent identifier (e.g., karo, ashigaru1)
 #   MOCK_PROJECT_ROOT      — project root with queue/ directory
@@ -35,6 +35,7 @@ source "$MOCK_SCRIPT_DIR/mock_behaviors/common.sh"
 case "$MOCK_CLI_TYPE" in
     claude) source "$MOCK_SCRIPT_DIR/mock_behaviors/claude_behavior.sh" ;;
     codex)  source "$MOCK_SCRIPT_DIR/mock_behaviors/codex_behavior.sh" ;;
+    opencode) source "$MOCK_SCRIPT_DIR/mock_behaviors/opencode_behavior.sh" ;;
 esac
 
 # ─── State ───
@@ -50,6 +51,7 @@ echo "[mock_cli] Starting as $MOCK_AGENT_ID (type=$MOCK_CLI_TYPE, delay=${MOCK_P
 case "$MOCK_CLI_TYPE" in
     claude) claude_startup_banner ;;
     codex)  codex_startup_banner ;;
+    opencode) opencode_startup_banner ;;
     *)      echo "Mock CLI ($MOCK_CLI_TYPE)" ;;
 esac
 

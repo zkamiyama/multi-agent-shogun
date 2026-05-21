@@ -3,12 +3,13 @@
 # Multi-CLI統合設計書 (reports/design_multi_cli_support.md) §2.2 準拠
 #
 # 提供関数:
-#   get_cli_type(agent_id)                  → "claude" | "codex" | "copilot" | "kimi"
+#   get_cli_type(agent_id)                  → "claude" | "codex" | "copilot" | "kimi" | "opencode"
 #   build_cli_command(agent_id)             → 完全なコマンド文字列
 #   get_instruction_file(agent_id [,cli_type]) → 指示書パス
 #   validate_cli_availability(cli_type)     → 0=OK, 1=NG
 #   get_agent_model(agent_id)               → "opus" | "sonnet" | "haiku" | "k2.5"
 #   get_startup_prompt(agent_id)            → 初期プロンプト文字列 or ""
+#   get_startup_prompt_arg(agent_id)        → 起動コマンド向けプロンプト引数 or ""
 
 # プロジェクトルートを基準にsettings.yamlのパスを解決
 CLI_ADAPTER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,7 +17,47 @@ CLI_ADAPTER_PROJECT_ROOT="$(cd "${CLI_ADAPTER_DIR}/.." && pwd)"
 CLI_ADAPTER_SETTINGS="${CLI_ADAPTER_SETTINGS:-${CLI_ADAPTER_PROJECT_ROOT}/config/settings.yaml}"
 
 # 許可されたCLI種別
-CLI_ADAPTER_ALLOWED_CLIS="claude codex copilot kimi"
+CLI_ADAPTER_ALLOWED_CLIS="claude codex copilot kimi opencode"
+
+# normalize_opencode_model(model)
+# OpenCode向けにprovider-qualifiedなモデル名へ正規化する。
+normalize_opencode_model() {
+    local model="${1:-}"
+
+    if [[ -z "$model" ]]; then
+        echo ""
+        return 0
+    fi
+
+    if [[ "$model" == */* ]]; then
+        echo "$model"
+        return 0
+    fi
+
+    case "$model" in
+        gpt-5.4-mini|gpt-5.4|gpt-5.3-codex|gpt-5.3-codex-spark|gpt-5*)
+            echo "openai/${model}"
+            ;;
+        claude-opus-4-6|opus)
+            echo "anthropic/claude-opus-4-6"
+            ;;
+        claude-sonnet-4-6|sonnet)
+            echo "anthropic/claude-sonnet-4-6"
+            ;;
+        claude-haiku-4-5-20251001|haiku)
+            echo "anthropic/claude-haiku-4-5-20251001"
+            ;;
+        moonshot-k2.5|k2.5)
+            echo "moonshot/kimi-k2.5"
+            ;;
+        kimi-*)
+            echo "moonshot/kimi-${model#kimi-}"
+            ;;
+        *)
+            echo "$model"
+            ;;
+    esac
+}
 
 # --- 内部ヘルパー ---
 
@@ -53,6 +94,19 @@ except Exception:
     fi
 }
 
+# _cli_adapter_shell_quote value
+# シェル引数として安全に埋め込めるように quote する
+_cli_adapter_shell_quote() {
+    local value="$1"
+    local venv_python="$CLI_ADAPTER_PROJECT_ROOT/.venv/bin/python3"
+
+    if [[ -x "$venv_python" ]]; then
+        "$venv_python" -c 'import shlex, sys; print(shlex.quote(sys.argv[1]))' "$value" 2>/dev/null && return 0
+    fi
+
+    printf '%q\n' "$value"
+}
+
 # _cli_adapter_is_valid_cli cli_type
 # 許可されたCLI種別かチェック
 _cli_adapter_is_valid_cli() {
@@ -87,18 +141,18 @@ try:
         print('claude'); sys.exit(0)
     agents = cli.get('agents', {})
     if not isinstance(agents, dict):
-        print(cli.get('default', 'claude') if cli.get('default', 'claude') in ('claude','codex','copilot','kimi') else 'claude')
+        print(cli.get('default', 'claude') if cli.get('default', 'claude') in ('claude','codex','copilot','kimi','opencode') else 'claude')
         sys.exit(0)
     agent_cfg = agents.get('${agent_id}')
     if isinstance(agent_cfg, dict):
         t = agent_cfg.get('type', '')
-        if t in ('claude', 'codex', 'copilot', 'kimi'):
+        if t in ('claude', 'codex', 'copilot', 'kimi', 'opencode'):
             print(t); sys.exit(0)
     elif isinstance(agent_cfg, str):
-        if agent_cfg in ('claude', 'codex', 'copilot', 'kimi'):
+        if agent_cfg in ('claude', 'codex', 'copilot', 'kimi', 'opencode'):
             print(agent_cfg); sys.exit(0)
     default = cli.get('default', 'claude')
-    if default in ('claude', 'codex', 'copilot', 'kimi'):
+    if default in ('claude', 'codex', 'copilot', 'kimi', 'opencode'):
         print(default)
     else:
         print('claude', file=sys.stderr)
@@ -137,41 +191,65 @@ build_cli_command() {
     # thinking: true or 未設定 → そのまま（デフォルトでThinking ON）
     # thinking: false → MAX_THINKING_TOKENS=0 を先頭に付与
     local prefix=""
-    if [[ "$cli_type" == "claude" && "$thinking" == "false" || "$thinking" == "False" ]]; then
+    if [[ "$cli_type" == "claude" ]] && [[ "$thinking" == "false" || "$thinking" == "False" ]]; then
         prefix="MAX_THINKING_TOKENS=0 "
     fi
 
+    local cmd=""
     case "$cli_type" in
         claude)
-            local cmd="claude"
+            cmd="claude"
             if [[ -n "$model" ]]; then
                 cmd="$cmd --model $model"
             fi
             cmd="$cmd $permission_flag"
-            echo "${prefix}${cmd}"
             ;;
         codex)
-            local cmd="codex"
+            cmd="codex"
             if [[ -n "$model" ]]; then
                 cmd="$cmd --model $model"
             fi
             cmd="$cmd --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen"
-            echo "$cmd"
+            ;;
+        opencode)
+            local normalized_model
+            local tui_config_path
+            normalized_model=$(normalize_opencode_model "$model")
+            tui_config_path=$(_cli_adapter_shell_quote "$CLI_ADAPTER_PROJECT_ROOT/config/opencode-tui.json")
+            local quoted_agent_id
+            quoted_agent_id=$(_cli_adapter_shell_quote "$agent_id")
+            cmd="opencode"
+            if [[ -n "$normalized_model" ]]; then
+                cmd="$cmd --model $normalized_model"
+            fi
+            # Use --agent to load the pre-built agent definition from .opencode/agents/<name>.md.
+            # Permissions are also embedded in the agent definition YAML frontmatter at build time.
+            cmd="$cmd --agent $agent_id"
+            # Use a project-pinned TUI config so tmux automation sees stable keybinds
+            # even when the user has a different global tui.json.
+            cmd="OPENCODE_AGENT_ID=$quoted_agent_id OPENCODE_TUI_CONFIG=$tui_config_path $cmd"
             ;;
         copilot)
-            echo "copilot --yolo"
+            cmd="copilot --yolo"
             ;;
         kimi)
-            local cmd="kimi --yolo"
+            cmd="kimi --yolo"
             if [[ -n "$model" ]]; then
                 cmd="$cmd --model $model"
             fi
-            echo "$cmd"
             ;;
         *)
-            echo "claude $permission_flag"
+            cmd="claude $permission_flag"
             ;;
     esac
+
+    local startup_prompt_arg
+    startup_prompt_arg=$(get_startup_prompt_arg "$agent_id")
+    if [[ -n "$startup_prompt_arg" ]]; then
+        cmd="$cmd $startup_prompt_arg"
+    fi
+
+    echo "${prefix}${cmd}"
 }
 
 # get_instruction_file(agent_id [,cli_type])
@@ -197,6 +275,7 @@ get_instruction_file() {
         codex)   echo "instructions/codex-${role}.md" ;;
         copilot) echo ".github/copilot-instructions-${role}.md" ;;
         kimi)    echo "instructions/generated/kimi-${role}.md" ;;
+        opencode) echo "instructions/generated/opencode-${role}.md" ;;
         *)       echo "instructions/${role}.md" ;;
     esac
 }
@@ -216,6 +295,12 @@ validate_cli_availability() {
         codex)
             command -v codex &>/dev/null || {
                 echo "[ERROR] OpenAI Codex CLI not found. Install with: npm install -g @openai/codex" >&2
+                return 1
+            }
+            ;;
+        opencode)
+            command -v opencode &>/dev/null || {
+                echo "[ERROR] OpenCode CLI not found. Install from https://opencode.ai" >&2
                 return 1
             }
             ;;
@@ -301,6 +386,15 @@ get_model_display_name() {
     local thinking
     thinking=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.thinking" "")
 
+    if [[ "$cli_type" == "opencode" ]]; then
+        if [[ "$model" == */* ]]; then
+            echo "OpenCode (${model#*/})"
+        else
+            echo "OpenCode (${model})"
+        fi
+        return 0
+    fi
+
     # モデル名 → 短縮表示名
     local short=""
     case "$model" in
@@ -341,6 +435,7 @@ get_model_display_name() {
 # Codex CLI: [PROMPT]引数として渡す（サジェストUI停止問題の根本対策）
 # Claude Code: 空（CLAUDE.md自動読込でSession Start手順が起動）
 # Copilot/Kimi: 空（今後対応）
+# OpenCode: 空（.opencode/agents/が自動読込）
 get_startup_prompt() {
     local agent_id="$1"
     local cli_type
@@ -349,6 +444,35 @@ get_startup_prompt() {
     case "$cli_type" in
         codex)
             echo "Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message -t \"\$TMUX_PANE\" -p '#{@agent_id}' to identify yourself. 2) Read queue/tasks/${agent_id}.yaml. 3) Read queue/inbox/${agent_id}.yaml, mark read:true. 4) Read files listed in context_files. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until the task is done."
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+# get_startup_prompt_arg(agent_id)
+# 起動コマンドに埋め込むCLI-specificの初期プロンプト引数を返す
+# Codex: positional prompt
+# その他: 空
+get_startup_prompt_arg() {
+    local agent_id="$1"
+    local cli_type
+    cli_type=$(get_cli_type "$agent_id")
+    local startup_prompt
+    startup_prompt=$(get_startup_prompt "$agent_id")
+
+    if [[ -z "$startup_prompt" ]]; then
+        echo ""
+        return 0
+    fi
+
+    local quoted_prompt
+    quoted_prompt=$(_cli_adapter_shell_quote "$startup_prompt")
+
+    case "$cli_type" in
+        codex)
+            echo "$quoted_prompt"
             ;;
         *)
             echo ""

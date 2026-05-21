@@ -4,7 +4,7 @@
 
 **AIコーディング軍団統率システム — Multi-CLI対応**
 
-*コマンド1つで、10体のAIエージェントが並列稼働 — **Claude Code / OpenAI Codex / GitHub Copilot / Kimi Code** 混成軍*
+*コマンド1つで、10体のAIエージェントが並列稼働 — **Claude Code / OpenAI Codex / GitHub Copilot / Kimi Code / OpenCode** 混成軍*
 
 **Talk Coding — Vibe Codingではなく、スマホに話すだけでAIが実行**
 
@@ -32,7 +32,7 @@
 
 ## クイックスタート
 
-**必要なもの:** tmux、bash 4+、以下のいずれか: [Claude Code](https://claude.ai/code) / Codex / Copilot / Kimi
+**必要なもの:** tmux、bash 4+、以下のいずれか: [Claude Code](https://claude.ai/code) / Codex / Copilot / Kimi / OpenCode
 
 ```bash
 git clone https://github.com/yohey-w/multi-agent-shogun
@@ -58,7 +58,7 @@ bash shutsujin_departure.sh                # 全エージェント起動
 
 ## これは何？
 
-**multi-agent-shogun** は、複数のAIコーディングCLIインスタンスを同時に実行し、戦国時代の軍制のように統率するシステムです。**Claude Code**、**OpenAI Codex**、**GitHub Copilot**、**Kimi Code** の4CLIに対応。
+**multi-agent-shogun** は、複数のAIコーディングCLIインスタンスを同時に実行し、戦国時代の軍制のように統率するシステムです。**Claude Code**、**OpenAI Codex**、**GitHub Copilot**、**Kimi Code**、**OpenCode** の5CLIに対応。
 
 **なぜ使うのか？**
 - 1つの命令で、7体のAIワーカー+1体の軍師が並列で実行
@@ -95,7 +95,7 @@ bash shutsujin_departure.sh                # 全エージェント起動
 | **アーキテクチャ** | 1プロセス内のサブエージェント | リード+チームメイト（JSONメールボックス） | グラフベースの状態機械 | ロールベースエージェント | tmux経由の階層構造 |
 | **並列性** | 逐次実行（1つずつ） | 複数の独立セッション | 並列ノード（v0.2+） | 限定的 | **8体の独立エージェント** |
 | **連携コスト** | TaskごとにAPIコール | 高い（各チームメイト=別コンテキスト） | API + インフラ（Postgres/Redis） | API + CrewAIプラットフォーム | **ゼロ**（YAML + tmux） |
-| **Multi-CLI** | Claude Codeのみ | Claude Codeのみ | 任意のLLM API | 任意のLLM API | **4 CLI**（Claude/Codex/Copilot/Kimi） |
+| **Multi-CLI** | Claude Codeのみ | Claude Codeのみ | 任意のLLM API | 任意のLLM API | **5 CLI**（Claude/Codex/Copilot/Kimi/OpenCode） |
 | **可観測性** | Claudeのログのみ | tmux分割ペインまたはインプロセス | LangSmith連携 | OpenTelemetry | **ライブtmuxペイン** + ダッシュボード |
 | **スキル発見** | なし | なし | なし | なし | **ボトムアップ自動提案** |
 | **セットアップ** | Claude Code内蔵 | 内蔵（実験的） | 重い（インフラ必要） | pip install | シェルスクリプト |
@@ -125,7 +125,7 @@ bash shutsujin_departure.sh                # 全エージェント起動
 
 ### Multi-CLI対応
 
-将軍システムは特定ベンダーに依存しない。4つのCLIツールに対応し、それぞれの強みを活かす：
+将軍システムは特定ベンダーに依存しない。5つのCLIツールに対応し、それぞれの強みを活かす：
 
 | CLI | 特徴 | デフォルトモデル |
 |-----|------|-----------------|
@@ -133,6 +133,9 @@ bash shutsujin_departure.sh                # 全エージェント起動
 | **OpenAI Codex** | サンドボックス実行、JSONL構造化出力、`codex exec` ヘッドレスモード | gpt-5.3-codex |
 | **GitHub Copilot** | GitHub MCP組込、4種の特化エージェント（Explore/Task/Plan/Code-review）、`/delegate` | Claude Sonnet 4.6 |
 | **Kimi Code** | 無料プランあり、多言語サポート | Kimi k2 |
+| **OpenCode** | `AGENTS.md` 自動読込、`--agent` によるロール別エージェント定義、`/new` でのコンテキストリセット、モデル変更は再起動のみ、決定的な対話型 TUI 起動、`--model provider/model` ルーティング | provider/model |
+
+OpenCode の起動は `--agent` で生成済み `.opencode/agents/<agent>.md` を読み込み、リセットは `/new`、モデル変更は再起動で行う。ロール別の境界は生成されたエージェント frontmatter に埋め込まれており、将軍は監督のため `queue/reports/*` を読めるが書けず、家老は分配と報告集約のみ、足軽は自分の task/report のみ、軍師は足軽レポートを読み `gunshi_report.yaml` だけを書く。
 
 統一ビルドシステムが共有テンプレートからCLI固有の指示書を自動生成：
 
@@ -582,10 +585,10 @@ notes: |
 陣営構成（誰にどのCLIを使わせるか）は `config/settings.yaml`：
 
 ```yaml
-agents:
-  cli_assignments:
+cli:
+  agents:
     ashigaru1:
-      type: codex          # codex / claude / copilot / kimi
+      type: codex          # codex / claude / copilot / kimi / opencode
       model: gpt-5.5
     ashigaru2:
       type: claude
@@ -749,8 +752,8 @@ asw_phase: 2   # Claude Code環境では推奨
 | フェーズ | タイミング | アクション |
 |---------|----------|-----------|
 | Phase 1 | 0-2分 | 標準nudge（`inbox3` テキスト + Enter） — *ASW Phase 2以上ではbusyエージェントはスキップ* |
-| Phase 2 | 2-4分 | Escape×2 + C-c でカーソルリセット、その後nudge |
-| Phase 3 | 4分以上 | `/clear` 送信でセッション強制リセット（5分間に最大1回） |
+| Phase 2 | 2-4分 | Copilot/Kimi: Escape×2 + 1回の Ctrl-C + nudge。Claude/Codex/OpenCode: 通常nudgeへフォールバック |
+| Phase 3 | 4分以上 | CLI別のコンテキストリセットを送信。Claude/Copilot/Kimi は `/clear`、Codex/OpenCode は `/new`（5分間に最大1回） |
 
 **設計のポイント:**
 - **メッセージ内容はtmuxを経由しない** — 送るのは短い「メールが届いたよ」の通知だけ。中身はエージェントが自分でファイルを読む。これにより文字化けや配信ハングを根絶。
@@ -788,7 +791,7 @@ multiagent:agents.1            BUSY       ashigaru1
 multiagent:agents.8            BUSY       gunshi
 ```
 
-判定は **Claude Code** と **Codex CLI** の両方に対応。各tmuxペインの末尾5行からCLI固有のプロンプト/スピナーパターンを検出。判定ロジックは `lib/agent_status.sh` に分離されており、自作スクリプトからも利用可能：
+判定は **Claude Code**・**Codex CLI**・**OpenCode** に対応。各tmuxペインの末尾付近からCLI固有のプロンプト/スピナーパターンを検出。判定ロジックは `lib/agent_status.sh` に分離されており、自作スクリプトからも利用可能：
 
 ```bash
 source lib/agent_status.sh
@@ -1581,8 +1584,8 @@ multi-agent-shogun/
 │       └── copilot_tools.md  # GitHub Copilot CLI ツール・機能
 │
 ├── lib/
-│   ├── agent_status.sh       # 共有 稼働/待機 判定（Claude Code + Codex）
-│   ├── cli_adapter.sh        # Multi-CLIアダプタ（Claude/Codex/Copilot/Kimi）
+│   ├── agent_status.sh       # 共有 稼働/待機 判定（Claude Code + Codex + OpenCode）
+│   ├── cli_adapter.sh        # Multi-CLIアダプタ（Claude/Codex/Copilot/Kimi/OpenCode）
 │   └── ntfy_auth.sh          # ntfy認証ヘルパー
 │
 ├── scripts/                  # ユーティリティスクリプト
@@ -1722,7 +1725,7 @@ mcp__memory__read_graph()  ← 動作！
 <details>
 <summary><b>エージェントが権限を求めてくる？</b></summary>
 
-`--dangerously-skip-permissions` 付きで起動していることを確認：
+CLIごとの無人実行向け権限設定で起動していることを確認。これは `shutsujin_departure.sh` が自動処理する。
 
 ```bash
 claude --dangerously-skip-permissions --system-prompt "..."
@@ -1807,7 +1810,7 @@ tmux respawn-pane -t shogun:0.0 -k 'claude --model opus --dangerously-skip-permi
 - **E2Eテストスイート（19テスト、7シナリオ）** — モックCLIフレームワークが分離されたtmuxセッションでエージェント動作をシミュレート
 - **Stop hook inbox配信** — Claude Codeエージェントが `.claude/settings.json` のStop hookでターン終了時に自動的にinboxを確認。`send-keys` 割り込み問題を根絶
 - **モデルデフォルト更新** — 家老: Opus→Sonnet。軍師: Opus（深い推論）。全足軽: Sonnet（統一）
-- **Codex CLIスタートアッププロンプト** — `cli_adapter.sh` の `get_startup_prompt()` が初期 `[PROMPT]` 引数をCodex CLIに渡す
+- **Codex/OpenCode 起動統合** — Codex は `get_startup_prompt()` / `get_startup_prompt_arg()` で Session Start 復旧を行い、OpenCode は生成済み `.opencode/agents/*.md` を `--agent` で読み込む
 - **YAMLスリム化ユーティリティ** — `scripts/slim_yaml.sh` が既読メッセージ・終端コマンドをアーカイブ。現行 top-level/旧 `task.status` の両形式に対応し、`--dry-run` は queue 清掃監査でファイルを書き換えない
 
 </details>

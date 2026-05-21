@@ -238,7 +238,7 @@ for i in "${!AGENTS[@]}"; do
     fi
 
     # Pane state
-    agent_is_busy_check "$pane_target" && rc=0 || rc=$?
+    agent_is_busy_check "$pane_target" "$cli_type" && rc=0 || rc=$?
     pane_state=$(state_label "$rc")
 
     # Task info

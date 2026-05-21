@@ -17,6 +17,36 @@ mkdir -p "$OUTPUT_DIR"
 echo "=== Instruction File Build System ==="
 echo "Building instruction files..."
 
+# Function: opencode_build_python
+# Description: Returns a Python interpreter with PyYAML for build-time YAML parsing.
+# Arguments: none
+# Returns: path to python3 on success, 1 on error
+opencode_build_python() {
+    local candidate
+    for candidate in "$ROOT_DIR/.venv/bin/python3" "$(command -v python3 2>/dev/null || true)"; do
+        [[ -n "$candidate" && -x "$candidate" ]] || continue
+        if "$candidate" -c 'import yaml' 2>/dev/null; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    echo "  ❌ PyYAML is required for OpenCode agent generation. Run: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
+    return 1
+}
+
+# Function: normalize_generated_markdown
+# Description: Normalizes generated markdown so diff hygiene does not depend on source file line endings.
+normalize_generated_markdown() {
+    local output_path="$1"
+    local tmp_path="${output_path}.tmp.$$"
+
+    [ -f "$output_path" ] || return 0
+
+    awk '{ sub(/\r$/, ""); sub(/[ \t]+$/, ""); print }' "$output_path" > "$tmp_path"
+    mv "$tmp_path" "$output_path"
+}
+
 # ============================================================
 # Helper function: Build a complete instruction file
 # ============================================================
@@ -71,7 +101,14 @@ EOFYAML
         kimi)
             cat "$PARTS_DIR/cli_specific/kimi_tools.md" >> "$output_path"
             ;;
+        opencode)
+            cat "$PARTS_DIR/cli_specific/opencode_tools.md" >> "$output_path"
+            ;;
     esac
+
+    if [[ "$cli_type" == "opencode" ]]; then
+        normalize_generated_markdown "$output_path"
+    fi
 
     echo "  ✅ Created: $output_filename"
 }
@@ -99,6 +136,12 @@ build_instruction_file "kimi" "shogun" "kimi-shogun.md"
 build_instruction_file "kimi" "karo" "kimi-karo.md"
 build_instruction_file "kimi" "ashigaru" "kimi-ashigaru.md"
 build_instruction_file "kimi" "gunshi" "kimi-gunshi.md"
+
+# Build OpenCode instruction files
+build_instruction_file "opencode" "shogun" "opencode-shogun.md"
+build_instruction_file "opencode" "karo" "opencode-karo.md"
+build_instruction_file "opencode" "ashigaru" "opencode-ashigaru.md"
+build_instruction_file "opencode" "gunshi" "opencode-gunshi.md"
 
 # ============================================================
 # AGENTS.md generation (Codex auto-load file)
@@ -234,10 +277,201 @@ EOFYAML
     echo "  ✅ Created: agents/default/agent.yaml"
 }
 
+# ============================================================
+# OpenCode agent definition files generation
+# ============================================================
+# OpenCode reads .opencode/agents/<name>.md and uses the YAML
+# frontmatter + body as a built-in system prompt.  This replaces
+# the former --prompt bootstrap approach.  Permissions are
+# expanded from config/opencode-permissions.yaml at build time
+# so that OPENCODE_CONFIG_CONTENT is no longer needed at launch.
+
+# Function: generate_opencode_agents
+# Description: Generates .opencode/agents/*.md files with role frontmatter and OpenCode-specific rules.
+# Arguments: none
+# Returns: 0 on success, 1 if generation is skipped or unavailable
+generate_opencode_agents() {
+    local agents_dir="$ROOT_DIR/.opencode/agents"
+    local permissions_file="${OPENCODE_PERMISSIONS_FILE:-$ROOT_DIR/config/opencode-permissions.yaml}"
+    local python_bin
+
+    echo "Generating: .opencode/agents/*.md (OpenCode agent definitions)"
+
+    if [ ! -f "$permissions_file" ]; then
+        echo "  ⚠️  config/opencode-permissions.yaml not found. Skipping OpenCode agent generation."
+        return 1
+    fi
+
+    mkdir -p "$agents_dir"
+
+    python_bin=$(opencode_build_python) || {
+        echo "  ❌ Python with PyYAML not found. Cannot generate OpenCode agents." >&2
+        return 1
+    }
+
+    # Agent ID → role mapping.  Keep this tracked output deterministic: do not
+    # derive generated file names from git-ignored config/settings.yaml or
+    # runtime queue/tasks state.
+    local agent_ids
+    agent_ids="shogun karo gunshi ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 ashigaru6 ashigaru7"
+
+    for agent_id in $agent_ids; do
+        # Determine role (all ashigaru share the same role template)
+        local role=""
+        case "$agent_id" in
+            ashigaru*) role="ashigaru" ;;
+            *)         role="$agent_id" ;;
+        esac
+
+        # Determine role title for description
+        local role_title=""
+        case "$agent_id" in
+            shogun)
+                role_title="Shogun — strategic oversight and command issuance"
+                ;;
+            karo)
+                role_title="Karo — task decomposition, assignment, and coordination"
+                ;;
+            gunshi)
+                role_title="Gunshi — strategic analysis and quality control"
+                ;;
+            ashigaru*)
+                local ashigaru_number="${agent_id#ashigaru}"
+                role_title="Ashigaru ${ashigaru_number} — front-line execution"
+                ;;
+        esac
+
+        # Generate permission YAML via the same Python logic used in cli_adapter.sh
+        local permission_yaml
+        if ! permission_yaml=$("$python_bin" - "$permissions_file" "$agent_id" <<'PYEOF'
+import json, sys, yaml
+
+permissions_file = sys.argv[1]
+agent_id = sys.argv[2]
+
+def role_for_agent(agent_id: str) -> str:
+    if agent_id.startswith('ashigaru'):
+        return 'ashigaru'
+    if agent_id in {'shogun', 'karo', 'gunshi'}:
+        return agent_id
+    return ''
+
+def expand(pattern: str) -> str:
+    return pattern.replace('{agent_id}', agent_id)
+
+def build_rule(deny_patterns, allow_patterns):
+    deny = []
+    allow = []
+    seen = set()
+    for pattern in deny_patterns or []:
+        expanded = expand(pattern)
+        if expanded not in seen:
+            seen.add(expanded)
+            deny.append(expanded)
+    for pattern in allow_patterns or []:
+        expanded = expand(pattern)
+        if expanded not in seen:
+            seen.add(expanded)
+            allow.append(expanded)
+    rule = {}
+    for pattern in deny:
+        rule[pattern] = 'deny'
+    for pattern in allow:
+        rule[pattern] = 'allow'
+    return rule
+
+with open(permissions_file, encoding='utf-8') as fh:
+    config = yaml.safe_load(fh) or {}
+
+role = role_for_agent(agent_id)
+roles = config.get('roles') or {}
+role_cfg = roles.get(role) or {}
+
+common_edit_deny = list((config.get('common') or {}).get('edit_deny') or [])
+read_rule = build_rule(role_cfg.get('read_deny'), role_cfg.get('read_allow'))
+edit_rule = build_rule(common_edit_deny + list(role_cfg.get('edit_deny') or []), role_cfg.get('edit_allow'))
+
+permission = {
+    '*': 'allow',
+    'question': role_cfg.get('question', 'deny'),
+    'read': read_rule,
+    'edit': edit_rule,
+    'write': edit_rule,
+    'patch': edit_rule,
+    'list': read_rule,
+    'glob': read_rule,
+}
+
+# Intentionally do not generate per-path `grep` permissions. OpenCode matches
+# `grep` permission rules against the search regex, not the target file path, so
+# reusing read_rule here would look restrictive while not enforcing role file
+# boundaries. `grep` therefore inherits the top-level `*: allow`, matching the
+# permissive execution model used by the existing yolo-style CLI integrations.
+
+# Output as YAML (indented) for embedding in frontmatter
+print(yaml.dump({'permission': permission}, default_flow_style=False, allow_unicode=True).rstrip())
+PYEOF
+        ); then
+            echo "  ❌ Failed to generate OpenCode permissions for ${agent_id}" >&2
+            return 1
+        fi
+
+        local output_path="$agents_dir/${agent_id}.md"
+
+        # Write YAML frontmatter
+        cat > "$output_path" <<FRONTMATTER
+---
+description: "${role_title}"
+mode: primary
+# Auto-generated by build_instructions.sh — do not edit manually.
+# Source: instructions/roles/${role}_role.md + instructions/common/* + instructions/cli_specific/opencode_tools.md
+# grep intentionally inherits '*: allow'; OpenCode grep permission rules match the search regex, not file paths.
+${permission_yaml}
+---
+
+FRONTMATTER
+
+        # Append role-specific content (same pipeline as build_instruction_file)
+        {
+            cat "$PARTS_DIR/roles/${role}_role.md"
+
+            echo ""
+            cat <<EOF
+## Identity Anchor
+
+This generated file belongs to exactly one agent.
+
+- Canonical agent_id: \`${agent_id}\`
+- Canonical tmux check: \`tmux display-message -t "\$TMUX_PANE" -p '#{@agent_id}'\`
+- Proceed only if the tmux value matches the canonical agent_id.
+- If you have not confirmed this yet, confirm it before reading inbox/task files.
+
+EOF
+
+            # Append common sections
+            echo ""
+            cat "$PARTS_DIR/common/protocol.md"
+            echo ""
+            cat "$PARTS_DIR/common/task_flow.md"
+            echo ""
+            cat "$PARTS_DIR/common/forbidden_actions.md"
+
+            # Append OpenCode-specific tools section
+            echo ""
+            cat "$PARTS_DIR/cli_specific/opencode_tools.md"
+        } >> "$output_path"
+
+        normalize_generated_markdown "$output_path"
+
+        echo "  ✅ Created: .opencode/agents/${agent_id}.md"
+    done
+}
+
 # Generate CLI auto-load files
 generate_agents_md
 generate_copilot_instructions
 generate_kimi_instructions
+generate_opencode_agents
 
 echo ""
 echo "=== Build Complete ==="
@@ -251,3 +485,6 @@ echo "CLI auto-load files:"
 [ -f "$ROOT_DIR/.github/copilot-instructions.md" ] && ls -lh "$ROOT_DIR/.github/copilot-instructions.md"
 [ -f "$ROOT_DIR/agents/default/system.md" ] && ls -lh "$ROOT_DIR/agents/default/system.md"
 [ -f "$ROOT_DIR/agents/default/agent.yaml" ] && ls -lh "$ROOT_DIR/agents/default/agent.yaml"
+echo ""
+echo "OpenCode agent definitions:"
+ls -lh "$ROOT_DIR/.opencode/agents/"*.md 2>/dev/null || echo "  (none)"

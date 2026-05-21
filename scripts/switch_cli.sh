@@ -12,6 +12,9 @@
 #   # Codex Spark → Claude Sonnet に切替
 #   bash scripts/switch_cli.sh ashigaru3 --type claude --model claude-sonnet-4-6
 #
+#   # OpenCode で provider/model を直接指定（role 定義は --agent、モデル変更は再起動で反映）
+#   bash scripts/switch_cli.sh ashigaru3 --type opencode --model openai/gpt-5.4-mini
+#
 #   # 同一CLI内でモデルだけ変更（Sonnet → Opus）
 #   bash scripts/switch_cli.sh ashigaru3 --model claude-opus-4-6
 #
@@ -50,8 +53,8 @@ usage() {
     echo "Usage: $0 <agent_id> [--type <cli_type>] [--model <model_name>]"
     echo ""
     echo "  agent_id   Agent configured in config/settings.yaml (e.g. karo, ashigaru1, gunshi)"
-    echo "  --type     claude | codex | copilot | kimi"
-    echo "  --model    claude-sonnet-4-6 | claude-opus-4-6 | gpt-5.3-codex | etc."
+    echo "  --type     claude | codex | copilot | kimi | opencode"
+    echo "  --model    claude-sonnet-4-6 | claude-opus-4-6 | gpt-5.3-codex | openai/gpt-5.4-mini | etc."
     echo ""
     echo "If --type/--model omitted, uses current settings.yaml values."
     exit 1
@@ -346,12 +349,21 @@ if [ -z "$PANE_TARGET" ]; then
 fi
 log "=== Starting CLI switch for ${AGENT_ID} (pane: ${PANE_TARGET}) ==="
 
-# Step 0.5: --model指定時に--type未指定なら、モデル名からCLI種別を自動推定
+# Step 0.5: --model指定時に--type未指定なら、CLI種別を安全に補完する
 if [[ -n "$NEW_MODEL" && -z "$NEW_TYPE" ]]; then
     case "$NEW_MODEL" in
         gpt-5.3-codex*|gpt-5-codex*)
             NEW_TYPE="codex"
             log "Auto-inferred type=codex from model=${NEW_MODEL}"
+            ;;
+        */*)
+            if [[ "$(get_cli_type "$AGENT_ID")" == "opencode" ]]; then
+                NEW_TYPE="opencode"
+                log "Preserving type=opencode for provider-qualified model=${NEW_MODEL}"
+            else
+                log "ERROR: provider-qualified model IDs are ambiguous without --type; use --type opencode --model ${NEW_MODEL}"
+                exit 1
+            fi
             ;;
         claude-*)
             NEW_TYPE="claude"

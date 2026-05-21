@@ -132,6 +132,31 @@ PY
     echo "$body" | grep -q "os.replace"
 }
 
+@test "TC-FR-004b: get_unread_info does not update when lock is unavailable" {
+    cat > "$TEST_INBOX" << 'YAML'
+messages:
+  - id: msg_clear
+    from: karo
+    timestamp: "2026-02-09T21:00:01"
+    type: clear_command
+    content: /clear
+    read: false
+YAML
+    mkdir "$TEST_INBOX.lock.d"
+
+    run bash -c "source '$TEST_HARNESS'; get_unread_info"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ '"count": 0' ]]
+
+    "$VENV_PYTHON" - << 'PY' "$TEST_INBOX"
+import sys, yaml
+with open(sys.argv[1]) as f:
+    data = yaml.safe_load(f)
+assert data["messages"][0]["read"] is False
+print("OK")
+PY
+}
+
 @test "TC-FR-005: post-task inbox check rule is documented for ashigaru" {
     grep -q "MANDATORY Post-Task Inbox Check" "$ASHIGARU_INSTR"
 }
