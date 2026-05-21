@@ -610,6 +610,7 @@ cli:
     ashigaru3:
       type: opencode
       model: openrouter/openai/gpt-4o-mini
+      variant: high  # 任意: provider固有のreasoning variant
 ```
 
 OpenRouter 設定は2つに分かれます：
@@ -619,13 +620,14 @@ OpenRouter 設定は2つに分かれます：
 
 APIキーを `config/settings.yaml`、`config/opencode-tui.json`、`.opencode/agents/*.md` に書かないでください。これらはルーティング、tmux向けキー設定、生成済みロール定義の置き場です。
 
-OpenCode 選択時は `lib/cli_adapter.sh` が `--agent <agent_id>` と、リポジトリ固定の `OPENCODE_TUI_CONFIG=config/opencode-tui.json` を付けて起動します。
+OpenCode 選択時は `lib/cli_adapter.sh` が `--agent <agent_id>` と、リポジトリ固定の `OPENCODE_TUI_CONFIG=config/opencode-tui.json` を付けて起動します。対象agentに `variant:` があれば、OpenCodeのprovider固有 `--variant` として渡します。
 
 途中で切り替えたい場合は `scripts/switch_cli.sh` を使います：
 
 ```bash
 bash scripts/switch_cli.sh ashigaru3 --type claude --model claude-sonnet-4-6
 bash scripts/switch_cli.sh ashigaru3 --type opencode --model openrouter/openai/gpt-4o-mini
+bash scripts/switch_cli.sh ashigaru3 --type opencode --model openrouter/minimax/minimax-m2.5 --variant xhigh
 ```
 
 #### 4. 案件の切り替え／クローズ

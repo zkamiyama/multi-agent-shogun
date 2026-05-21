@@ -152,6 +152,10 @@ cli:
     ashigaru4:
       type: opencode
       model: gpt-5.3-codex-spark
+    ashigaru5:
+      type: opencode
+      model: openrouter/minimax/minimax-m2.5
+      variant: xhigh
 YAML
 }
 
@@ -445,6 +449,16 @@ load_adapter_with() {
     [[ "$first" == *'opencode --model anthropic/claude-sonnet-4-6 --agent ashigaru3'* ]]
     [[ "$first" != *'OPENCODE_CONFIG_CONTENT'* ]]
     [[ "$first" != *'--prompt'* ]]
+}
+
+@test "build_cli_command: opencode includes provider-specific variant when configured" {
+    load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(build_cli_command "ashigaru5")
+    expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
+    [[ "$result" == "OPENCODE_AGENT_ID=ashigaru5 OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
+    [[ "$result" == *'opencode --model openrouter/minimax/minimax-m2.5 --variant xhigh --agent ashigaru5'* ]]
+    [[ "$result" != *'OPENCODE_CONFIG_CONTENT'* ]]
+    [[ "$result" != *'--prompt'* ]]
 }
 
 @test "opencode tui config pins app_exit and keybinds" {

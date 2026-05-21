@@ -606,6 +606,7 @@ cli:
     ashigaru3:
       type: opencode
       model: openrouter/openai/gpt-4o-mini
+      variant: high  # optional provider-specific reasoning variant
 ```
 
 OpenRouter setup has two separate pieces:
@@ -615,13 +616,14 @@ OpenRouter setup has two separate pieces:
 
 Do not put API keys in `config/settings.yaml`, `config/opencode-tui.json`, or `.opencode/agents/*.md`. Those files only describe routing, tmux-safe keybindings, and generated agent definitions.
 
-When OpenCode is selected, `lib/cli_adapter.sh` launches it with `--agent <agent_id>` and the repository-pinned `OPENCODE_TUI_CONFIG=config/opencode-tui.json`.
+When OpenCode is selected, `lib/cli_adapter.sh` launches it with `--agent <agent_id>` and the repository-pinned `OPENCODE_TUI_CONFIG=config/opencode-tui.json`. If `variant:` is configured for that agent, it is passed as OpenCode's provider-specific `--variant` option.
 
 To switch on the fly, use `scripts/switch_cli.sh`:
 
 ```bash
 bash scripts/switch_cli.sh ashigaru3 --type claude --model claude-sonnet-4-6
 bash scripts/switch_cli.sh ashigaru3 --type opencode --model openrouter/openai/gpt-4o-mini
+bash scripts/switch_cli.sh ashigaru3 --type opencode --model openrouter/minimax/minimax-m2.5 --variant xhigh
 ```
 
 #### 4. Switching or closing a project

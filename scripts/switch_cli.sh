@@ -3,7 +3,7 @@
 # switch_cli.sh — エージェントのCLIセッションを安全に切り替える
 #
 # Usage:
-#   bash scripts/switch_cli.sh <agent_id> [--type <cli_type>] [--model <model_name>]
+#   bash scripts/switch_cli.sh <agent_id> [--type <cli_type>] [--model <model_name>] [--variant <variant>]
 #
 # Examples:
 #   # settings.yaml の現在値で再起動（CLI種別/モデル変更なし）
@@ -14,6 +14,9 @@
 #
 #   # OpenCode で provider/model を直接指定（role 定義は --agent、モデル変更は再起動で反映）
 #   bash scripts/switch_cli.sh ashigaru3 --type opencode --model openai/gpt-5.4-mini
+#
+#   # OpenCode provider-specific reasoning variant
+#   bash scripts/switch_cli.sh ashigaru3 --type opencode --model openrouter/minimax/minimax-m2.5 --variant xhigh
 #
 #   # 同一CLI内でモデルだけ変更（Sonnet → Opus）
 #   bash scripts/switch_cli.sh ashigaru3 --model claude-opus-4-6
@@ -50,11 +53,12 @@ log() {
 
 # ─── Usage ───
 usage() {
-    echo "Usage: $0 <agent_id> [--type <cli_type>] [--model <model_name>]"
+    echo "Usage: $0 <agent_id> [--type <cli_type>] [--model <model_name>] [--variant <variant>]"
     echo ""
     echo "  agent_id   Agent configured in config/settings.yaml (e.g. karo, ashigaru1, gunshi)"
     echo "  --type     claude | codex | copilot | kimi | opencode"
     echo "  --model    claude-sonnet-4-6 | claude-opus-4-6 | gpt-5.3-codex | openai/gpt-5.4-mini | etc."
+    echo "  --variant  OpenCode model variant such as xhigh, high, max, minimal"
     echo ""
     echo "If --type/--model omitted, uses current settings.yaml values."
     exit 1
@@ -98,12 +102,13 @@ update_settings_yaml() {
     local agent_id="$1"
     local new_type="${2:-}"
     local new_model="${3:-}"
+    local new_variant="${4:-}"
 
-    if [[ -z "$new_type" && -z "$new_model" ]]; then
+    if [[ -z "$new_type" && -z "$new_model" && -z "$new_variant" ]]; then
         return 0
     fi
 
-    log "Updating settings.yaml: ${agent_id} → type=${new_type:-<unchanged>}, model=${new_model:-<unchanged>}"
+    log "Updating settings.yaml: ${agent_id} → type=${new_type:-<unchanged>}, model=${new_model:-<unchanged>}, variant=${new_variant:-<unchanged>}"
 
     "${PROJECT_ROOT}/.venv/bin/python3" << PYEOF
 import yaml, sys, os, datetime
@@ -112,6 +117,7 @@ settings_path = "${SETTINGS_FILE}"
 agent_id = "${agent_id}"
 new_type = "${new_type}" or None
 new_model = "${new_model}" or None
+new_variant = "${new_variant}" or None
 
 with open(settings_path, 'r', encoding='utf-8') as f:
     content = f.read()
@@ -133,6 +139,8 @@ if new_type:
     agent_cfg['type'] = new_type
 if new_model:
     agent_cfg['model'] = new_model
+if new_variant:
+    agent_cfg['variant'] = new_variant
 
 data['cli']['agents'][agent_id] = agent_cfg
 
@@ -165,6 +173,8 @@ while i < len(lines):
             new_lines.append(f'{inner_indent}type: {new_type}')
         if new_model:
             new_lines.append(f'{inner_indent}model: {new_model}  {comment}')
+        if new_variant:
+            new_lines.append(f'{inner_indent}variant: {new_variant}  {comment}')
         # Skip old sub-fields
         i += 1
         while i < len(lines):
@@ -315,6 +325,7 @@ shift
 
 NEW_TYPE=""
 NEW_MODEL=""
+NEW_VARIANT=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -324,6 +335,10 @@ while [ $# -gt 0 ]; do
             ;;
         --model)
             NEW_MODEL="$2"
+            shift 2
+            ;;
+        --variant)
+            NEW_VARIANT="$2"
             shift 2
             ;;
         --help|-h)
@@ -372,9 +387,9 @@ if [[ -n "$NEW_MODEL" && -z "$NEW_TYPE" ]]; then
     esac
 fi
 
-# Step 1: settings.yaml 更新（--type/--model 指定時のみ）
-if [[ -n "$NEW_TYPE" || -n "$NEW_MODEL" ]]; then
-    update_settings_yaml "$AGENT_ID" "$NEW_TYPE" "$NEW_MODEL"
+# Step 1: settings.yaml 更新（--type/--model/--variant 指定時のみ）
+if [[ -n "$NEW_TYPE" || -n "$NEW_MODEL" || -n "$NEW_VARIANT" ]]; then
+    update_settings_yaml "$AGENT_ID" "$NEW_TYPE" "$NEW_MODEL" "$NEW_VARIANT"
 fi
 
 # Step 2: 切替後のCLI情報を取得（settings.yaml反映後）
