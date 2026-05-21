@@ -612,7 +612,14 @@ cli:
       model: openrouter/openai/gpt-4o-mini
 ```
 
-OpenCode 選択時は `lib/cli_adapter.sh` が `--agent <role>` と、リポジトリ固定の `OPENCODE_TUI_CONFIG=config/opencode-tui.json` を付けて起動します。`OPENROUTER_API_KEY` などの provider 認証情報は、`shutsujin_departure.sh` を実行するシェルで読み込まれている必要があります。
+OpenRouter 設定は2つに分かれます：
+
+1. **モデルルーティング** は上記の通り `config/settings.yaml` に書きます（`type: opencode`、`model: openrouter/...`）。
+2. **provider認証** は `settings.yaml` ではなく OpenCode 側で設定します。将軍を起動するのと同じOSユーザーで一度 OpenCode を起動し、`/connect` → `OpenRouter` からAPIキーを登録してください。OpenCodeはprovider認証情報をそのOSユーザーのOpenCodeユーザーデータ配下（例: `~/.local/share/opencode/`。具体的なファイル/DBはOpenCode内部実装）に保存します。ヘッドレス運用などで環境変数方式を使う場合は、`shutsujin_departure.sh` を実行するシェルに `OPENROUTER_API_KEY` を読み込ませてください。
+
+APIキーを `config/settings.yaml`、`config/opencode-tui.json`、`.opencode/agents/*.md` に書かないでください。これらはルーティング、tmux向けキー設定、生成済みロール定義の置き場です。
+
+OpenCode 選択時は `lib/cli_adapter.sh` が `--agent <role>` と、リポジトリ固定の `OPENCODE_TUI_CONFIG=config/opencode-tui.json` を付けて起動します。
 
 途中で切り替えたい場合は `scripts/switch_cli.sh` を使います：
 

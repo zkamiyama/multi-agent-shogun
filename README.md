@@ -608,7 +608,14 @@ cli:
       model: openrouter/openai/gpt-4o-mini
 ```
 
-When OpenCode is selected, `lib/cli_adapter.sh` launches it with `--agent <role>` and the repository-pinned `OPENCODE_TUI_CONFIG=config/opencode-tui.json`. Provider credentials such as `OPENROUTER_API_KEY` must be loaded by the shell that runs `shutsujin_departure.sh`.
+OpenRouter setup has two separate pieces:
+
+1. **Model routing** goes in `config/settings.yaml` as shown above (`type: opencode`, `model: openrouter/...`).
+2. **Provider authentication** is configured in OpenCode, not in `settings.yaml`. Run OpenCode once as the same OS user that will launch Shogun, then use `/connect` → `OpenRouter` and paste the API key. OpenCode stores provider credentials in its own user data under that OS user (for example under `~/.local/share/opencode/`; the exact file/database is OpenCode-internal). For headless deployments that use environment-based provider credentials, make sure the shell that runs `shutsujin_departure.sh` has `OPENROUTER_API_KEY` loaded.
+
+Do not put API keys in `config/settings.yaml`, `config/opencode-tui.json`, or `.opencode/agents/*.md`. Those files only describe routing, tmux-safe keybindings, and generated role definitions.
+
+When OpenCode is selected, `lib/cli_adapter.sh` launches it with `--agent <role>` and the repository-pinned `OPENCODE_TUI_CONFIG=config/opencode-tui.json`.
 
 To switch on the fly, use `scripts/switch_cli.sh`:
 
