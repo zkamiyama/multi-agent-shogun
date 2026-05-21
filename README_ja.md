@@ -133,9 +133,9 @@ bash shutsujin_departure.sh                # 全エージェント起動
 | **OpenAI Codex** | サンドボックス実行、JSONL構造化出力、`codex exec` ヘッドレスモード | gpt-5.3-codex |
 | **GitHub Copilot** | GitHub MCP組込、4種の特化エージェント（Explore/Task/Plan/Code-review）、`/delegate` | Claude Sonnet 4.6 |
 | **Kimi Code** | 無料プランあり、多言語サポート | Kimi k2 |
-| **OpenCode** | `AGENTS.md` 自動読込、`--agent` によるロール別エージェント定義、`/new` でのコンテキストリセット、モデル変更は再起動のみ、決定的な対話型 TUI 起動、`--model provider/model` ルーティング | provider/model |
+| **OpenCode** | `AGENTS.md` 自動読込、`--agent` による個体別エージェント定義、`/new` でのコンテキストリセット、モデル変更は再起動のみ、決定的な対話型 TUI 起動、`--model provider/model` ルーティング | provider/model |
 
-OpenCode の起動は `--agent` で生成済み `.opencode/agents/<agent>.md` を読み込み、リセットは `/new`、モデル変更は再起動で行う。ロール別の境界は生成されたエージェント frontmatter に埋め込まれており、将軍は監督のため `queue/reports/*` を読めるが書けず、家老は分配と報告集約のみ、足軽は自分の task/report のみ、軍師は足軽レポートを読み `gunshi_report.yaml` だけを書く。
+OpenCode の起動は `--agent` で生成済み `.opencode/agents/<agent_id>.md` を読み込み、リセットは `/new`、モデル変更は再起動で行う。ロール別の境界は生成されたエージェント frontmatter に埋め込まれており、将軍は監督のため `queue/reports/*` を読めるが書けず、家老は分配と報告集約のみ、足軽は自分の task/report のみ、軍師は足軽レポートを読み `gunshi_report.yaml` だけを書く。
 
 統一ビルドシステムが共有テンプレートからCLI固有の指示書を自動生成：
 
@@ -619,7 +619,7 @@ OpenRouter 設定は2つに分かれます：
 
 APIキーを `config/settings.yaml`、`config/opencode-tui.json`、`.opencode/agents/*.md` に書かないでください。これらはルーティング、tmux向けキー設定、生成済みロール定義の置き場です。
 
-OpenCode 選択時は `lib/cli_adapter.sh` が `--agent <role>` と、リポジトリ固定の `OPENCODE_TUI_CONFIG=config/opencode-tui.json` を付けて起動します。
+OpenCode 選択時は `lib/cli_adapter.sh` が `--agent <agent_id>` と、リポジトリ固定の `OPENCODE_TUI_CONFIG=config/opencode-tui.json` を付けて起動します。
 
 途中で切り替えたい場合は `scripts/switch_cli.sh` を使います：
 
@@ -1821,11 +1821,11 @@ tmux respawn-pane -t shogun:0.0 -k 'claude --model opus --dangerously-skip-permi
 
 ## v5.0.0の新機能 — OpenCodeファーストクラス対応
 
-> **将軍システムをOpenCodeでも動かす。** OpenCodeがClaude Code、Codex、Copilot、Kimiと並ぶファーストクラスCLIになりました。ロール別エージェント生成、tmux向け安定起動、provider付きモデルルーティング、VPS実機E2E検証まで対応しています。
+> **将軍システムをOpenCodeでも動かす。** OpenCodeがClaude Code、Codex、Copilot、Kimiと並ぶファーストクラスCLIになりました。個体別エージェント生成、tmux向け安定起動、provider付きモデルルーティング、VPS実機E2E検証まで対応しています。
 
 - **OpenCodeエージェント生成** — `scripts/build_instructions.sh` が、他CLIと同じ共通指示ソースから `.opencode/agents/*.md` を将軍/家老/足軽1-7/軍師向けに生成
 - **ロール境界つき権限** — `config/opencode-permissions.yaml` からOpenCode frontmatter権限を生成し、各ロールが所有ファイルだけを読み書きするよう制御
-- **tmuxで安定するOpenCode起動** — `lib/cli_adapter.sh` が `--agent <role>` と `OPENCODE_TUI_CONFIG=config/opencode-tui.json` を付けて起動し、キー割当を固定
+- **tmuxで安定するOpenCode起動** — `lib/cli_adapter.sh` が `--agent <agent_id>` と `OPENCODE_TUI_CONFIG=config/opencode-tui.json` を付けて起動し、キー割当を固定
 - **provider付きモデル指定** — `settings.yaml` で `opencode/qwen3.6-plus-free` や `openrouter/openai/gpt-4o-mini` のようなOpenCodeモデルへルーティング可能
 - **CI/VPSで検証済み** — Multi-CLI CIがUbuntu/macOSでPASSし、VPS実機でOpenCodeによる Shogun → Karo → `dashboard.md` 実行を確認
 
