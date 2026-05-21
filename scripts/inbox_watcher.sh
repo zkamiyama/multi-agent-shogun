@@ -512,7 +512,7 @@ send_cli_command() {
     # Shogun is controlled by the Lord; keystroke injection can clobber human input.
     if [ "$AGENT_ID" = "shogun" ]; then
         echo "[$(date)] [SKIP] shogun: suppressing CLI command injection ($cmd)" >&2
-        return 0
+        return 1
     fi
 
     # Busy guard: never send /clear when agent is actively processing.
@@ -1074,8 +1074,9 @@ for s in data.get('specials', []):
             fi
             cmd=$(normalize_special_command "$msg_type" "$msg_content")
             if [ -n "$cmd" ]; then
-                send_cli_command "$cmd"
-                [ "$msg_type" = "clear_command" ] && clear_sent=1
+                if send_cli_command "$cmd"; then
+                    [ "$msg_type" = "clear_command" ] && clear_sent=1
+                fi
             fi
         done <<< "$specials"
     fi

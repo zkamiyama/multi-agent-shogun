@@ -43,6 +43,7 @@
 #   T-SHOGUN-002: session_has_client — returns 1 when no client
 #   T-SHOGUN-003: send_wakeup — shogun + active + attached → send-keys (post PR#75)
 #   T-SHOGUN-004: send_wakeup — shogun + active + detached → send-keys fallthrough
+#   T-SHOGUN-005: shogun clear_command does not enqueue auto-recovery
 #   T-BUSY-005: agent_is_busy — returns busy during /clear cooldown (LAST_CLEAR_TS)
 #   T-BUSY-006: agent_is_busy — returns idle after /clear cooldown expires
 #   T-BUSY-007: agent_is_busy — /clear cooldown overrides idle pane
@@ -721,6 +722,53 @@ PY
     grep -q "send-keys.*/new" "$MOCK_LOG"
     # After /new, startup prompt is sent (replaces inbox1 nudge for wake-up)
     grep -q "send-keys.*Session Start" "$MOCK_LOG"
+}
+
+@test "T-SHOGUN-005: process_unread does not auto-recover skipped shogun clear_command" {
+    run bash -c '
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="shogun"
+        PANE_TARGET="shogun:main"
+        CLI_TYPE="codex"
+        INBOX="'"$TEST_INBOX_DIR"'/shogun.yaml"
+        LOCKFILE="${INBOX}.lock"
+        cat > "$INBOX" << "YAML"
+messages:
+  - id: msg_clear
+    from: karo
+    timestamp: "2026-05-22T03:22:46+09:00"
+    type: clear_command
+    content: refresh
+    read: false
+YAML
+        process_unread event
+        "$VENV_PYTHON" - << "PY" "$INBOX"
+import sys
+import yaml
+
+inbox_path = sys.argv[1]
+with open(inbox_path, "r", encoding="utf-8") as f:
+    data = yaml.safe_load(f) or {}
+
+messages = data.get("messages", []) or []
+msg_clear = [m for m in messages if m.get("id") == "msg_clear"]
+assert len(msg_clear) == 1 and msg_clear[0].get("read") is True
+
+auto = [
+    m for m in messages
+    if m.get("from") == "inbox_watcher"
+    and m.get("type") == "task_assigned"
+    and "[auto-recovery]" in (m.get("content") or "")
+]
+assert auto == []
+print("OK")
+PY
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "OK"
+
+    ! grep -q "send-keys.*/new" "$MOCK_LOG"
+    ! grep -q "send-keys.*/clear" "$MOCK_LOG"
 }
 
 # --- T-OPENCODE-003: OpenCode Phase 2 falls back to plain nudge ---
