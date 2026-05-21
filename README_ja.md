@@ -10,7 +10,7 @@
 
 [![GitHub Stars](https://img.shields.io/github/stars/yohey-w/multi-agent-shogun?style=social)](https://github.com/yohey-w/multi-agent-shogun)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![v3.5 Dynamic Model Routing](https://img.shields.io/badge/v3.5-Dynamic_Model_Routing-ff6600?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHRleHQgeD0iMCIgeT0iMTIiIGZvbnQtc2l6ZT0iMTIiPuKalTwvdGV4dD48L3N2Zz4=)](https://github.com/yohey-w/multi-agent-shogun)
+[![v5.0.0 OpenCode](https://img.shields.io/badge/v5.0.0-OpenCode-ff6600?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHRleHQgeD0iMCIgeT0iMTIiIGZvbnQtc2l6ZT0iMTIiPuKalTwvdGV4dD48L3N2Zz4=)](https://github.com/yohey-w/multi-agent-shogun/releases/tag/v5.0.0)
 [![Shell](https://img.shields.io/badge/Shell%2FBash-100%25-green)]()
 
 [English](README.md) | [日本語](README_ja.md)
@@ -144,10 +144,12 @@ instructions/
 ├── common/              # 共通ルール（全CLI共通）
 ├── cli_specific/        # CLI固有のツール説明
 │   ├── claude_tools.md  # Claude Code ツール・機能
-│   └── copilot_tools.md # GitHub Copilot CLI ツール・機能
+│   ├── copilot_tools.md # GitHub Copilot CLI ツール・機能
+│   └── opencode_tools.md # OpenCode ツール・エージェントfrontmatter・権限モデル
 └── roles/               # ロール定義（将軍、家老、足軽）
     ↓ ビルド
-CLAUDE.md / AGENTS.md / copilot-instructions.md  ← CLI別に生成
+CLAUDE.md / AGENTS.md / .github/copilot-instructions.md / .opencode/agents/*.md
+  ← CLI別に生成
 ```
 
 ルールの変更は1箇所。全CLIに反映。同期ズレなし。
@@ -449,7 +451,7 @@ wsl --install
 |-----------|------|---------------|
 | `install.bat` | Windows: WSL2 + Ubuntu のセットアップ | 初回のみ |
 | `first_setup.sh` | tmux、Node.js、Claude Code CLI のインストール + Memory MCP設定 | 初回のみ |
-| `shutsujin_departure.sh` | tmuxセッション作成 + CLI起動 + 指示書読み込み + ntfyリスナー起動 | 毎日 |
+| `shutsujin_departure.sh` | tmuxセッション作成 + エージェントごとの設定済みCLI起動 + 指示書読み込み + ntfyリスナー起動 | 毎日 |
 | `scripts/switch_cli.sh` | エージェントのCLI/モデルをライブ切替（settings.yaml → /exit → 再起動） | 必要時 |
 
 ### `install.bat` が自動で行うこと：
@@ -459,8 +461,8 @@ wsl --install
 
 ### `shutsujin_departure.sh` が行うこと：
 - ✅ tmuxセッションを作成（shogun + multiagent）
-- ✅ 全エージェントでClaude Codeを起動
-- ✅ 各エージェントに指示書を自動読み込み
+- ✅ `config/settings.yaml` の指定に従って各エージェントを起動（Claude/Codex/Copilot/Kimi/OpenCode）
+- ✅ CLIごとの指示書または生成済みエージェント定義を自動読み込み
 - ✅ キューファイルをリセットして新しい状態に
 - ✅ ntfyリスナーを起動してスマホ通知を有効化（設定済みの場合）
 
@@ -482,6 +484,10 @@ wsl --install
 | tmux | `sudo apt install tmux` | ターミナルマルチプレクサ |
 | Node.js v20+ | `nvm install 20` | MCPサーバーに必要 |
 | Claude Code CLI | `curl -fsSL https://claude.ai/install.sh \| bash` | Anthropic公式CLI（ネイティブ版を推奨。npm版は非推奨） |
+| OpenAI Codex CLI | OpenAI Codex公式配布からインストール | `type: codex` のエージェントでのみ必要 |
+| GitHub Copilot CLI | GitHub Copilot CLIをインストールして認証 | `type: copilot` のエージェントでのみ必要 |
+| Kimi Code CLI | Kimi Codeをインストールして認証 | `type: kimi` のエージェントでのみ必要 |
+| OpenCode CLI | `npm install -g opencode-ai` | `type: opencode` のエージェントでのみ必要。provider API key は起動シェルで読める必要あり |
 
 </details>
 
@@ -596,10 +602,23 @@ cli:
     # ashigaru3-7, gunshi, karo も同様
 ```
 
+OpenCode は provider付きモデルIDを使います：
+
+```yaml
+cli:
+  agents:
+    ashigaru3:
+      type: opencode
+      model: openrouter/openai/gpt-4o-mini
+```
+
+OpenCode 選択時は `lib/cli_adapter.sh` が `--agent <role>` と、リポジトリ固定の `OPENCODE_TUI_CONFIG=config/opencode-tui.json` を付けて起動します。`OPENROUTER_API_KEY` などの provider 認証情報は、`shutsujin_departure.sh` を実行するシェルで読み込まれている必要があります。
+
 途中で切り替えたい場合は `scripts/switch_cli.sh` を使います：
 
 ```bash
 bash scripts/switch_cli.sh ashigaru3 --type claude --model claude-sonnet-4-6
+bash scripts/switch_cli.sh ashigaru3 --type opencode --model openrouter/openai/gpt-4o-mini
 ```
 
 #### 4. 案件の切り替え／クローズ
@@ -1469,7 +1488,7 @@ cp config/ntfy_auth.env.sample config/ntfy_auth.env
 │      │                                                              │
 │      ├──▶ キューファイルとダッシュボードをリセット                     │
 │      │                                                              │
-│      └──▶ 全エージェントでClaude Codeを起動                          │
+│      └──▶ 各エージェントの設定済みCLIを起動                          │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -1480,10 +1499,10 @@ cp config/ntfy_auth.env.sample config/ntfy_auth.env
 <summary><b>shutsujin_departure.sh オプション</b>（クリックで展開）</summary>
 
 ```bash
-# デフォルト: フル起動（tmuxセッション + Claude Code起動）
+# デフォルト: フル起動（tmuxセッション + 設定済みCLI起動）
 ./shutsujin_departure.sh
 
-# セッションセットアップのみ（Claude Code起動なし）
+# セッションセットアップのみ（CLI起動なし）
 ./shutsujin_departure.sh -s
 ./shutsujin_departure.sh --setup-only
 
@@ -1793,14 +1812,25 @@ tmux respawn-pane -t shogun:0.0 -k 'claude --model opus --dangerously-skip-permi
 
 ---
 
-## v3.5の新機能 — Dynamic Model Routing
+## v5.0.0の新機能 — OpenCodeファーストクラス対応
 
-> **タスクに最適なモデルへ — エージェント再起動なしで。** Sonnet 4.6がOpusとの差を1.2pp（SWE-bench 79.6% vs 80.8%）まで縮め、タスク単位のモデルルーティングがはじめて費用対効果の合う選択に。
+> **将軍システムをOpenCodeでも動かす。** OpenCodeがClaude Code、Codex、Copilot、Kimiと並ぶファーストクラスCLIになりました。ロール別エージェント生成、tmux向け安定起動、provider付きモデルルーティング、VPS実機E2E検証まで対応しています。
 
-- **Bloom Dynamic Model Routing** — `capability_tiers` でモデルごとにBloom上限を定義。L1-L3→Spark（1000+ tok/s）、L4→Sonnet 4.6、L5→Sonnet 4.6 + extended thinking、L6→Opus（本当に新規な設計のみ）。エージェント再起動不要で切り替わる
+- **OpenCodeエージェント生成** — `scripts/build_instructions.sh` が、他CLIと同じ共通指示ソースから `.opencode/agents/*.md` を将軍/家老/足軽1-7/軍師向けに生成
+- **ロール境界つき権限** — `config/opencode-permissions.yaml` からOpenCode frontmatter権限を生成し、各ロールが所有ファイルだけを読み書きするよう制御
+- **tmuxで安定するOpenCode起動** — `lib/cli_adapter.sh` が `--agent <role>` と `OPENCODE_TUI_CONFIG=config/opencode-tui.json` を付けて起動し、キー割当を固定
+- **provider付きモデル指定** — `settings.yaml` で `opencode/qwen3.6-plus-free` や `openrouter/openai/gpt-4o-mini` のようなOpenCodeモデルへルーティング可能
+- **CI/VPSで検証済み** — Multi-CLI CIがUbuntu/macOSでPASSし、VPS実機でOpenCodeによる Shogun → Karo → `dashboard.md` 実行を確認
+
+<details>
+<summary><b>v3.5の機能 — Dynamic Model Routing</b></summary>
+
+- **Bloom Dynamic Model Routing** — `capability_tiers` でモデルごとにBloom上限を定義。L1-L3→Spark、L4→Sonnet 4.6、L5→Sonnet 4.6 + extended thinking、L6→Opus。エージェント再起動不要で切り替わる
 - **Sonnet 4.6が新標準** — SWE-bench 79.6%、Opus 4.6との差わずか1.2pp。軍師をOpus→Sonnet 4.6に降格。全足軽のデフォルトもSonnet 4.6に。YAML1行を変えるだけ、再起動不要
 - **`/shogun-model-list` スキル** — 全CLIツール × モデル × サブスクリプション × Bloom上限の参照テーブル。Sonnet 4.6とSparkの位置づけを更新
 - **`/shogun-bloom-config` スキル** — 対話式設定: 2つの質問に答えるだけで最適な `capability_tiers` YAMLを生成
+
+</details>
 
 <details>
 <summary><b>v3.4の機能 — Bloom→エージェントルーティング、E2Eテスト、Stop Hook</b></summary>

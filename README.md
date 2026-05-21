@@ -10,7 +10,7 @@ Run 10 AI coding agents in parallel — **Claude Code, OpenAI Codex, GitHub Copi
 
 [![GitHub Stars](https://img.shields.io/github/stars/yohey-w/multi-agent-shogun?style=social)](https://github.com/yohey-w/multi-agent-shogun)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![v3.5 Dynamic Model Routing](https://img.shields.io/badge/v3.5-Dynamic_Model_Routing-ff6600?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHRleHQgeD0iMCIgeT0iMTIiIGZvbnQtc2l6ZT0iMTIiPuKalTwvdGV4dD48L3N2Zz4=)](https://github.com/yohey-w/multi-agent-shogun)
+[![v5.0.0 OpenCode](https://img.shields.io/badge/v5.0.0-OpenCode-ff6600?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHRleHQgeD0iMCIgeT0iMTIiIGZvbnQtc2l6ZT0iMTIiPuKalTwvdGV4dD48L3N2Zz4=)](https://github.com/yohey-w/multi-agent-shogun/releases/tag/v5.0.0)
 [![Shell](https://img.shields.io/badge/Shell%2FBash-100%25-green)]()
 
 [English](README.md) | [日本語](README_ja.md)
@@ -144,10 +144,12 @@ instructions/
 ├── common/              # Shared rules (all CLIs)
 ├── cli_specific/        # CLI-specific tool descriptions
 │   ├── claude_tools.md  # Claude Code tools & features
-│   └── copilot_tools.md # GitHub Copilot CLI tools & features
+│   ├── copilot_tools.md # GitHub Copilot CLI tools & features
+│   └── opencode_tools.md # OpenCode tools, agent frontmatter, and permission model
 └── roles/               # Role definitions (shogun, karo, ashigaru)
     ↓ build
-CLAUDE.md / AGENTS.md / copilot-instructions.md  ← Generated per CLI
+CLAUDE.md / AGENTS.md / .github/copilot-instructions.md / .opencode/agents/*.md
+  ← Generated per CLI
 ```
 
 One source of truth, zero sync drift. Change a rule once, all CLIs get it.
@@ -445,7 +447,7 @@ Then restart your computer and run `install.bat` again.
 |--------|---------|-------------|
 | `install.bat` | Windows: WSL2 + Ubuntu setup | First time only |
 | `first_setup.sh` | Install tmux, Node.js, Claude Code CLI + Memory MCP config | First time only |
-| `shutsujin_departure.sh` | Create tmux sessions + launch CLI + load instructions + start ntfy listener | Daily |
+| `shutsujin_departure.sh` | Create tmux sessions + launch the configured CLI for each agent + load instructions + start ntfy listener | Daily |
 | `scripts/switch_cli.sh` | Live switch agent CLI/model (settings.yaml → /exit → relaunch) | As needed |
 
 ### What `install.bat` does automatically:
@@ -455,8 +457,8 @@ Then restart your computer and run `install.bat` again.
 
 ### What `shutsujin_departure.sh` does:
 - ✅ Creates tmux sessions (shogun + multiagent)
-- ✅ Launches Claude Code on all agents
-- ✅ Auto-loads instruction files for each agent
+- ✅ Launches each agent with the CLI configured in `config/settings.yaml` (Claude/Codex/Copilot/Kimi/OpenCode)
+- ✅ Auto-loads instruction files or generated agent definitions for each CLI
 - ✅ Resets queue files for a fresh state
 - ✅ Starts ntfy listener for phone notifications (if configured)
 
@@ -478,6 +480,10 @@ If you prefer to install dependencies manually:
 | tmux | `sudo apt install tmux` | Terminal multiplexer |
 | Node.js v20+ | `nvm install 20` | Required for MCP servers |
 | Claude Code CLI | `curl -fsSL https://claude.ai/install.sh \| bash` | Official Anthropic CLI (native version recommended; npm version deprecated) |
+| OpenAI Codex CLI | Install from the official OpenAI Codex distribution | Required only for agents with `type: codex` |
+| GitHub Copilot CLI | Install and authenticate GitHub Copilot CLI | Required only for agents with `type: copilot` |
+| Kimi Code CLI | Install and authenticate Kimi Code | Required only for agents with `type: kimi` |
+| OpenCode CLI | `npm install -g opencode-ai` | Required only for agents with `type: opencode`; provider API keys must be available in the agent shell |
 
 </details>
 
@@ -592,10 +598,23 @@ cli:
     # Same for ashigaru3-7, gunshi, karo
 ```
 
+OpenCode uses provider-qualified model IDs:
+
+```yaml
+cli:
+  agents:
+    ashigaru3:
+      type: opencode
+      model: openrouter/openai/gpt-4o-mini
+```
+
+When OpenCode is selected, `lib/cli_adapter.sh` launches it with `--agent <role>` and the repository-pinned `OPENCODE_TUI_CONFIG=config/opencode-tui.json`. Provider credentials such as `OPENROUTER_API_KEY` must be loaded by the shell that runs `shutsujin_departure.sh`.
+
 To switch on the fly, use `scripts/switch_cli.sh`:
 
 ```bash
 bash scripts/switch_cli.sh ashigaru3 --type claude --model claude-sonnet-4-6
+bash scripts/switch_cli.sh ashigaru3 --type opencode --model openrouter/openai/gpt-4o-mini
 ```
 
 #### 4. Switching or closing a project
@@ -1525,7 +1544,7 @@ Priority: Token > Basic > None. If neither is set, no auth headers are sent (bac
 │      │                                                              │
 │      ├──▶ Reset queue files and dashboard                           │
 │      │                                                              │
-│      └──▶ Launch Claude Code on all agents                          │
+│      └──▶ Launch the configured CLI for each agent                   │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -1536,10 +1555,10 @@ Priority: Token > Basic > None. If neither is set, no auth headers are sent (bac
 <summary><b>shutsujin_departure.sh Options</b> (click to expand)</summary>
 
 ```bash
-# Default: Full startup (tmux sessions + Claude Code launch)
+# Default: Full startup (tmux sessions + configured CLI launch)
 ./shutsujin_departure.sh
 
-# Session setup only (no Claude Code launch)
+# Session setup only (no CLI launch)
 ./shutsujin_departure.sh -s
 ./shutsujin_departure.sh --setup-only
 
@@ -1839,14 +1858,25 @@ Even if you're not comfortable with keyboard shortcuts, you can switch, scroll, 
 
 ---
 
-## What's New in v3.5 — Dynamic Model Routing
+## What's New in v5.0.0 — OpenCode First-Class Support
 
-> **Right model for the right task — without restarting any agent.** Sonnet 4.6 closes the gap with Opus to just 1.2pp on SWE-bench (79.6% vs 80.8%), making per-task model routing practical and cost-effective for the first time.
+> **Run the Shogun formation on OpenCode.** OpenCode is now a first-class CLI alongside Claude Code, Codex, Copilot, and Kimi, with generated role agents, tmux-safe startup, provider-qualified model routing, and VPS-verified end-to-end operation.
 
-- **Bloom Dynamic Model Routing** — `capability_tiers` in `config/settings.yaml` maps each model to its Bloom ceiling. L1–L3 → Spark (1000+ tok/s), L4 → Sonnet 4.6, L5 → Sonnet 4.6 + extended thinking, L6 → Opus (genuinely novel design only). Routing happens without agent restarts — the system finds the right idle agent by model capability
+- **OpenCode agent generation** — `scripts/build_instructions.sh` generates `.opencode/agents/*.md` for Shogun, Karo, Ashigaru 1-7, and Gunshi from the same shared instruction source used by other CLIs
+- **Role boundary permissions** — `config/opencode-permissions.yaml` drives OpenCode frontmatter permissions so each role can read/write only the files it owns
+- **tmux-safe OpenCode launch** — `lib/cli_adapter.sh` launches OpenCode with `--agent <role>` and repository-pinned `OPENCODE_TUI_CONFIG=config/opencode-tui.json` for deterministic keybindings
+- **Provider-qualified models** — `settings.yaml` can route OpenCode agents to models such as `opencode/qwen3.6-plus-free` or `openrouter/openai/gpt-4o-mini`
+- **Verified on CI and VPS** — Multi-CLI CI passes on Ubuntu/macOS, and a VPS smoke test confirmed Shogun → Karo → `dashboard.md` execution using OpenCode
+
+<details>
+<summary><b>What was in v3.5 — Dynamic Model Routing</b></summary>
+
+- **Bloom Dynamic Model Routing** — `capability_tiers` in `config/settings.yaml` maps each model to its Bloom ceiling. L1-L3 → Spark, L4 → Sonnet 4.6, L5 → Sonnet 4.6 + extended thinking, L6 → Opus. Routing happens without agent restarts — the system finds the right idle agent by model capability
 - **Sonnet 4.6 as the new standard** — SWE-bench 79.6%, only 1.2pp below Opus 4.6. Gunshi downgraded Opus → Sonnet 4.6. All Ashigaru default to Sonnet 4.6. One YAML line change, no restarts required
 - **`/shogun-model-list` skill** — Complete reference table: all CLI tools × models × subscriptions × Bloom max level. Updated for Sonnet 4.6 and Spark positioning
 - **`/shogun-bloom-config` skill** — Interactive configurator: answer 2 questions about your subscriptions → get ready-to-paste `capability_tiers` YAML
+
+</details>
 
 <details>
 <summary><b>What was in v3.4 — Bloom→Agent Routing, E2E Tests, Stop Hook</b></summary>
