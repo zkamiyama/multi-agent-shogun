@@ -212,50 +212,46 @@ print("OK")
 PYEOF
 }
 
-# ─── OpenCode agent frontmatter 同期 ───
+# ─── OpenCode runtime agent frontmatter 同期 ───
 # OpenCode TUI は `opencode run` と違って --variant を受け付けない。
-# provider固有variantは .opencode/agents/<agent>.md の frontmatter に同期する。
+# provider固有variantは git-ignored の .opencode/agents/<agent>-runtime.md に同期する。
 sync_opencode_agent_frontmatter() {
     local agent_id="$1"
     local model="${2:-}"
     local variant="${3:-}"
-    local agent_file="${PROJECT_ROOT}/.opencode/agents/${agent_id}.md"
+    local base_file="${PROJECT_ROOT}/.opencode/agents/${agent_id}.md"
+    local runtime_file="${PROJECT_ROOT}/.opencode/agents/${agent_id}-runtime.md"
     local normalized_model
 
-    [[ -f "$agent_file" ]] || return 0
+    [[ -f "$base_file" ]] || return 0
 
     normalized_model="$(normalize_opencode_model "$model")"
 
-    log "Syncing OpenCode agent frontmatter: ${agent_id} → model=${normalized_model:-<unset>}, variant=${variant:-<unset>}"
+    if [[ -z "$variant" ]]; then
+        rm -f "$runtime_file"
+        return 0
+    fi
 
-    "${PROJECT_ROOT}/.venv/bin/python3" - "$agent_file" "$normalized_model" "$variant" <<'PYEOF'
+    log "Syncing OpenCode runtime agent: ${agent_id}-runtime → model=${normalized_model:-<unset>}, variant=${variant}"
+
+    "${PROJECT_ROOT}/.venv/bin/python3" - "$base_file" "$runtime_file" "$normalized_model" "$variant" <<'PYEOF'
 import sys
 from pathlib import Path
 
 import yaml
 
-path = Path(sys.argv[1])
-model = sys.argv[2] or None
-variant = sys.argv[3] or None
+source = Path(sys.argv[1])
+dest = Path(sys.argv[2])
+model = sys.argv[3] or None
+variant = sys.argv[4] or None
 
-text = path.read_text(encoding="utf-8")
+text = source.read_text(encoding="utf-8")
 if not text.startswith("---\n"):
     raise SystemExit(0)
 
 parts = text.split("---", 2)
 if len(parts) < 3:
     raise SystemExit(0)
-
-frontmatter = yaml.safe_load(parts[1]) or {}
-if model:
-    frontmatter["model"] = model
-else:
-    frontmatter.pop("model", None)
-
-if variant:
-    frontmatter["variant"] = variant
-else:
-    frontmatter.pop("variant", None)
 
 body = parts[2]
 route = {}
@@ -283,7 +279,7 @@ if not inserted:
 
 frontmatter_text = "\n".join(new_lines).rstrip()
 
-path.write_text(f"---\n{frontmatter_text}\n---{body}", encoding="utf-8")
+dest.write_text(f"---\n{frontmatter_text}\n---{body}", encoding="utf-8")
 PYEOF
 }
 

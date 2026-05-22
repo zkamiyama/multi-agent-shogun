@@ -214,8 +214,15 @@ build_cli_command() {
         opencode)
             local normalized_model
             local tui_config_path
+            local variant
+            local launch_agent_id
             normalized_model=$(normalize_opencode_model "$model")
             tui_config_path=$(_cli_adapter_shell_quote "$CLI_ADAPTER_PROJECT_ROOT/config/opencode-tui.json")
+            variant=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.variant" "")
+            launch_agent_id="$agent_id"
+            if [[ -n "$variant" ]]; then
+                launch_agent_id="${agent_id}-runtime"
+            fi
             local quoted_agent_id
             quoted_agent_id=$(_cli_adapter_shell_quote "$agent_id")
             cmd="opencode"
@@ -225,9 +232,9 @@ build_cli_command() {
             # Use --agent to load the pre-built agent definition from .opencode/agents/<name>.md.
             # Permissions are also embedded in the agent definition YAML frontmatter at build time.
             # OpenCode TUI does not accept `--variant`; provider-specific variants
-            # are synchronized into the agent frontmatter by build_instructions.sh
-            # and switch_cli.sh.
-            cmd="$cmd --agent $agent_id"
+            # are synchronized into an ignored runtime agent by build_instructions.sh
+            # or switch_cli.sh.
+            cmd="$cmd --agent $launch_agent_id"
             # Use a project-pinned TUI config so tmux automation sees stable keybinds
             # even when the user has a different global tui.json.
             cmd="OPENCODE_AGENT_ID=$quoted_agent_id OPENCODE_TUI_CONFIG=$tui_config_path $cmd"

@@ -62,6 +62,7 @@
 
 # Multi-CLI: OpenCode agent file
 !.opencode/agents/*.md
+.opencode/agents/*-runtime.md
 
 # Multi-CLI: OpenCode custom tools
 !.opencode/tools/

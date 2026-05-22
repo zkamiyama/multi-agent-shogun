@@ -456,7 +456,7 @@ load_adapter_with() {
     result=$(build_cli_command "ashigaru5")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
     [[ "$result" == "OPENCODE_AGENT_ID=ashigaru5 OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
-    [[ "$result" == *'opencode --model openrouter/minimax/minimax-m2.5 --agent ashigaru5'* ]]
+    [[ "$result" == *'opencode --model openrouter/minimax/minimax-m2.5 --agent ashigaru5-runtime'* ]]
     [[ "$result" != *'--variant'* ]]
     [[ "$result" != *'OPENCODE_CONFIG_CONTENT'* ]]
     [[ "$result" != *'--prompt'* ]]
