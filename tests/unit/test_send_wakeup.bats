@@ -530,6 +530,30 @@ MOCK
     echo "$output" | grep -q "restart-only"
 }
 
+@test "T-ANTIGRAVITY-001: send_cli_command passes /clear through for antigravity" {
+    run bash -c '
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="antigravity"
+        send_cli_command "/clear"
+    '
+    [ "$status" -eq 0 ]
+
+    grep -q "send-keys.*/clear" "$MOCK_LOG"
+    ! grep -q "send-keys.*/new" "$MOCK_LOG"
+}
+
+@test "T-ANTIGRAVITY-002: send_cli_command skips /model for antigravity" {
+    run bash -c '
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="antigravity"
+        send_cli_command "/model gemini-latest"
+    '
+    [ "$status" -eq 0 ]
+
+    ! grep -q "send-keys.*/model" "$MOCK_LOG"
+    echo "$output" | grep -q "Antigravity model changes are restart-only"
+}
+
 # --- T-CODEX-003: C-u sent when unread=0 and agent is idle ---
 
 @test "T-CODEX-003: C-u cleanup sent when no unread and agent is idle" {

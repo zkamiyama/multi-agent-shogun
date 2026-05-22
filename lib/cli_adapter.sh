@@ -3,7 +3,7 @@
 # Multi-CLI統合設計書 (reports/design_multi_cli_support.md) §2.2 準拠
 #
 # 提供関数:
-#   get_cli_type(agent_id)                  → "claude" | "codex" | "copilot" | "kimi" | "opencode"
+#   get_cli_type(agent_id)                  → "claude" | "codex" | "copilot" | "kimi" | "opencode" | "antigravity"
 #   build_cli_command(agent_id)             → 完全なコマンド文字列
 #   get_instruction_file(agent_id [,cli_type]) → 指示書パス
 #   validate_cli_availability(cli_type)     → 0=OK, 1=NG
@@ -17,7 +17,18 @@ CLI_ADAPTER_PROJECT_ROOT="$(cd "${CLI_ADAPTER_DIR}/.." && pwd)"
 CLI_ADAPTER_SETTINGS="${CLI_ADAPTER_SETTINGS:-${CLI_ADAPTER_PROJECT_ROOT}/config/settings.yaml}"
 
 # 許可されたCLI種別
-CLI_ADAPTER_ALLOWED_CLIS="claude codex copilot kimi opencode"
+CLI_ADAPTER_ALLOWED_CLIS="claude codex copilot kimi opencode antigravity"
+
+# _cli_adapter_normalize_cli_type cli_type
+# CLI種別の互換aliasを正規名へ正規化する。
+_cli_adapter_normalize_cli_type() {
+    local cli_type="${1:-}"
+    cli_type="${cli_type,,}"
+    case "$cli_type" in
+        gemini|agy) echo "antigravity" ;;
+        *)          echo "$cli_type" ;;
+    esac
+}
 
 # normalize_opencode_model(model)
 # OpenCode向けにprovider-qualifiedなモデル名へ正規化する。
@@ -110,7 +121,8 @@ _cli_adapter_shell_quote() {
 # _cli_adapter_is_valid_cli cli_type
 # 許可されたCLI種別かチェック
 _cli_adapter_is_valid_cli() {
-    local cli_type="$1"
+    local cli_type
+    cli_type=$(_cli_adapter_normalize_cli_type "${1:-}")
     local allowed
     for allowed in $CLI_ADAPTER_ALLOWED_CLIS; do
         [[ "$cli_type" == "$allowed" ]] && return 0
@@ -133,6 +145,12 @@ get_cli_type() {
     local result
     result=$("$CLI_ADAPTER_PROJECT_ROOT/.venv/bin/python3" -c "
 import yaml, sys
+allowed = ('claude', 'codex', 'copilot', 'kimi', 'opencode', 'antigravity')
+def normalize_cli(value):
+    value = str(value or '').lower()
+    if value in ('gemini', 'agy'):
+        return 'antigravity'
+    return value
 try:
     with open('${CLI_ADAPTER_SETTINGS}') as f:
         cfg = yaml.safe_load(f) or {}
@@ -141,18 +159,20 @@ try:
         print('claude'); sys.exit(0)
     agents = cli.get('agents', {})
     if not isinstance(agents, dict):
-        print(cli.get('default', 'claude') if cli.get('default', 'claude') in ('claude','codex','copilot','kimi','opencode') else 'claude')
+        default = normalize_cli(cli.get('default', 'claude'))
+        print(default if default in allowed else 'claude')
         sys.exit(0)
     agent_cfg = agents.get('${agent_id}')
     if isinstance(agent_cfg, dict):
-        t = agent_cfg.get('type', '')
-        if t in ('claude', 'codex', 'copilot', 'kimi', 'opencode'):
+        t = normalize_cli(agent_cfg.get('type', ''))
+        if t in allowed:
             print(t); sys.exit(0)
     elif isinstance(agent_cfg, str):
-        if agent_cfg in ('claude', 'codex', 'copilot', 'kimi', 'opencode'):
-            print(agent_cfg); sys.exit(0)
-    default = cli.get('default', 'claude')
-    if default in ('claude', 'codex', 'copilot', 'kimi', 'opencode'):
+        t = normalize_cli(agent_cfg)
+        if t in allowed:
+            print(t); sys.exit(0)
+    default = normalize_cli(cli.get('default', 'claude'))
+    if default in allowed:
         print(default)
     else:
         print('claude', file=sys.stderr)
@@ -165,6 +185,7 @@ except Exception as e:
     if [[ -z "$result" ]]; then
         echo "claude"
     else
+        result=$(_cli_adapter_normalize_cli_type "$result")
         if ! _cli_adapter_is_valid_cli "$result"; then
             echo "[WARN] Invalid CLI type '$result' for agent '$agent_id'. Falling back to 'claude'." >&2
             echo "claude"
@@ -248,6 +269,12 @@ build_cli_command() {
                 cmd="$cmd --model $model"
             fi
             ;;
+        antigravity)
+            cmd="agy --dangerously-skip-permissions"
+            if [[ -n "$model" && "$model" != "auto" && "$model" != "default" ]]; then
+                cmd="$cmd --model $model"
+            fi
+            ;;
         *)
             cmd="claude $permission_flag"
             ;;
@@ -268,6 +295,7 @@ get_instruction_file() {
     local agent_id="$1"
     local cli_type="${2:-$(get_cli_type "$agent_id")}"
     local role
+    cli_type=$(_cli_adapter_normalize_cli_type "$cli_type")
 
     case "$agent_id" in
         shogun)    role="shogun" ;;
@@ -286,6 +314,7 @@ get_instruction_file() {
         copilot) echo ".github/copilot-instructions-${role}.md" ;;
         kimi)    echo "instructions/generated/kimi-${role}.md" ;;
         opencode) echo "instructions/generated/opencode-${role}.md" ;;
+        antigravity) echo "instructions/generated/antigravity-${role}.md" ;;
         *)       echo "instructions/${role}.md" ;;
     esac
 }
@@ -294,7 +323,8 @@ get_instruction_file() {
 # 指定CLIがシステムにインストールされているか確認
 # 0=利用可能, 1=利用不可
 validate_cli_availability() {
-    local cli_type="$1"
+    local cli_type
+    cli_type=$(_cli_adapter_normalize_cli_type "${1:-}")
     case "$cli_type" in
         claude)
             command -v claude &>/dev/null || {
@@ -323,6 +353,12 @@ validate_cli_availability() {
         kimi)
             if ! command -v kimi-cli &>/dev/null && ! command -v kimi &>/dev/null; then
                 echo "[ERROR] Kimi CLI not found. Install from https://platform.moonshot.cn/" >&2
+                return 1
+            fi
+            ;;
+        antigravity)
+            if ! command -v agy &>/dev/null && ! command -v antigravity &>/dev/null; then
+                echo "[ERROR] Antigravity CLI not found. Install and authenticate Google's Antigravity CLI, then ensure 'agy' is on PATH." >&2
                 return 1
             fi
             ;;
@@ -370,6 +406,10 @@ get_agent_model() {
                 *)              echo "k2.5" ;;
             esac
             ;;
+        antigravity)
+            # Antigravity CLI はホスト側の既定/最後のモデル設定を使う。
+            echo "auto"
+            ;;
         *)
             # Claude Code/Codex/Copilot用デフォルトモデル
             case "$agent_id" in
@@ -401,6 +441,15 @@ get_model_display_name() {
             echo "OpenCode (${model#*/})"
         else
             echo "OpenCode (${model})"
+        fi
+        return 0
+    fi
+
+    if [[ "$cli_type" == "antigravity" ]]; then
+        if [[ -n "$model" && "$model" != "auto" && "$model" != "default" ]]; then
+            echo "Antigravity (${model})"
+        else
+            echo "Antigravity"
         fi
         return 0
     fi

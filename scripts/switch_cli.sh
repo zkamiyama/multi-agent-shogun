@@ -56,7 +56,7 @@ usage() {
     echo "Usage: $0 <agent_id> [--type <cli_type>] [--model <model_name>] [--variant <variant>]"
     echo ""
     echo "  agent_id   Agent configured in config/settings.yaml (e.g. karo, ashigaru1, gunshi)"
-    echo "  --type     claude | codex | copilot | kimi | opencode"
+    echo "  --type     claude | codex | copilot | kimi | opencode | antigravity"
     echo "  --model    claude-sonnet-4-6 | claude-opus-4-6 | gpt-5.3-codex | openai/gpt-5.4-mini | etc."
     echo "  --variant  OpenCode model variant such as xhigh, high, max, minimal"
     echo ""
@@ -312,7 +312,7 @@ send_exit() {
             sleep 0.3
             tmux send-keys -t "$pane" Enter 2>/dev/null || true
             ;;
-        copilot|kimi)
+        copilot|kimi|antigravity)
             tmux send-keys -t "$pane" C-c 2>/dev/null || true
             sleep 0.5
             tmux send-keys -t "$pane" "/exit" 2>/dev/null || true
@@ -426,6 +426,9 @@ done
 if [[ -n "$NEW_TYPE" ]] && ! _cli_adapter_is_valid_cli "$NEW_TYPE"; then
     log "ERROR: Invalid CLI type: ${NEW_TYPE}. Allowed: ${CLI_ADAPTER_ALLOWED_CLIS}"
     exit 1
+fi
+if [[ -n "$NEW_TYPE" ]]; then
+    NEW_TYPE=$(_cli_adapter_normalize_cli_type "$NEW_TYPE")
 fi
 
 # Step 0: pane解決

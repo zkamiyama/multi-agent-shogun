@@ -157,6 +157,20 @@ cli:
       model: openrouter/minimax/minimax-m2.5
       variant: xhigh
 YAML
+
+    # antigravity settings
+    cat > "${TEST_TMP}/settings_antigravity.yaml" << 'YAML'
+cli:
+  default: antigravity
+  agents:
+    shogun:
+      type: antigravity
+    karo:
+      type: agy
+      model: gemini-latest
+    ashigaru1:
+      type: gemini
+YAML
 }
 
 # =============================================================================
@@ -295,6 +309,14 @@ load_adapter_with() {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     result=$(get_cli_type "unknown_agent")
     [ "$result" = "opencode" ]
+}
+
+@test "get_cli_type: antigravity と legacy alias → antigravity" {
+    load_adapter_with "${TEST_TMP}/settings_antigravity.yaml"
+    [ "$(get_cli_type shogun)" = "antigravity" ]
+    [ "$(get_cli_type karo)" = "antigravity" ]
+    [ "$(get_cli_type ashigaru1)" = "antigravity" ]
+    [ "$(get_cli_type ashigaru2)" = "antigravity" ]
 }
 
 @test "get_cli_type: 未定義agent → default継承" {
@@ -462,6 +484,18 @@ load_adapter_with() {
     [[ "$result" != *'--prompt'* ]]
 }
 
+@test "build_cli_command: antigravity default model uses host default" {
+    load_adapter_with "${TEST_TMP}/settings_antigravity.yaml"
+    result=$(build_cli_command "shogun")
+    [ "$result" = "agy --dangerously-skip-permissions" ]
+}
+
+@test "build_cli_command: antigravity explicit model passes --model" {
+    load_adapter_with "${TEST_TMP}/settings_antigravity.yaml"
+    result=$(build_cli_command "karo")
+    [ "$result" = "agy --dangerously-skip-permissions --model gemini-latest" ]
+}
+
 @test "opencode tui config pins app_exit and keybinds" {
     grep -q '"app_exit": "none"' "${PROJECT_ROOT}/config/opencode-tui.json"
     grep -q '"session_interrupt": "escape"' "${PROJECT_ROOT}/config/opencode-tui.json"
@@ -570,6 +604,12 @@ load_adapter_with() {
     [ "$result" = "instructions/generated/opencode-shogun.md" ]
 }
 
+@test "get_instruction_file: antigravity + any role → instructions/generated/antigravity-shogun.md" {
+    load_adapter_with "${TEST_TMP}/settings_antigravity.yaml"
+    result=$(get_instruction_file "shogun")
+    [ "$result" = "instructions/generated/antigravity-shogun.md" ]
+}
+
 # =============================================================================
 # get_startup_prompt テスト
 # =============================================================================
@@ -598,6 +638,12 @@ load_adapter_with() {
     [ -z "$result" ]
 }
 
+@test "get_startup_prompt: antigravity → empty (uses CLI defaults)" {
+    load_adapter_with "${TEST_TMP}/settings_antigravity.yaml"
+    result=$(get_startup_prompt "shogun")
+    [ -z "$result" ]
+}
+
 # =============================================================================
 # get_startup_prompt_arg テスト
 # =============================================================================
@@ -611,6 +657,12 @@ load_adapter_with() {
 
 @test "get_startup_prompt_arg: opencode → empty (uses --agent instead)" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
+    result=$(get_startup_prompt_arg "shogun")
+    [[ "$result" == "" ]]
+}
+
+@test "get_startup_prompt_arg: antigravity → empty" {
+    load_adapter_with "${TEST_TMP}/settings_antigravity.yaml"
     result=$(get_startup_prompt_arg "shogun")
     [[ "$result" == "" ]]
 }
@@ -682,6 +734,24 @@ load_adapter_with() {
     echo '#!/bin/bash' > "${TEST_TMP}/bin/opencode"
     chmod +x "${TEST_TMP}/bin/opencode"
     PATH="${TEST_TMP}/bin:$PATH" run validate_cli_availability "opencode"
+    [ "$status" -eq 0 ]
+}
+
+@test "validate_cli_availability: antigravity mock agy (PATH操作)" {
+    load_adapter_with "${TEST_TMP}/settings_none.yaml"
+    mkdir -p "${TEST_TMP}/bin"
+    echo '#!/bin/bash' > "${TEST_TMP}/bin/agy"
+    chmod +x "${TEST_TMP}/bin/agy"
+    PATH="${TEST_TMP}/bin:$PATH" run validate_cli_availability "antigravity"
+    [ "$status" -eq 0 ]
+}
+
+@test "validate_cli_availability: legacy gemini alias uses antigravity mock" {
+    load_adapter_with "${TEST_TMP}/settings_none.yaml"
+    mkdir -p "${TEST_TMP}/bin"
+    echo '#!/bin/bash' > "${TEST_TMP}/bin/agy"
+    chmod +x "${TEST_TMP}/bin/agy"
+    PATH="${TEST_TMP}/bin:$PATH" run validate_cli_availability "gemini"
     [ "$status" -eq 0 ]
 }
 
@@ -774,6 +844,18 @@ load_adapter_with() {
     load_adapter_with "${TEST_TMP}/settings_kimi_default.yaml"
     result=$(get_agent_model "karo")
     [ "$result" = "k2.5" ]
+}
+
+@test "get_agent_model: antigravity CLI shogun → auto (ホスト設定)" {
+    load_adapter_with "${TEST_TMP}/settings_antigravity.yaml"
+    result=$(get_agent_model "shogun")
+    [ "$result" = "auto" ]
+}
+
+@test "get_model_display_name: Antigravity auto → Antigravity" {
+    load_adapter_with "${TEST_TMP}/settings_antigravity.yaml"
+    result=$(get_model_display_name "shogun")
+    [ "$result" = "Antigravity" ]
 }
 
 # =============================================================================
