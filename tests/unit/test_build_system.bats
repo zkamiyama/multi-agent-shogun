@@ -286,6 +286,24 @@ setup() {
     grep -q '^permission:' "$PROJECT_ROOT/.opencode/agents/shogun.md"
 }
 
+@test "opencode-agent: configured OpenCode model variant is in frontmatter [R6]" {
+    PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+from pathlib import Path
+import os
+import yaml
+
+project_root = Path(os.environ["PROJECT_ROOT"])
+settings = yaml.safe_load((project_root / "config/settings.yaml").read_text(encoding="utf-8")) or {}
+cfg = ((settings.get("cli") or {}).get("agents") or {}).get("ashigaru1") or {}
+assert cfg.get("type") == "opencode"
+
+text = (project_root / ".opencode/agents/ashigaru1.md").read_text(encoding="utf-8")
+frontmatter = yaml.safe_load(text.split("---", 2)[1])
+assert frontmatter["model"] == "openrouter/minimax/minimax-m2.5"
+assert frontmatter["variant"] == "xhigh"
+PYEOF
+}
+
 @test "opencode-agent: ashigaru1 read permissions allow own inbox/report/task [R6]" {
     PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
 from pathlib import Path

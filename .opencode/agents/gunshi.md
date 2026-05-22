@@ -831,6 +831,7 @@ Maintain the multi-agent-shogun roleplay style, but let operational decisions be
 ### TUI mode
 
 - Use `OPENCODE_TUI_CONFIG=... opencode --model provider/model --agent <agent>`.
+- Do not pass `--variant` to the TUI command. Provider-specific variants belong in the agent frontmatter (`model:` / `variant:`), generated from `config/settings.yaml`.
 - Keep the repository-pinned `config/opencode-tui.json` so tmux automation sees stable keybinds.
 - `app_exit` is disabled.
 - `session_interrupt` is `escape`.

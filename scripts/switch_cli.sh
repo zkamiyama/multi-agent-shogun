@@ -212,6 +212,81 @@ print("OK")
 PYEOF
 }
 
+# ─── OpenCode agent frontmatter 同期 ───
+# OpenCode TUI は `opencode run` と違って --variant を受け付けない。
+# provider固有variantは .opencode/agents/<agent>.md の frontmatter に同期する。
+sync_opencode_agent_frontmatter() {
+    local agent_id="$1"
+    local model="${2:-}"
+    local variant="${3:-}"
+    local agent_file="${PROJECT_ROOT}/.opencode/agents/${agent_id}.md"
+    local normalized_model
+
+    [[ -f "$agent_file" ]] || return 0
+
+    normalized_model="$(normalize_opencode_model "$model")"
+
+    log "Syncing OpenCode agent frontmatter: ${agent_id} → model=${normalized_model:-<unset>}, variant=${variant:-<unset>}"
+
+    "${PROJECT_ROOT}/.venv/bin/python3" - "$agent_file" "$normalized_model" "$variant" <<'PYEOF'
+import sys
+from pathlib import Path
+
+import yaml
+
+path = Path(sys.argv[1])
+model = sys.argv[2] or None
+variant = sys.argv[3] or None
+
+text = path.read_text(encoding="utf-8")
+if not text.startswith("---\n"):
+    raise SystemExit(0)
+
+parts = text.split("---", 2)
+if len(parts) < 3:
+    raise SystemExit(0)
+
+frontmatter = yaml.safe_load(parts[1]) or {}
+if model:
+    frontmatter["model"] = model
+else:
+    frontmatter.pop("model", None)
+
+if variant:
+    frontmatter["variant"] = variant
+else:
+    frontmatter.pop("variant", None)
+
+body = parts[2]
+route = {}
+if model:
+    route["model"] = model
+if variant:
+    route["variant"] = variant
+route_lines = yaml.safe_dump(route, allow_unicode=True, sort_keys=False).splitlines() if route else []
+
+frontmatter_lines = parts[1].lstrip("\n").splitlines()
+new_lines = []
+inserted = False
+for line in frontmatter_lines:
+    stripped = line.lstrip()
+    indent = len(line) - len(stripped)
+    if indent == 0 and (stripped.startswith("model:") or stripped.startswith("variant:")):
+        continue
+    if not inserted and indent == 0 and stripped.startswith("permission:"):
+        new_lines.extend(route_lines)
+        inserted = True
+    new_lines.append(line)
+
+if not inserted:
+    new_lines.extend(route_lines)
+
+frontmatter_text = "\n".join(new_lines).rstrip()
+
+path.write_text(f"---\n{frontmatter_text}\n---{body}", encoding="utf-8")
+PYEOF
+}
+
 # ─── 現在のCLI種別を取得（tmux metadata） ───
 get_current_pane_cli() {
     local pane="$1"
@@ -395,6 +470,10 @@ fi
 # Step 2: 切替後のCLI情報を取得（settings.yaml反映後）
 TARGET_CLI_TYPE=$(get_cli_type "$AGENT_ID")
 TARGET_MODEL=$(get_agent_model "$AGENT_ID")
+TARGET_VARIANT=$(_cli_adapter_read_yaml "cli.agents.${AGENT_ID}.variant" "")
+if [[ "$TARGET_CLI_TYPE" == "opencode" ]]; then
+    sync_opencode_agent_frontmatter "$AGENT_ID" "$TARGET_MODEL" "$TARGET_VARIANT"
+fi
 TARGET_CMD=$(build_cli_command "$AGENT_ID")
 
 log "Target: cli=${TARGET_CLI_TYPE}, model=${TARGET_MODEL}, cmd=${TARGET_CMD}"

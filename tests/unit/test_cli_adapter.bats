@@ -451,12 +451,13 @@ load_adapter_with() {
     [[ "$first" != *'--prompt'* ]]
 }
 
-@test "build_cli_command: opencode includes provider-specific variant when configured" {
+@test "build_cli_command: opencode omits provider-specific variant from TUI args" {
     load_adapter_with "${TEST_TMP}/settings_opencode.yaml"
     result=$(build_cli_command "ashigaru5")
     expected_tui_config=$(_cli_adapter_shell_quote "${PROJECT_ROOT}/config/opencode-tui.json")
     [[ "$result" == "OPENCODE_AGENT_ID=ashigaru5 OPENCODE_TUI_CONFIG=$expected_tui_config"* ]]
-    [[ "$result" == *'opencode --model openrouter/minimax/minimax-m2.5 --variant xhigh --agent ashigaru5'* ]]
+    [[ "$result" == *'opencode --model openrouter/minimax/minimax-m2.5 --agent ashigaru5'* ]]
+    [[ "$result" != *'--variant'* ]]
     [[ "$result" != *'OPENCODE_CONFIG_CONTENT'* ]]
     [[ "$result" != *'--prompt'* ]]
 }

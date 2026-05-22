@@ -620,7 +620,7 @@ OpenRouter 設定は2つに分かれます：
 
 APIキーを `config/settings.yaml`、`config/opencode-tui.json`、`.opencode/agents/*.md` に書かないでください。これらはルーティング、tmux向けキー設定、生成済みロール定義の置き場です。
 
-OpenCode 選択時は `lib/cli_adapter.sh` が `--agent <agent_id>` と、リポジトリ固定の `OPENCODE_TUI_CONFIG=config/opencode-tui.json` を付けて起動します。対象agentに `variant:` があれば、OpenCodeのprovider固有 `--variant` として渡します。
+OpenCode 選択時は `lib/cli_adapter.sh` が `--agent <agent_id>` と、リポジトリ固定の `OPENCODE_TUI_CONFIG=config/opencode-tui.json` を付けて起動します。OpenCode TUI 起動コマンドは `--variant` を受け付けないため、対象agentに `variant:` があれば `scripts/build_instructions.sh` と `scripts/switch_cli.sh` が `model:` / `variant:` を `.opencode/agents/<agent_id>.md` frontmatter に同期し、OpenCode が `--agent` 経由で読み込みます。
 
 途中で切り替えたい場合は `scripts/switch_cli.sh` を使います：
 

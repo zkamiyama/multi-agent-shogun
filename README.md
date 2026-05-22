@@ -616,7 +616,7 @@ OpenRouter setup has two separate pieces:
 
 Do not put API keys in `config/settings.yaml`, `config/opencode-tui.json`, or `.opencode/agents/*.md`. Those files only describe routing, tmux-safe keybindings, and generated agent definitions.
 
-When OpenCode is selected, `lib/cli_adapter.sh` launches it with `--agent <agent_id>` and the repository-pinned `OPENCODE_TUI_CONFIG=config/opencode-tui.json`. If `variant:` is configured for that agent, it is passed as OpenCode's provider-specific `--variant` option.
+When OpenCode is selected, `lib/cli_adapter.sh` launches it with `--agent <agent_id>` and the repository-pinned `OPENCODE_TUI_CONFIG=config/opencode-tui.json`. The TUI command does not accept `--variant`; if `variant:` is configured, `scripts/build_instructions.sh` and `scripts/switch_cli.sh` synchronize `model:` / `variant:` into `.opencode/agents/<agent_id>.md` frontmatter, which OpenCode loads via `--agent`.
 
 To switch on the fly, use `scripts/switch_cli.sh`:
 
