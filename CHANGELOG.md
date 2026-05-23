@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.1.0] - 2026-05-23
+
+### Changed
+- Clarified Karo as a workflow traffic controller instead of an execution bottleneck
+- Moved qualitative review ownership to Gunshi for QC, evidence review, RCA, adoption/drop decisions, and deploy blocker classification
+- Reframed E2E ownership: Karo reviews the plan, checks prerequisites, and makes the final pass/fail decision while execution is delegated by default
+- Regenerated Claude, Codex, Copilot, Kimi, and OpenCode instruction files from the updated role definitions
+
+### Fixed
+- Prevented old instructions from implying that Karo should directly run E2E commands or perform review work by default
+- Added Android local cache/toolchain ignore entries for `.android-user/`, `.gradle-user/`, and `.toolchain/`
+
 ## [5.0.0] - 2026-05-21
 
 ### Added

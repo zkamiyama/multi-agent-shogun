@@ -10,7 +10,7 @@ Run 10 AI coding agents in parallel — **Claude Code, OpenAI Codex, GitHub Copi
 
 [![GitHub Stars](https://img.shields.io/github/stars/yohey-w/multi-agent-shogun?style=social)](https://github.com/yohey-w/multi-agent-shogun)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![v5.0.0 OpenCode](https://img.shields.io/badge/v5.0.0-OpenCode-ff6600?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHRleHQgeD0iMCIgeT0iMTIiIGZvbnQtc2l6ZT0iMTIiPuKalTwvdGV4dD48L3N2Zz4=)](https://github.com/yohey-w/multi-agent-shogun/releases/tag/v5.0.0)
+[![v5.1.0 Karo Traffic Control](https://img.shields.io/badge/v5.1.0-Karo%20Traffic%20Control-ff6600?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHRleHQgeD0iMCIgeT0iMTIiIGZvbnQtc2l6ZT0iMTIiPuKalTwvdGV4dD48L3N2Zz4=)](https://github.com/yohey-w/multi-agent-shogun/releases/tag/v5.1.0)
 [![Shell](https://img.shields.io/badge/Shell%2FBash-100%25-green)]()
 
 [English](README.md) | [日本語](README_ja.md)
@@ -1866,6 +1866,17 @@ tmux respawn-pane -t shogun:0.0 -k 'claude --model opus --dangerously-skip-permi
 Even if you're not comfortable with keyboard shortcuts, you can switch, scroll, and resize panes using just the mouse.
 
 ---
+
+## What's New in v5.1.0 — Karo as Traffic Controller
+
+> **Keep the manager out of the work queue.** Karo now has a sharper management boundary: it keeps the workflow moving, delegates execution to Ashigaru, routes review and RCA to Gunshi, and owns E2E only as plan reviewer and final judge.
+
+- **Karo is traffic control** — Karo acknowledges cmds, decomposes work, tracks dependencies, updates dashboard/daily logs, and makes final acceptance decisions without becoming the execution bottleneck
+- **Gunshi owns review work** — quality review, evidence review, RCA, adoption/drop decisions, architecture/design review, and deploy blocker classification are routed to Gunshi
+- **Ashigaru execute** — implementation, shell execution, deploy steps, and test commands are delegated to Ashigaru by default
+- **E2E responsibility clarified** — Karo reviews the E2E plan, checks prerequisites, and makes the final pass/fail judgment; direct execution is now an explicit exception that must be justified in reports
+- **Generated instructions refreshed** — Claude, Codex, Copilot, Kimi, and OpenCode instruction outputs were rebuilt from the updated role definitions
+- **Android local caches ignored** — `.android-user/`, `.gradle-user/`, and `.toolchain/` are now ignored under `android/`
 
 ## What's New in v5.0.0 — OpenCode First-Class Support
 

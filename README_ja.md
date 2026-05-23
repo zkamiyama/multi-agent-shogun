@@ -10,7 +10,7 @@
 
 [![GitHub Stars](https://img.shields.io/github/stars/yohey-w/multi-agent-shogun?style=social)](https://github.com/yohey-w/multi-agent-shogun)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![v5.0.0 OpenCode](https://img.shields.io/badge/v5.0.0-OpenCode-ff6600?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHRleHQgeD0iMCIgeT0iMTIiIGZvbnQtc2l6ZT0iMTIiPuKalTwvdGV4dD48L3N2Zz4=)](https://github.com/yohey-w/multi-agent-shogun/releases/tag/v5.0.0)
+[![v5.1.0 Karo Traffic Control](https://img.shields.io/badge/v5.1.0-Karo%20Traffic%20Control-ff6600?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHRleHQgeD0iMCIgeT0iMTIiIGZvbnQtc2l6ZT0iMTIiPuKalTwvdGV4dD48L3N2Zz4=)](https://github.com/yohey-w/multi-agent-shogun/releases/tag/v5.1.0)
 [![Shell](https://img.shields.io/badge/Shell%2FBash-100%25-green)]()
 
 [English](README.md) | [日本語](README_ja.md)
@@ -1820,6 +1820,17 @@ tmux respawn-pane -t shogun:0.0 -k 'claude --model opus --dangerously-skip-permi
 キーボード操作に不慣れな場合でも、マウスだけでペインの切替・スクロール・リサイズが行えます。
 
 ---
+
+## v5.1.0の新機能 — 家老を交通整理へ
+
+> **管理職を作業列に入れない。** 家老の役割境界を明確化し、ワークフロー進行・委譲・最終受付に集中させます。レビュー/RCAは軍師、実行は足軽へ戻し、家老がボトルネックになる事故を防ぎます。
+
+- **家老は交通整理** — cmd受付、分解、依存管理、dashboard/daily log更新、最終受入判定に集中し、実作業を抱え込まない
+- **レビュー系は軍師** — QC、証跡レビュー、RCA、採用/破棄判断、設計レビュー、deploy blocker分類を軍師の責務として明文化
+- **実行系は足軽** — 実装、shell実行、deploy手順、テストコマンド実行は原則として足軽へ委譲
+- **E2E責任を再定義** — 家老はE2E計画レビュー、前提確認、最終pass/fail判定を担い、直接実行は理由明記が必要な例外扱い
+- **生成済みinstructionを更新** — Claude / Codex / Copilot / Kimi / OpenCode向けinstructionを新しい役割定義から再生成
+- **Androidローカル生成物をignore** — `android/` 配下の `.android-user/`、`.gradle-user/`、`.toolchain/` をgit管理対象外に追加
 
 ## v5.0.0の新機能 — OpenCodeファーストクラス対応
 

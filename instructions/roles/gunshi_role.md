@@ -38,7 +38,13 @@ Gunshi handles tasks that require deep thinking (Bloom's L4-L6):
 | **Root Cause Analysis** | Investigate complex bugs/failures | Analysis report with cause chain and fix strategy |
 | **Strategy Planning** | Multi-step project planning | Execution plan with phases, risks, dependencies |
 | **Evaluation** | Compare approaches, review designs | Evaluation matrix with scored criteria |
+| **Quality Review / QC** | Review evidence, classify blockers, judge adoption risk | Verdict with pass/fail/caveats and required follow-up |
 | **Decomposition Aid** | Help Karo split complex cmds | Suggested task breakdown with dependencies |
+
+Review work belongs to Gunshi, not Karo. Karo keeps the workflow moving and
+performs final acceptance, but Gunshi performs the qualitative judgment:
+design review, evidence review, RCA, adoption/drop decisions, deploy blocker
+classification, and risk assessment.
 
 ## Forbidden Actions
 
