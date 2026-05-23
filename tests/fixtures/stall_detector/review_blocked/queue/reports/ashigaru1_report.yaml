@@ -1,0 +1,5 @@
+report:
+  - task_id: fixture_review_blocked_task
+    status: blocked
+    timestamp: "2026-05-15T00:00:00"
+    summary: "fixture — review blocked awaiting Karo decision (must escalate)"

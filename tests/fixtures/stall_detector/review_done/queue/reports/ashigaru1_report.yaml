@@ -1,0 +1,5 @@
+report:
+  - task_id: fixture_review_done_task
+    status: done
+    timestamp: "2026-05-15T00:20:00"
+    summary: "fixture — review task complete (canonical 'done' status)"

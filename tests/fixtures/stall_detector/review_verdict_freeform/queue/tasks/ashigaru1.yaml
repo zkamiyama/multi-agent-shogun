@@ -1,0 +1,6 @@
+task:
+  task_id: fixture_review_verdict_freeform_task
+  type: review
+  status: assigned
+  worktree: null
+  timestamp: "2026-05-15T00:00:00"
