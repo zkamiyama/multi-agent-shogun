@@ -1,0 +1,9 @@
+report:
+  - task_id: fixture_review_in_progress_task
+    status: in_progress
+    timestamp: "2026-05-14T22:00:00"
+    summary: |
+      fixture — review interim status=in_progress, dated BEFORE task assignment so that
+      report_newer_than_task is False. real workflow rarely produces this exact pattern,
+      but it lets us isolate the new review-terminal gate: is_review_terminal_status
+      must return False for "in_progress" so the existing assigned/idle path can still fire.

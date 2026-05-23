@@ -229,6 +229,23 @@ TERMINAL_STATUSES = {
     "passed", "resolved",
 }
 
+# review/analysis task は read-only ゆえ task YAML status が assigned のまま report 側のみ
+# 完了 verdict を書く慣例。verdict は freeform で "CLEAR" / "CMD_001_COMPLETE_PHASE_..." /
+# "completed_pending_qc" 等 TERMINAL_STATUSES に literal 一致しないことが多く、結果
+# idle_with_active_task / assigned_no_progress が false-positive で上がっていた (本 fix の
+# 動機: 直近 review 系 task の alert 多発)。review/analysis task に限り、対応 task_id の
+# report entry を canonical fingerprint として lookup し、より広い terminal 判定を適用する。
+REVIEW_TASK_TYPES = {"review", "analysis"}
+REVIEW_TERMINAL_PREFIXES = (
+    "complete", "completed", "clear", "cleared", "conditional_clear",
+    "done", "verdict", "pass", "passed", "qc_pass", "qc_passed", "resolved",
+    "cmd_",
+)
+REVIEW_NON_TERMINAL_TOKENS = (
+    "blocked", "in_progress", "redo", "fail", "not_clear", "needs_", "wip",
+    "pending",
+)
+
 OUT = []
 WARNINGS = []
 
@@ -378,6 +395,53 @@ def load_report_latest(agent):
     }
 
 
+def find_report_for_task(agent, task_id):
+    """指定 task_id に対応する report entry (latest match) を全 entry から探す。
+    review/analysis task は task YAML status が assigned のまま完了 report を出すゆえ、
+    load_report_latest の「最新 entry」だけでは別 task の古い entry を見てしまう恐れがあり、
+    task_id fingerprint で直接 lookup する必要がある (本 fix の (b) 方針)。
+    見つからなければ None。"""
+    if not task_id:
+        return None
+    path = os.path.join(ROOT, "queue", "reports", f"{agent}_report.yaml")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        WARNINGS.append(f"read failed {agent}_report.yaml (find): {e}")
+        return None
+    try:
+        docs = list(yaml.safe_load_all(text))
+        matches = []
+        for d in docs:
+            if not isinstance(d, dict):
+                continue
+            r = d.get("report", d)
+            if isinstance(r, list):
+                matches.extend(
+                    x for x in r
+                    if isinstance(x, dict) and x.get("task_id") == task_id
+                )
+            elif isinstance(r, dict):
+                if r.get("task_id") == task_id:
+                    matches.append(r)
+                if r is not d and d.get("task_id") == task_id:
+                    matches.append(d)
+        if matches:
+            latest = max(
+                matches,
+                key=lambda c: parse_ts(c.get("timestamp")) or MIN_DT,
+            )
+            return _report_entry_fields(latest)
+    except Exception as e:
+        WARNINGS.append(
+            f"find_report_for_task {agent}: {str(e).splitlines()[0]}"
+        )
+    return None
+
+
 def inbox_unread_count(agent):
     path = os.path.join(ROOT, "queue", "inbox", f"{agent}.yaml")
     data = load_yaml_safe(path)
@@ -395,6 +459,22 @@ def status_norm(s):
 
 def is_terminal_status(s):
     return status_norm(s) in TERMINAL_STATUSES
+
+
+def is_review_terminal_status(s):
+    """review/analysis task の verdict として『完了して次 dispatch 待ち』を意味する status か。
+    TERMINAL_STATUSES より広い (freeform verdict 含む)。non-terminal token
+    (blocked/in_progress/redo/pending/wip/fail/not_clear/needs_) を含めば必ず非 terminal。"""
+    if not s:
+        return False
+    n = status_norm(s)
+    if not n:
+        return False
+    if n in TERMINAL_STATUSES:
+        return True
+    if any(tok in n for tok in REVIEW_NON_TERMINAL_TOKENS):
+        return False
+    return any(n.startswith(p) for p in REVIEW_TERMINAL_PREFIXES)
 
 
 def is_blocked_report(rep):
@@ -639,6 +719,32 @@ for agent in ASHIGARU + ["gunshi"]:
     report_newer_than_task = (
         rep_ts is not None and task_ts is not None and rep_ts >= task_ts
     )
+
+    # ── review/analysis task の completion blind spot 解消 ──
+    # task YAML status が assigned のまま report 側だけ "CLEAR" / "CMD_xxx_COMPLETE_..." /
+    # "completed_pending_qc" 等で完了報告されるケース。TERMINAL_STATUSES literal 一致しない
+    # ため従来は assigned_no_progress / idle_with_active_task が false-positive で上がっていた。
+    # task type が review/analysis なら canonical fingerprint = 該当 task_id の report entry の
+    # status とし、is_review_terminal_status の広い判定で terminal を認識する。
+    # sub-case 整理:
+    #   1. review + report 完了 verdict   → terminal (suppress)
+    #   2. review + report 不在            → 非 terminal (legitimate stall)
+    #   3. impl/その他 type               → 不変 (regression なし)
+    #   4. review + report in_progress    → 非 terminal (legitimate)
+    #   5. review + report blocked        → blocked_report_unresolved path で escalation
+    if (not latest_report_terminal
+            and task is not None
+            and status_norm(task.get("type")) in REVIEW_TASK_TYPES):
+        review_rep = rep if (rep is not None
+                             and rep.get("task_id") == task.get("task_id")) else None
+        if review_rep is None:
+            review_rep = find_report_for_task(agent, task.get("task_id"))
+        if review_rep is not None and is_review_terminal_status(review_rep.get("status")):
+            latest_report_terminal = True
+            review_rep_ts = parse_ts(review_rep.get("timestamp"))
+            if (review_rep_ts is not None and task_ts is not None
+                    and review_rep_ts >= task_ts):
+                report_newer_than_task = True
     unread = inbox_unread_count(agent)
     mins_assigned = minutes_since(task_ts)
 

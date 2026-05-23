@@ -1,0 +1,6 @@
+task:
+  task_id: fixture_review_blocked_task
+  type: review
+  status: assigned
+  worktree: null
+  timestamp: "2026-05-14T22:00:00"
