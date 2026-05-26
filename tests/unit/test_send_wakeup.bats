@@ -26,6 +26,8 @@
 #   T-BUSY-004: send_wakeup_with_escape — skips when agent is busy
 #   T-CODEX-001: send_cli_command — codex /clear → /new conversion
 #   T-CODEX-002: send_cli_command — codex /model → skip
+#   T-OPENCODE-001: send_cli_command — opencode /clear → /new conversion
+#   T-OPENCODE-002: send_cli_command — opencode /model → skip
 #   T-CODEX-003: C-u sent when unread=0 and agent is idle
 #   T-CODEX-004: C-u NOT sent when agent is busy
 #   T-CODEX-005: send_cli_command — claude /clear passes through as-is
@@ -36,10 +38,12 @@
 #   T-CODEX-010: unresolved CLI type falls back to codex-safe path
 #   T-CODEX-011: clear_command処理でauto-recovery task_assignedを自動投入
 #   T-CODEX-012: auto-recovery task_assignedは重複投入しない
+#   T-CODEX-016: Codex transcript echo is not treated as stuck input
 #   T-SHOGUN-001: session_has_client — returns 0 when client attached
 #   T-SHOGUN-002: session_has_client — returns 1 when no client
 #   T-SHOGUN-003: send_wakeup — shogun + active + attached → send-keys (post PR#75)
 #   T-SHOGUN-004: send_wakeup — shogun + active + detached → send-keys fallthrough
+#   T-SHOGUN-005: shogun clear_command does not enqueue auto-recovery
 #   T-BUSY-005: agent_is_busy — returns busy during /clear cooldown (LAST_CLEAR_TS)
 #   T-BUSY-006: agent_is_busy — returns idle after /clear cooldown expires
 #   T-BUSY-007: agent_is_busy — /clear cooldown overrides idle pane
@@ -47,12 +51,18 @@
 #   T-BUSY-009: agent_is_busy — 'background terminal running' detected as busy
 #   T-BUSY-010: agent_is_busy — 'Compacting conversation' detected as busy
 #   T-BUSY-011: agent_is_busy — 'esc to interrupt' alone detected as busy
+#   T-BUSY-012: agent_is_busy — OpenCode idle home screen detected as idle
+#   T-BUSY-013: agent_is_busy — OpenCode sidebar busy state detected as busy
+#   T-BUSY-014: agent_is_busy — OpenCode animation row detected as busy
+#   T-BUSY-015: agent_is_busy — blank OpenCode pane falls back to idle
+#   T-BUSY-016: agent_is_busy — OpenCode animation fallback works without python3
 #   T-SHOOK-001: Claude Code throttle uses 60s cooldown (stop-hook-supplementary)
 #   T-SHOOK-002: Claude Code count change bypasses throttle (stop-hook-supplementary)
 #   T-SHOOK-003: Non-Claude CLIs still bypass throttle on count change
 #   T-CRESET-001: send_context_reset — suppresses /clear for karo
 #   T-CRESET-002: send_context_reset — suppresses /clear for gunshi
 #   T-CRESET-003: send_context_reset — sends /clear for ashigaru
+#   T-CRESET-004: send_context_reset — sends /new for opencode
 #   T-COPILOT-001: send_cli_command — copilot /clear → Ctrl-C + restart
 #   T-COPILOT-002: send_cli_command — copilot /model → skip
 
@@ -350,6 +360,7 @@ MOCK
     '
     [ "$status" -eq 0 ]
     echo "$output" | grep -q "PHASE2_ESCAPE_NUDGE"
+    grep -q "send-keys.*C-c" "$MOCK_LOG"
     # Escape was sent
     grep -q "send-keys.*Escape" "$MOCK_LOG"
     # Nudge was also sent
@@ -393,6 +404,7 @@ MOCK
     '
     [ "$status" -eq 0 ]
     echo "$output" | grep -q "COOLDOWN_FALLBACK"
+    grep -q "send-keys.*C-c" "$MOCK_LOG"
     grep -q "send-keys.*Escape" "$MOCK_LOG"
     grep -q "send-keys.*inbox4" "$MOCK_LOG"
     ! grep -q "send-keys.*/clear" "$MOCK_LOG"
@@ -482,6 +494,40 @@ MOCK
 
     # Stderr indicates skip
     echo "$output" | grep -q "not supported on codex"
+}
+
+# --- T-OPENCODE-001: opencode /clear → /new conversion ---
+
+@test "T-OPENCODE-001: send_cli_command converts /clear to /new for opencode" {
+    run bash -c '
+        MOCK_CAPTURE_PANE="first line\nsecond line\nthird line\n"
+        MOCK_PANE_CLI="opencode"
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="opencode"
+        send_cli_command "/clear"
+    '
+    [ "$status" -eq 0 ]
+
+    # /clear is converted to /new after clearing stale input — no Escape or C-c sent.
+    grep -q "send-keys.*C-u" "$MOCK_LOG"
+    grep -q "send-keys.*/new" "$MOCK_LOG"
+    ! grep -q "send-keys.*/clear" "$MOCK_LOG"
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-c" "$MOCK_LOG"
+}
+
+# --- T-OPENCODE-002: opencode /model → skip with restart-only note ---
+
+@test "T-OPENCODE-002: send_cli_command skips /model for opencode" {
+    run bash -c '
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="opencode"
+        send_cli_command "/model opus"
+    '
+    [ "$status" -eq 0 ]
+
+    ! grep -q "send-keys.*/model" "$MOCK_LOG"
+    echo "$output" | grep -q "restart-only"
 }
 
 # --- T-CODEX-003: C-u sent when unread=0 and agent is idle ---
@@ -676,6 +722,71 @@ PY
     grep -q "send-keys.*/new" "$MOCK_LOG"
     # After /new, startup prompt is sent (replaces inbox1 nudge for wake-up)
     grep -q "send-keys.*Session Start" "$MOCK_LOG"
+}
+
+@test "T-SHOGUN-005: process_unread does not auto-recover skipped shogun clear_command" {
+    run bash -c '
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="shogun"
+        PANE_TARGET="shogun:main"
+        CLI_TYPE="codex"
+        INBOX="'"$TEST_INBOX_DIR"'/shogun.yaml"
+        LOCKFILE="${INBOX}.lock"
+        cat > "$INBOX" << "YAML"
+messages:
+  - id: msg_clear
+    from: karo
+    timestamp: "2026-05-22T03:22:46+09:00"
+    type: clear_command
+    content: refresh
+    read: false
+YAML
+        process_unread event
+        "$VENV_PYTHON" - << "PY" "$INBOX"
+import sys
+import yaml
+
+inbox_path = sys.argv[1]
+with open(inbox_path, "r", encoding="utf-8") as f:
+    data = yaml.safe_load(f) or {}
+
+messages = data.get("messages", []) or []
+msg_clear = [m for m in messages if m.get("id") == "msg_clear"]
+assert len(msg_clear) == 1 and msg_clear[0].get("read") is True
+
+auto = [
+    m for m in messages
+    if m.get("from") == "inbox_watcher"
+    and m.get("type") == "task_assigned"
+    and "[auto-recovery]" in (m.get("content") or "")
+]
+assert auto == []
+print("OK")
+PY
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "OK"
+
+    ! grep -q "send-keys.*/new" "$MOCK_LOG"
+    ! grep -q "send-keys.*/clear" "$MOCK_LOG"
+}
+
+# --- T-OPENCODE-003: OpenCode Phase 2 falls back to plain nudge ---
+
+@test "T-OPENCODE-003: send_wakeup_with_escape falls back to plain nudge for OpenCode" {
+    run bash -c '
+        MOCK_CAPTURE_PANE="first line\nsecond line\nthird line\n"
+        MOCK_PANE_CLI="opencode"
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="opencode"
+        send_wakeup_with_escape 3
+    '
+    [ "$status" -eq 0 ]
+
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-c" "$MOCK_LOG"
+    grep -q "send-keys.*C-u" "$MOCK_LOG"
+    grep -q "send-keys.*inbox3" "$MOCK_LOG"
 }
 
 # --- T-CODEX-012: auto-recovery dedupe ---
@@ -976,6 +1087,71 @@ YAML
     [ "$status" -eq 0 ]
 }
 
+# --- T-BUSY-012: OpenCode idle home screen detected as idle ---
+
+@test "T-BUSY-012: agent_is_busy detects OpenCode home screen as idle" {
+    run bash -c '
+        MOCK_CAPTURE_PANE="$(printf "  ┃\n  ┃  Ask anything...\n  ┃\n\n                                                   ctrl+p commands\n")"
+        MOCK_PANE_CLI="opencode"
+        source "'"$TEST_HARNESS"'"
+        LAST_CLEAR_TS=0
+        CLI_TYPE="opencode"
+        agent_is_busy
+    '
+    [ "$status" -eq 1 ]
+}
+
+# --- T-BUSY-013: OpenCode busy sidebar detected as busy ---
+
+@test "T-BUSY-013: agent_is_busy detects OpenCode busy sidebar as busy" {
+    run bash -c '
+        MOCK_CAPTURE_PANE="$(printf "  ┃  think something deeper\n     → Skill \"requirements-clarification\"\n\n   ■⬝⬝⬝⬝⬝⬝⬝  esc interrupt\n")"
+        MOCK_PANE_CLI="opencode"
+        source "'"$TEST_HARNESS"'"
+        LAST_CLEAR_TS=0
+        CLI_TYPE="opencode"
+        agent_is_busy
+    '
+    [ "$status" -eq 0 ]
+}
+
+# --- T-BUSY-014: OpenCode busy animation row detected as busy ---
+
+@test "T-BUSY-014: agent_is_busy detects OpenCode busy animation row as busy" {
+    run bash -c '
+        MOCK_CAPTURE_PANE="$(printf "   ■⬝⬝⬝⬝⬝⬝⬝\n")"
+        MOCK_PANE_CLI="opencode"
+        source "'"$TEST_HARNESS"'"
+        LAST_CLEAR_TS=0
+        CLI_TYPE="opencode"
+        agent_is_busy
+    '
+    [ "$status" -eq 0 ]
+}
+
+# --- T-BUSY-015: blank OpenCode pane falls back to idle ---
+
+@test "T-BUSY-015: agent_is_busy treats blank OpenCode pane as idle fallback" {
+    run bash -c '
+        MOCK_CAPTURE_PANE=""
+        MOCK_PANE_CLI="opencode"
+        source "'"$TEST_HARNESS"'"
+        LAST_CLEAR_TS=0
+        CLI_TYPE="opencode"
+        agent_is_busy
+    '
+    [ "$status" -eq 1 ]
+}
+
+@test "T-BUSY-016: OpenCode busy animation fallback works without python3" {
+    run bash -c '
+        PATH="/nonexistent"
+        source "'"$PROJECT_ROOT"'/lib/agent_status.sh"
+        opencode_has_busy_animation "$(printf "   ⬝⬝■⬝⬝⬝⬝⬝  esc interrupt\n")"
+    '
+    [ "$status" -eq 0 ]
+}
+
 # --- T-SHOOK-001: Claude Code throttle uses 60s cooldown (post PR#75: stop-hook supplementary) ---
 
 @test "T-SHOOK-001: Claude Code throttle uses 60s cooldown (stop-hook-supplementary)" {
@@ -1056,6 +1232,45 @@ YAML
     echo "$output" | grep -q "rc1=1 rc2=1"  # Both pass through (count changed)
 }
 
+# --- T-SHOOK-004: all-read reset clears nudge throttle for next inbox1 batch ---
+
+@test "T-SHOOK-004: all-read reset clears nudge throttle for same-count next batch" {
+    run bash -c '
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="codex"
+        cat > "$INBOX" <<YAML
+messages: []
+YAML
+        LAST_NUDGE_TS=$(date +%s)
+        LAST_NUDGE_COUNT=1
+        FIRST_UNREAD_SEEN=123
+
+        process_unread event
+
+        should_throttle_nudge 1
+        rc=$?
+        echo "last_ts=$LAST_NUDGE_TS last_count=${LAST_NUDGE_COUNT:-empty} rc=$rc"
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "rc=1"  # 1 = not throttled
+}
+
+# --- T-CODEX-016: Codex transcript echo is not treated as stuck input ---
+
+@test "T-CODEX-016: send_wakeup codex treats transcript echo as delivered" {
+    run bash -c '
+        MOCK_CAPTURE_PANE="$(printf "› inbox1\n  gpt-5.5 xhigh · ~/repo\n")"
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="codex"
+        send_wakeup 1
+    '
+    [ "$status" -eq 0 ]
+
+    echo "$output" | grep -q "cli=codex"
+    ! echo "$output" | grep -q "nudge text still visible"
+    [ "$(grep -c "send-keys -t test:0.0 inbox1" "$MOCK_LOG")" -eq 1 ]
+}
+
 # --- T-CRESET-001: send_context_reset suppresses /clear for karo ---
 
 @test "T-CRESET-001: send_context_reset suppresses /clear for karo" {
@@ -1103,4 +1318,23 @@ YAML
 
     # /clear should have been sent via send-keys
     grep -q "send-keys.*/clear" "$MOCK_LOG"
+}
+
+# --- T-CRESET-004: send_context_reset sends /new for opencode ---
+
+@test "T-CRESET-004: send_context_reset sends /new for opencode" {
+    run bash -c '
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="ashigaru3"
+        CLI_TYPE="opencode"
+        send_context_reset
+    '
+    [ "$status" -eq 0 ]
+
+    # C-u for input clear, then /new — no Escape (function removed)
+    grep -q "send-keys.*C-u" "$MOCK_LOG"
+    grep -q "send-keys.*/new" "$MOCK_LOG"
+    ! grep -q "send-keys.*/clear" "$MOCK_LOG"
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-c" "$MOCK_LOG"
 }

@@ -10,16 +10,18 @@
 #   agent_is_busy_check "multiagent:agents.0"
 #   state=$(get_pane_state_label "multiagent:agents.3")
 
-# agent_is_busy_check <pane_target>
+# agent_is_busy_check <pane_target> [cli_type]
 # tmux paneの末尾5行からCLI固有のidle/busyパターンを検出する。
 # Returns: 0=busy, 1=idle, 2=pane不在
 #
 # Detection strategy:
-#   1. Status bar check (last non-empty line): 'esc to' only appears in
+#   1. OpenCode special-case: animated status row (`[■⬝]{8}`) = busy; if that
+#      row is absent, fall back to the bottom status line's interrupt hint.
+#   2. Status bar check (last non-empty line): 'esc to' only appears in
 #      Claude Code's status bar during active processing. This is the most
 #      reliable busy signal — immune to old spinner text in scroll-back.
-#   2. Idle checks: CLI-specific idle prompts (❯, Codex ? prompt)
-#   3. Text-based busy markers: spinner keywords in bottom 5 lines
+#   3. Idle checks: CLI-specific idle prompts (❯, Codex ? prompt)
+#   4. Text-based busy markers: spinner keywords in bottom 5 lines
 #
 # Why this order matters:
 #   - Claude Code shows ❯ prompt even during thinking/working, so idle
@@ -30,6 +32,7 @@
 #     'esc to' — the status bar is always at the bottom.
 agent_is_busy_check() {
     local pane_target="$1"
+    local cli_type="${2:-}"
     local pane_tail
 
     # Pane existence check — independent of capture-pane result.
@@ -44,11 +47,35 @@ agent_is_busy_check() {
     # Piping directly to `tail -5` captures those blank lines → empty result.
     # Fix: store in a variable first so command-substitution strips trailing newlines,
     # then pipe to tail.
+    if [[ -z "$cli_type" ]]; then
+        cli_type=$(timeout 2 tmux show-options -v -p -t "$pane_target" @agent_cli 2>/dev/null || true)
+    fi
+
     local full_capture
     full_capture=$(timeout 2 tmux capture-pane -t "$pane_target" -p 2>/dev/null)
-    # Only check the bottom 5 lines. Old busy markers linger in scroll-back
-    # and cause false-busy if we scan too many lines.
+    # Only check the bottom 5 lines by default. Old busy markers linger in
+    # scroll-back and cause false-busy if we scan too many lines.
     pane_tail=$(echo "$full_capture" | tail -5)
+
+    # OpenCode uses a different layout from Codex/Claude. When the pane is
+    # blank, treat it as idle so the watcher can recover instead of holding the
+    # agent in permanent busy state after a crash or failed render. When the TUI
+    # is visible, prefer the busy animation row and then the interrupt hint.
+    if [[ "$cli_type" == "opencode" ]]; then
+        local opencode_visible opencode_last_line
+        opencode_visible=$(printf '%s\n' "$full_capture" | grep -v '^[[:space:]]*$' || true)
+        if [[ -z "$opencode_visible" ]]; then
+            return 1
+        fi
+        if opencode_has_busy_animation "$opencode_visible"; then
+            return 0
+        fi
+        opencode_last_line=$(printf '%s\n' "$opencode_visible" | tail -1)
+        if echo "$opencode_last_line" | grep -qiE '(^|[[:space:]])esc([[:space:]]+to)?[[:space:]]+interrupt([[:space:]]|$)'; then
+            return 0
+        fi
+        return 1
+    fi
 
     # Pane exists but capture is empty → treat as idle, not absent
     if [[ -z "$pane_tail" ]]; then
@@ -87,6 +114,38 @@ agent_is_busy_check() {
     fi
 
     return 1  # idle (default)
+}
+
+# opencode_has_busy_animation <capture_text>
+# OpenCode paneの busy animation (`[■⬝]{8}`) を検出する。
+opencode_has_busy_animation() {
+    local capture_text="$1"
+
+    if command -v python3 &>/dev/null; then
+        OPENCODE_CAPTURE_TEXT="$capture_text" python3 - <<'PY'
+import os
+import sys
+
+text = os.environ.get("OPENCODE_CAPTURE_TEXT", "")
+for line in text.splitlines():
+    glyphs = "".join(ch for ch in line if ch in "■⬝")
+    if len(glyphs) >= 8:
+        sys.exit(0)
+sys.exit(1)
+PY
+        return $?
+    fi
+
+    local line
+    while IFS= read -r line; do
+        # Python is preferred for Unicode handling.  This shell fallback keeps
+        # the same contract: any OpenCode spinner line with at least eight
+        # busy-animation glyphs is busy, regardless of the current frame.
+        if [[ "$line" =~ ([■⬝].*){8} ]]; then
+            return 0
+        fi
+    done <<< "$capture_text"
+    return 1
 }
 
 # get_pane_state_label <pane_target>

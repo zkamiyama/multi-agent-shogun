@@ -4,13 +4,13 @@
 #
 # テスト構成:
 #   - ビルド実行テスト: スクリプト正常終了、ディレクトリ生成
-#   - ファイル生成テスト: claude/codex/copilot各ロールの生成確認
+#   - ファイル生成テスト: claude/codex/copilot/opencode各ロールの生成確認
 #   - 内容検証テスト: 空でないこと、ロール名・CLI固有セクション含有
 #   - AGENTS.md / copilot-instructions.md 生成テスト
 #   - 冪等性テスト: 2回ビルドで差分なし
 #
 # Phase 2+3未実装テストについて:
-#   copilot生成、AGENTS.md、copilot-instructions.md のテストは
+#   copilot/opencode生成、AGENTS.md、copilot-instructions.md のテストは
 #   build_instructions.shが拡張されるまでFAILする（受入基準）。
 #   SKIP は使用しない（SKIP=0ルール遵守）。
 
@@ -72,7 +72,7 @@ setup() {
 }
 
 # =============================================================================
-# ファイル生成テスト — Codex
+# ファイル生成テスト — Codex / OpenCode
 # =============================================================================
 
 @test "codex: codex-shogun.md generated" {
@@ -85,6 +85,40 @@ setup() {
 
 @test "codex: codex-ashigaru.md generated" {
     [ -f "$OUTPUT_DIR/codex-ashigaru.md" ]
+}
+
+@test "opencode: opencode-shogun.md generated [R6]" {
+    [ -f "$OUTPUT_DIR/opencode-shogun.md" ]
+}
+
+@test "opencode: opencode-karo.md generated [R6]" {
+    [ -f "$OUTPUT_DIR/opencode-karo.md" ]
+}
+
+@test "opencode: opencode-ashigaru.md generated [R6]" {
+    [ -f "$OUTPUT_DIR/opencode-ashigaru.md" ]
+}
+
+@test "opencode: opencode-gunshi.md generated [R6]" {
+    [ -f "$OUTPUT_DIR/opencode-gunshi.md" ]
+}
+
+@test "opencode: generated markdown is LF-only and has no trailing whitespace [R6]" {
+    local file
+
+    for file in "$OUTPUT_DIR"/opencode-*.md "$PROJECT_ROOT"/.opencode/agents/*.md; do
+        [ -f "$file" ] || continue
+
+        if LC_ALL=C grep -n $'\r' "$file"; then
+            echo "CR line ending found in $file" >&2
+            return 1
+        fi
+
+        if grep -nE '[[:blank:]]+$' "$file"; then
+            echo "Trailing whitespace found in $file" >&2
+            return 1
+        fi
+    done
 }
 
 # =============================================================================
@@ -131,6 +165,22 @@ setup() {
     [ -s "$OUTPUT_DIR/codex-ashigaru.md" ]
 }
 
+@test "content: opencode-shogun.md is not empty" {
+    [ -s "$OUTPUT_DIR/opencode-shogun.md" ]
+}
+
+@test "content: opencode-karo.md is not empty" {
+    [ -s "$OUTPUT_DIR/opencode-karo.md" ]
+}
+
+@test "content: opencode-ashigaru.md is not empty" {
+    [ -s "$OUTPUT_DIR/opencode-ashigaru.md" ]
+}
+
+@test "content: opencode-gunshi.md is not empty" {
+    [ -s "$OUTPUT_DIR/opencode-gunshi.md" ]
+}
+
 # =============================================================================
 # 内容検証テスト — ロール名含有
 # =============================================================================
@@ -159,6 +209,22 @@ setup() {
     grep -qi "ashigaru\|足軽" "$OUTPUT_DIR/codex-ashigaru.md"
 }
 
+@test "content: opencode-shogun.md contains shogun role reference" {
+    grep -qi "shogun\|将軍" "$OUTPUT_DIR/opencode-shogun.md"
+}
+
+@test "content: opencode-karo.md contains karo role reference" {
+    grep -qi "karo\|家老" "$OUTPUT_DIR/opencode-karo.md"
+}
+
+@test "content: opencode-ashigaru.md contains ashigaru role reference" {
+    grep -qi "ashigaru\|足軽" "$OUTPUT_DIR/opencode-ashigaru.md"
+}
+
+@test "content: opencode-gunshi.md contains gunshi role reference" {
+    grep -qi "gunshi\|軍師" "$OUTPUT_DIR/opencode-gunshi.md"
+}
+
 # =============================================================================
 # 内容検証テスト — CLI固有セクション
 # =============================================================================
@@ -170,6 +236,10 @@ setup() {
 
 @test "content: codex files contain Codex-specific content" {
     grep -qi "codex\|AGENTS.md\|Codex" "$OUTPUT_DIR/codex-shogun.md"
+}
+
+@test "content: opencode files contain OpenCode-specific content [R6]" {
+    grep -qi "opencode\|OpenCode\|--agent" "$OUTPUT_DIR/opencode-shogun.md"
 }
 
 @test "content: copilot files contain Copilot-specific content [Phase 2+3]" {
@@ -186,6 +256,167 @@ setup() {
 
 @test "agents: AGENTS.md contains Codex-specific content [Phase 2+3]" {
     [ -f "$PROJECT_ROOT/AGENTS.md" ] && grep -qi "codex\|agent" "$PROJECT_ROOT/AGENTS.md"
+}
+
+# =============================================================================
+# OpenCode instruction generation (R6)
+# =============================================================================
+
+@test "opencode-inst: instructions/generated/opencode-shogun.md generated [R6]" {
+    [ -f "$OUTPUT_DIR/opencode-shogun.md" ]
+}
+
+@test "opencode-inst: instructions/generated/opencode-karo.md generated [R6]" {
+    [ -f "$OUTPUT_DIR/opencode-karo.md" ]
+}
+
+@test "opencode-inst: instructions/generated/opencode-ashigaru.md generated [R6]" {
+    [ -f "$OUTPUT_DIR/opencode-ashigaru.md" ]
+}
+
+@test "opencode-inst: instructions/generated/opencode-gunshi.md generated [R6]" {
+    [ -f "$OUTPUT_DIR/opencode-gunshi.md" ]
+}
+
+@test "opencode-agent: .opencode/agents/shogun.md generated [R6]" {
+    [ -f "$PROJECT_ROOT/.opencode/agents/shogun.md" ]
+}
+
+@test "opencode-agent: generated agent frontmatter contains permission section [R6]" {
+    grep -q '^permission:' "$PROJECT_ROOT/.opencode/agents/shogun.md"
+}
+
+@test "opencode-agent: tracked agent frontmatter excludes runtime routing [R6]" {
+    PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+from pathlib import Path
+import os
+import yaml
+
+project_root = Path(os.environ["PROJECT_ROOT"])
+agents_dir = project_root / ".opencode" / "agents"
+for path in sorted(agents_dir.glob("*.md")):
+    if path.name.endswith("-runtime.md"):
+        continue
+    text = path.read_text(encoding="utf-8")
+    frontmatter = yaml.safe_load(text.split("---", 2)[1])
+    assert "model" not in frontmatter, f"{path.name}: tracked generated agent must not depend on local settings.yaml"
+    assert "variant" not in frontmatter, f"{path.name}: tracked generated agent must not depend on local settings.yaml"
+PYEOF
+}
+
+@test "opencode-agent: ashigaru1 read permissions allow own inbox/report/task [R6]" {
+    PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+from pathlib import Path
+import os
+import yaml
+
+project_root = Path(os.environ["PROJECT_ROOT"])
+text = (project_root / ".opencode/agents/ashigaru1.md").read_text(encoding="utf-8")
+parts = text.split("---", 2)
+frontmatter = yaml.safe_load(parts[1])
+perm = frontmatter["permission"]
+
+assert perm["question"] == "deny"
+assert perm["read"]["queue/inbox/*"] == "deny"
+assert perm["read"]["queue/inbox/ashigaru1.yaml"] == "allow"
+assert perm["read"]["queue/tasks/*"] == "deny"
+assert perm["read"]["queue/tasks/ashigaru1.yaml"] == "allow"
+assert perm["read"]["queue/reports/*"] == "deny"
+assert perm["read"]["queue/reports/ashigaru1_report.yaml"] == "allow"
+
+for tool_name in ("glob", "list"):
+    assert perm[tool_name]["queue/inbox/*"] == "deny"
+    assert perm[tool_name]["queue/inbox/ashigaru1.yaml"] == "allow"
+    assert perm[tool_name]["queue/tasks/*"] == "deny"
+    assert perm[tool_name]["queue/tasks/ashigaru1.yaml"] == "allow"
+    assert perm[tool_name]["queue/reports/*"] == "deny"
+    assert perm[tool_name]["queue/reports/ashigaru1_report.yaml"] == "allow"
+PYEOF
+}
+
+@test "opencode-agent: grep permission is intentionally not path-scoped [R6]" {
+    PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+from pathlib import Path
+import os
+import yaml
+
+agents_dir = Path(os.environ["PROJECT_ROOT"]) / ".opencode/agents"
+for path in sorted(agents_dir.glob("*.md")):
+    text = path.read_text(encoding="utf-8")
+    frontmatter = yaml.safe_load(text.split("---", 2)[1])
+    perm = frontmatter["permission"]
+    assert "grep" not in perm, f"{path.name}: grep must inherit '*: allow', not path-scoped rules"
+    assert "grep intentionally inherits '*: allow'" in text, f"{path.name}: missing intentional grep comment"
+PYEOF
+}
+
+@test "opencode-agent: shogun can read reports for oversight [R6]" {
+    PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+from pathlib import Path
+import os
+import yaml
+
+path = Path(os.environ["PROJECT_ROOT"]) / ".opencode/agents/shogun.md"
+text = path.read_text(encoding="utf-8")
+frontmatter = yaml.safe_load(text.split("---", 2)[1])
+perm = frontmatter["permission"]
+
+assert perm["read"]["queue/reports/*"] == "allow"
+assert perm["glob"]["queue/reports/*"] == "allow"
+assert perm["list"]["queue/reports/*"] == "allow"
+assert perm["edit"]["queue/reports/*"] == "deny"
+PYEOF
+}
+
+@test "opencode-agent: inbox edits are denied for every role [R6]" {
+    PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+from pathlib import Path
+import os
+import yaml
+
+agents_dir = Path(os.environ["PROJECT_ROOT"]) / ".opencode/agents"
+for path in sorted(agents_dir.glob("*.md")):
+    text = path.read_text(encoding="utf-8")
+    frontmatter = yaml.safe_load(text.split("---", 2)[1])
+    edit = frontmatter["permission"]["edit"]
+    inbox_rules = {key: value for key, value in edit.items() if key.startswith("queue/inbox/")}
+    exact_rule = edit.get("queue/inbox/*.yaml")
+    unexpected_rules = {key: value for key, value in inbox_rules.items() if key != "queue/inbox/*.yaml"}
+
+    assert exact_rule == "deny", f"{path.name}: queue/inbox/*.yaml edit rule missing or not deny: {exact_rule!r}"
+    assert not unexpected_rules, f"{path.name}: unexpected inbox edit rules: {unexpected_rules}"
+PYEOF
+}
+
+@test "opencode-agent: invalid permission YAML fails generation [R6]" {
+    local permissions_file
+    permissions_file="$BATS_TEST_TMPDIR/opencode-permissions.invalid.yaml"
+
+    printf 'roles: [invalid\n' > "$permissions_file"
+    run env OPENCODE_PERMISSIONS_FILE="$permissions_file" bash "$BUILD_SCRIPT"
+
+    [ "$status" -ne 0 ]
+}
+
+@test "opencode-config: root edit permissions deny inbox YAML [R6]" {
+    PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+from pathlib import Path
+import os
+import yaml
+
+config = yaml.safe_load((Path(os.environ["PROJECT_ROOT"]) / "config/opencode-permissions.yaml").read_text(encoding="utf-8"))
+assert config["common"]["edit_deny"]
+assert "queue/inbox/*.yaml" in config["common"]["edit_deny"]
+PYEOF
+}
+
+@test "opencode-tool: mark-as-read enforces current agent and inbox lock [R6]" {
+    local tool_file="$PROJECT_ROOT/.opencode/tools/mark-as-read.ts"
+
+    grep -q 'process.env.OPENCODE_AGENT_ID' "$tool_file"
+    grep -q 'Refusing to mark another agent' "$tool_file"
+    grep -q 'withInboxLock' "$tool_file"
+    grep -q '.lock.d' "$tool_file"
 }
 
 # =============================================================================

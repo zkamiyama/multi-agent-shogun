@@ -209,6 +209,8 @@ PYEOF
     run bash "${PROJECT_ROOT}/scripts/switch_cli.sh" --help
     [ "$status" -eq 1 ]
     [[ "$output" == *"Usage"* ]]
+    [[ "$output" == *"opencode"* ]]
+    [[ "$output" == *"openai/gpt-5.4-mini"* ]]
 }
 
 @test "switch_cli.sh -h → usage表示 + exit 1" {
@@ -226,6 +228,17 @@ PYEOF
 @test "switch_cli.sh 不正type → エラー" {
     run bash "${PROJECT_ROOT}/scripts/switch_cli.sh" ashigaru1 --type invalid_cli
     [ "$status" -ne 0 ]
+}
+
+@test "switch_cli validation: opencode type is accepted" {
+    _cli_adapter_is_valid_cli "opencode"
+    [ "$?" -eq 0 ]
+}
+
+@test "switch_cli.sh provider-qualified model without --type on non-opencode agent → エラー" {
+    run bash "${PROJECT_ROOT}/scripts/switch_cli.sh" ashigaru1 --model openai/gpt-5.4-mini
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"provider-qualified model IDs are ambiguous without --type"* ]]
 }
 
 # =============================================================================

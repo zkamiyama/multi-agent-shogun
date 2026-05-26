@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.1.0] - 2026-05-23
+
+### Changed
+- Clarified Karo as a workflow traffic controller instead of an execution bottleneck
+- Moved qualitative review ownership to Gunshi for QC, evidence review, RCA, adoption/drop decisions, and deploy blocker classification
+- Reframed E2E ownership: Karo reviews the plan, checks prerequisites, and makes the final pass/fail decision while execution is delegated by default
+- Regenerated Claude, Codex, Copilot, Kimi, and OpenCode instruction files from the updated role definitions
+
+### Fixed
+- Prevented old instructions from implying that Karo should directly run E2E commands or perform review work by default
+- Added Android local cache/toolchain ignore entries for `.android-user/`, `.gradle-user/`, and `.toolchain/`
+
+## [5.0.0] - 2026-05-21
+
+### Added
+- OpenCode first-class CLI support across Shogun, Karo, Ashigaru 1-7, and Gunshi
+- Generated `.opencode/agents/*.md` agent definitions from the shared instruction build system
+- `instructions/cli_specific/opencode_tools.md` for OpenCode-specific operational rules
+- `config/opencode-permissions.yaml` to generate role-scoped OpenCode permission frontmatter
+- `config/opencode-tui.json` to pin tmux-safe OpenCode keybindings
+- Provider-qualified OpenCode model routing, including OpenCode free models and OpenRouter models
+- OpenCode startup E2E coverage and build checks for generated agent files
+
+### Changed
+- `lib/cli_adapter.sh` can launch OpenCode with `--agent <agent_id>` and `OPENCODE_TUI_CONFIG`
+- `scripts/build_instructions.sh` now checks generated instruction files and OpenCode agent files together
+- README and README_ja document OpenCode setup, model IDs, generated agents, and VPS validation
+
+### Fixed
+- macOS CI now runs `scripts/slim_yaml.py` through the project venv so PyYAML is available
+- `tests/unit/test_slim_yaml.bats` uses the same venv-backed Python path as CI
+- `tests/unit/test_ntfy_ack.bats` failure injection is UID-independent, so root-based VPS test runs behave the same as normal CI users
+
+### Verified
+- Multi-CLI Test Suite on `main`: Ubuntu unit, macOS unit, shellcheck, build check, E2E mock CLI, and integration tests all PASS
+- VPS smoke test with all agents launched as OpenCode confirmed Shogun → Karo → `dashboard.md` execution
+
 ## [4.6.0] - 2026-04-19
 
 ### Added

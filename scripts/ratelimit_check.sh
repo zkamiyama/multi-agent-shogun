@@ -81,12 +81,13 @@ done
 # ═══════════════════════════════════════════════════════
 # Phase 2: Group agents by CLI type
 # ═══════════════════════════════════════════════════════
-declare -a CLAUDE_AGENTS=() CODEX_AGENTS=() OTHER_AGENTS=()
+declare -a CLAUDE_AGENTS=() CODEX_AGENTS=() OPENCODE_AGENTS=() OTHER_AGENTS=()
 
 for agent in "${ALL_AGENTS[@]}"; do
     case "${AGENT_CLI[$agent]}" in
         claude) CLAUDE_AGENTS+=("$agent") ;;
         codex)  CODEX_AGENTS+=("$agent") ;;
+        opencode) OPENCODE_AGENTS+=("$agent") ;;
         *)      OTHER_AGENTS+=("$agent") ;;
     esac
 done
@@ -585,6 +586,18 @@ if [[ ${#CODEX_AGENTS[@]} -gt 0 ]]; then
     else
         printf "  Status: OK\n"
     fi
+fi
+
+# --- OpenCode ---
+if [[ ${#OPENCODE_AGENTS[@]} -gt 0 ]]; then
+    printf "\n── OpenCode ─────────────────────────\n"
+    # OpenCode exposes usage/cost statistics via `opencode stats`; limits depend on the provider/subscription.
+    printf "  Usage: opencode stats shows token and cost statistics; usage limits are provider-specific.\n"
+    for agent in "${OPENCODE_AGENTS[@]}"; do
+        cli="${AGENT_CLI[$agent]}"
+        model="${AGENT_MODEL[$agent]}"
+        printf "  %s: %s (%s)\n" "$agent" "$cli" "$model"
+    done
 fi
 
 # --- Other CLIs ---
