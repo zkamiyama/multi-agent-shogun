@@ -3,7 +3,7 @@
 # switch_cli.sh — エージェントのCLIセッションを安全に切り替える
 #
 # Usage:
-#   bash scripts/switch_cli.sh <agent_id> [--type <cli_type>] [--model <model_name>]
+#   bash scripts/switch_cli.sh <agent_id> [--type <cli_type>] [--model <model_name>] [--variant <variant>]
 #
 # Examples:
 #   # settings.yaml の現在値で再起動（CLI種別/モデル変更なし）
@@ -11,6 +11,12 @@
 #
 #   # Codex Spark → Claude Sonnet に切替
 #   bash scripts/switch_cli.sh ashigaru3 --type claude --model claude-sonnet-4-6
+#
+#   # OpenCode で provider/model を直接指定（role 定義は --agent、モデル変更は再起動で反映）
+#   bash scripts/switch_cli.sh ashigaru3 --type opencode --model openai/gpt-5.4-mini
+#
+#   # OpenCode provider-specific reasoning variant
+#   bash scripts/switch_cli.sh ashigaru3 --type opencode --model openrouter/minimax/minimax-m2.5 --variant xhigh
 #
 #   # 同一CLI内でモデルだけ変更（Sonnet → Opus）
 #   bash scripts/switch_cli.sh ashigaru3 --model claude-opus-4-6
@@ -36,6 +42,7 @@ LOG_FILE="${PROJECT_ROOT}/logs/switch_cli.log"
 
 # cli_adapter.sh をロード
 source "${PROJECT_ROOT}/lib/cli_adapter.sh"
+source "${PROJECT_ROOT}/lib/agent_registry.sh"
 
 # ─── ログ ───
 log() {
@@ -46,11 +53,12 @@ log() {
 
 # ─── Usage ───
 usage() {
-    echo "Usage: $0 <agent_id> [--type <cli_type>] [--model <model_name>]"
+    echo "Usage: $0 <agent_id> [--type <cli_type>] [--model <model_name>] [--variant <variant>]"
     echo ""
-    echo "  agent_id   karo, ashigaru1-7, gunshi"
-    echo "  --type     claude | codex | copilot | kimi"
-    echo "  --model    claude-sonnet-4-6 | claude-opus-4-6 | gpt-5.3-codex | etc."
+    echo "  agent_id   Agent configured in config/settings.yaml (e.g. karo, ashigaru1, gunshi)"
+    echo "  --type     claude | codex | copilot | kimi | opencode"
+    echo "  --model    claude-sonnet-4-6 | claude-opus-4-6 | gpt-5.3-codex | openai/gpt-5.4-mini | etc."
+    echo "  --variant  OpenCode model variant such as xhigh, high, max, minimal"
     echo ""
     echo "If --type/--model omitted, uses current settings.yaml values."
     exit 1
@@ -77,25 +85,16 @@ resolve_pane() {
         log "WARN: @agent_id=$agent_id not found in any pane. Falling back to fixed mapping."
     fi
 
-    # Phase 2: フォールバック（従来の固定マッピング）
+    # Phase 2: フォールバック（settings.yaml の編成順から解決）
     local pane_base
     pane_base=$(tmux show-options -t multiagent -v @pane_base 2>/dev/null || echo "0")
 
-    case "$agent_id" in
-        karo)       echo "multiagent:agents.$((pane_base + 0))" ;;
-        ashigaru1)  echo "multiagent:agents.$((pane_base + 1))" ;;
-        ashigaru2)  echo "multiagent:agents.$((pane_base + 2))" ;;
-        ashigaru3)  echo "multiagent:agents.$((pane_base + 3))" ;;
-        ashigaru4)  echo "multiagent:agents.$((pane_base + 4))" ;;
-        ashigaru5)  echo "multiagent:agents.$((pane_base + 5))" ;;
-        ashigaru6)  echo "multiagent:agents.$((pane_base + 6))" ;;
-        ashigaru7)  echo "multiagent:agents.$((pane_base + 7))" ;;
-        gunshi)     echo "multiagent:agents.$((pane_base + 8))" ;;
-        *)
-            log "ERROR: Unknown agent_id: $agent_id"
-            return 1
-            ;;
-    esac
+    if agent_registry_multiagent_pane_for_agent "$agent_id" "$pane_base"; then
+        return 0
+    fi
+
+    log "ERROR: Unknown agent_id: $agent_id"
+    return 1
 }
 
 # ─── settings.yaml 更新 (Python使用) ───
@@ -103,12 +102,13 @@ update_settings_yaml() {
     local agent_id="$1"
     local new_type="${2:-}"
     local new_model="${3:-}"
+    local new_variant="${4:-}"
 
-    if [[ -z "$new_type" && -z "$new_model" ]]; then
+    if [[ -z "$new_type" && -z "$new_model" && -z "$new_variant" ]]; then
         return 0
     fi
 
-    log "Updating settings.yaml: ${agent_id} → type=${new_type:-<unchanged>}, model=${new_model:-<unchanged>}"
+    log "Updating settings.yaml: ${agent_id} → type=${new_type:-<unchanged>}, model=${new_model:-<unchanged>}, variant=${new_variant:-<unchanged>}"
 
     "${PROJECT_ROOT}/.venv/bin/python3" << PYEOF
 import yaml, sys, os, datetime
@@ -117,6 +117,7 @@ settings_path = "${SETTINGS_FILE}"
 agent_id = "${agent_id}"
 new_type = "${new_type}" or None
 new_model = "${new_model}" or None
+new_variant = "${new_variant}" or None
 
 with open(settings_path, 'r', encoding='utf-8') as f:
     content = f.read()
@@ -138,6 +139,8 @@ if new_type:
     agent_cfg['type'] = new_type
 if new_model:
     agent_cfg['model'] = new_model
+if new_variant:
+    agent_cfg['variant'] = new_variant
 
 data['cli']['agents'][agent_id] = agent_cfg
 
@@ -170,6 +173,8 @@ while i < len(lines):
             new_lines.append(f'{inner_indent}type: {new_type}')
         if new_model:
             new_lines.append(f'{inner_indent}model: {new_model}  {comment}')
+        if new_variant:
+            new_lines.append(f'{inner_indent}variant: {new_variant}  {comment}')
         # Skip old sub-fields
         i += 1
         while i < len(lines):
@@ -204,6 +209,77 @@ else:
             f.write('\n') if not '\n'.join(new_lines).endswith('\n') else None
 
 print("OK")
+PYEOF
+}
+
+# ─── OpenCode runtime agent frontmatter 同期 ───
+# OpenCode TUI は `opencode run` と違って --variant を受け付けない。
+# provider固有variantは git-ignored の .opencode/agents/<agent>-runtime.md に同期する。
+sync_opencode_agent_frontmatter() {
+    local agent_id="$1"
+    local model="${2:-}"
+    local variant="${3:-}"
+    local base_file="${PROJECT_ROOT}/.opencode/agents/${agent_id}.md"
+    local runtime_file="${PROJECT_ROOT}/.opencode/agents/${agent_id}-runtime.md"
+    local normalized_model
+
+    [[ -f "$base_file" ]] || return 0
+
+    normalized_model="$(normalize_opencode_model "$model")"
+
+    if [[ -z "$variant" ]]; then
+        rm -f "$runtime_file"
+        return 0
+    fi
+
+    log "Syncing OpenCode runtime agent: ${agent_id}-runtime → model=${normalized_model:-<unset>}, variant=${variant}"
+
+    "${PROJECT_ROOT}/.venv/bin/python3" - "$base_file" "$runtime_file" "$normalized_model" "$variant" <<'PYEOF'
+import sys
+from pathlib import Path
+
+import yaml
+
+source = Path(sys.argv[1])
+dest = Path(sys.argv[2])
+model = sys.argv[3] or None
+variant = sys.argv[4] or None
+
+text = source.read_text(encoding="utf-8")
+if not text.startswith("---\n"):
+    raise SystemExit(0)
+
+parts = text.split("---", 2)
+if len(parts) < 3:
+    raise SystemExit(0)
+
+body = parts[2]
+route = {}
+if model:
+    route["model"] = model
+if variant:
+    route["variant"] = variant
+route_lines = yaml.safe_dump(route, allow_unicode=True, sort_keys=False).splitlines() if route else []
+
+frontmatter_lines = parts[1].lstrip("\n").splitlines()
+new_lines = []
+inserted = False
+for line in frontmatter_lines:
+    stripped = line.lstrip()
+    indent = len(line) - len(stripped)
+    if indent == 0 and (stripped.startswith("model:") or stripped.startswith("variant:")):
+        continue
+    if not inserted and indent == 0 and stripped.startswith("permission:"):
+        new_lines.extend(route_lines)
+        inserted = True
+    new_lines.append(line)
+
+if not inserted:
+    new_lines.extend(route_lines)
+
+frontmatter_text = "\n".join(new_lines).rstrip()
+
+dest.write_text(f"---\n{frontmatter_text}\n---{body}", encoding="utf-8")
 PYEOF
 }
 
@@ -320,6 +396,7 @@ shift
 
 NEW_TYPE=""
 NEW_MODEL=""
+NEW_VARIANT=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -329,6 +406,10 @@ while [ $# -gt 0 ]; do
             ;;
         --model)
             NEW_MODEL="$2"
+            shift 2
+            ;;
+        --variant)
+            NEW_VARIANT="$2"
             shift 2
             ;;
         --help|-h)
@@ -354,12 +435,21 @@ if [ -z "$PANE_TARGET" ]; then
 fi
 log "=== Starting CLI switch for ${AGENT_ID} (pane: ${PANE_TARGET}) ==="
 
-# Step 0.5: --model指定時に--type未指定なら、モデル名からCLI種別を自動推定
+# Step 0.5: --model指定時に--type未指定なら、CLI種別を安全に補完する
 if [[ -n "$NEW_MODEL" && -z "$NEW_TYPE" ]]; then
     case "$NEW_MODEL" in
         gpt-5.3-codex*|gpt-5-codex*)
             NEW_TYPE="codex"
             log "Auto-inferred type=codex from model=${NEW_MODEL}"
+            ;;
+        */*)
+            if [[ "$(get_cli_type "$AGENT_ID")" == "opencode" ]]; then
+                NEW_TYPE="opencode"
+                log "Preserving type=opencode for provider-qualified model=${NEW_MODEL}"
+            else
+                log "ERROR: provider-qualified model IDs are ambiguous without --type; use --type opencode --model ${NEW_MODEL}"
+                exit 1
+            fi
             ;;
         claude-*)
             NEW_TYPE="claude"
@@ -368,14 +458,18 @@ if [[ -n "$NEW_MODEL" && -z "$NEW_TYPE" ]]; then
     esac
 fi
 
-# Step 1: settings.yaml 更新（--type/--model 指定時のみ）
-if [[ -n "$NEW_TYPE" || -n "$NEW_MODEL" ]]; then
-    update_settings_yaml "$AGENT_ID" "$NEW_TYPE" "$NEW_MODEL"
+# Step 1: settings.yaml 更新（--type/--model/--variant 指定時のみ）
+if [[ -n "$NEW_TYPE" || -n "$NEW_MODEL" || -n "$NEW_VARIANT" ]]; then
+    update_settings_yaml "$AGENT_ID" "$NEW_TYPE" "$NEW_MODEL" "$NEW_VARIANT"
 fi
 
 # Step 2: 切替後のCLI情報を取得（settings.yaml反映後）
 TARGET_CLI_TYPE=$(get_cli_type "$AGENT_ID")
 TARGET_MODEL=$(get_agent_model "$AGENT_ID")
+TARGET_VARIANT=$(_cli_adapter_read_yaml "cli.agents.${AGENT_ID}.variant" "")
+if [[ "$TARGET_CLI_TYPE" == "opencode" ]]; then
+    sync_opencode_agent_frontmatter "$AGENT_ID" "$TARGET_MODEL" "$TARGET_VARIANT"
+fi
 TARGET_CMD=$(build_cli_command "$AGENT_ID")
 
 log "Target: cli=${TARGET_CLI_TYPE}, model=${TARGET_MODEL}, cmd=${TARGET_CMD}"

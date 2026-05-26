@@ -126,6 +126,12 @@ jobs:
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Setup Python venv with PyYAML
+        if: steps.check_script.outputs.exists == 'true'
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet -r requirements.txt
+
       - name: Run build_instructions.sh
         if: steps.check_script.outputs.exists == 'true'
         run: |
@@ -139,14 +145,14 @@ jobs:
             exit 0
           fi
 
-          git diff --exit-code instructions/generated/ || {
-            echo "::error::Generated instructions files are out of sync!"
+          git diff --exit-code instructions/generated/ .opencode/agents/ || {
+            echo "::error::Generated instructions or OpenCode agent files are out of sync!"
             echo "::error::Run 'bash scripts/build_instructions.sh' and commit the changes."
-            git diff instructions/generated/
+            git diff instructions/generated/ .opencode/agents/
             exit 1
           }
 
-          echo "✓ Generated instructions are in sync with source templates"
+          echo "✓ Generated instructions and OpenCode agents are in sync with source templates"
 
       - name: Skip build check
         if: steps.check_script.outputs.exists == 'false'

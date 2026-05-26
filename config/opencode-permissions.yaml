@@ -1,0 +1,138 @@
+# OpenCode role-specific permission matrix.
+#
+# This file is consumed by scripts/build_instructions.sh to generate
+# `.opencode/agents/*.md` permission frontmatter at build time. Keep the matrix
+# focused on file boundaries that matter for role separation.
+
+common:
+  edit_deny:
+    - AGENTS.md
+    - .github/copilot-instructions.md
+    - .opencode/agents/*.md
+    - agents/default/agent.yaml
+    - agents/default/system.md
+    - config/opencode-permissions.yaml
+    - config/opencode-tui.json
+    - instructions/generated/*
+    - queue/inbox/*.yaml
+
+roles:
+  shogun:
+    question: deny
+    read_deny:
+      - queue/inbox/*
+      - queue/tasks/ashigaru*.yaml
+      - queue/tasks/gunshi.yaml
+      - queue/tasks/pending.yaml
+      - queue/shogun_to_karo_archive.yaml
+    read_allow:
+      - queue/inbox/shogun.yaml
+      - queue/shogun_to_karo.yaml
+      - queue/ntfy_inbox.yaml
+      - queue/reports/*
+      - dashboard.md
+      - saytask/tasks.yaml
+      - saytask/streaks.yaml
+      - context/*
+    edit_deny:
+      - queue/tasks/ashigaru*.yaml
+      - queue/tasks/gunshi.yaml
+      - queue/tasks/pending.yaml
+      - queue/reports/*
+      - queue/shogun_to_karo_archive.yaml
+      - dashboard.md
+      - saytask/*
+    edit_allow:
+      - queue/shogun_to_karo.yaml
+      - queue/ntfy_inbox.yaml
+      - saytask/tasks.yaml
+      - saytask/streaks.yaml
+
+  karo:
+    question: deny
+    read_deny:
+      - queue/inbox/*
+      - queue/ntfy_inbox.yaml
+      - saytask/tasks.yaml
+    read_allow:
+      - queue/inbox/karo.yaml
+      - queue/shogun_to_karo.yaml
+      - queue/shogun_to_karo_archive.yaml
+      - queue/tasks/ashigaru*.yaml
+      - queue/tasks/gunshi.yaml
+      - queue/tasks/pending.yaml
+      - queue/reports/ashigaru*_report.yaml
+      - queue/reports/gunshi_report.yaml
+      - dashboard.md
+      - saytask/streaks.yaml
+      - context/*
+    edit_deny:
+      - queue/ntfy_inbox.yaml
+      - queue/reports/*
+      - saytask/tasks.yaml
+    edit_allow:
+      - queue/shogun_to_karo.yaml
+      - queue/shogun_to_karo_archive.yaml
+      - queue/tasks/ashigaru*.yaml
+      - queue/tasks/gunshi.yaml
+      - queue/tasks/pending.yaml
+      - dashboard.md
+      - saytask/streaks.yaml
+
+  ashigaru:
+    question: deny
+    read_deny:
+      - queue/inbox/*
+      - queue/tasks/*
+      - queue/reports/*
+      - queue/ntfy_inbox.yaml
+      - queue/shogun_to_karo_archive.yaml
+      - dashboard.md
+      - saytask/*
+    read_allow:
+      - queue/inbox/{agent_id}.yaml
+      - queue/tasks/{agent_id}.yaml
+      - queue/reports/{agent_id}_report.yaml
+      - queue/shogun_to_karo.yaml
+      - context/*
+    edit_deny:
+      - queue/tasks/*
+      - queue/reports/*
+      - queue/ntfy_inbox.yaml
+      - queue/shogun_to_karo.yaml
+      - queue/shogun_to_karo_archive.yaml
+      - dashboard.md
+      - saytask/*
+    edit_allow:
+      - queue/tasks/{agent_id}.yaml
+      - queue/reports/{agent_id}_report.yaml
+
+  gunshi:
+    question: deny
+    read_deny:
+      - queue/inbox/*
+      - queue/tasks/ashigaru*.yaml
+      - queue/tasks/pending.yaml
+      - queue/shogun_to_karo.yaml
+      - queue/shogun_to_karo_archive.yaml
+      - queue/ntfy_inbox.yaml
+      - saytask/*
+    read_allow:
+      - queue/inbox/gunshi.yaml
+      - queue/tasks/gunshi.yaml
+      - queue/reports/ashigaru*_report.yaml
+      - queue/reports/gunshi_report.yaml
+      - dashboard.md
+      - context/*
+    edit_deny:
+      - queue/tasks/ashigaru*.yaml
+      - queue/tasks/pending.yaml
+      - queue/shogun_to_karo.yaml
+      - queue/shogun_to_karo_archive.yaml
+      - queue/ntfy_inbox.yaml
+      - queue/reports/ashigaru*_report.yaml
+      - saytask/*
+    edit_allow:
+      - queue/tasks/gunshi.yaml
+      - queue/reports/gunshi_report.yaml
+      - dashboard.md

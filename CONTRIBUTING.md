@@ -63,11 +63,13 @@ multi-agent-shogun/
 │   ├── cli_specific/     # CLI-specific tool descriptions
 │   │   ├── claude_tools.md
 │   │   ├── codex_tools.md
-│   │   └── copilot_tools.md
+│   │   ├── copilot_tools.md
+│   │   └── opencode_tools.md
 │   └── generated/        # Built from templates (do not edit manually)
 │
 ├── lib/                  # Core libraries
-│   └── cli_adapter.sh    # Multi-CLI abstraction layer
+│   ├── cli_adapter.sh    # Multi-CLI abstraction layer
+│   └── agent_status.sh   # Shared busy/idle detection
 │
 ├── templates/            # Report and context templates
 │   ├── context_template.md  # Universal 7-section project context
@@ -81,11 +83,17 @@ multi-agent-shogun/
 │
 ├── config/               # Configuration files
 │   ├── settings.yaml     # Language, CLI settings, ntfy topic
+│   ├── opencode-permissions.yaml  # OpenCode role boundary source
+│   ├── opencode-tui.json  # OpenCode TUI keybinding pinning for tmux
 │   └── projects.yaml     # Project registry
+│
+├── .opencode/
+│   └── agents/           # Generated OpenCode agent definitions (do not edit manually)
 │
 ├── tests/                # Test suite
 │   ├── unit/             # bats unit tests
-│   └── integration/      # bats integration tests
+│   ├── integration/      # bats integration tests
+│   └── e2e/              # bats end-to-end tests and mocks
 │
 ├── docs/                 # Documentation
 │   └── philosophy.md     # Design principles

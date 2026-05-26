@@ -38,6 +38,7 @@
 !instructions/cli_specific/codex_tools.md
 !instructions/cli_specific/copilot_tools.md
 !instructions/cli_specific/kimi_tools.md
+!instructions/cli_specific/opencode_tools.md
 
 # Multi-CLI: Build template parts (roles, common sections)
 !instructions/roles/
@@ -54,9 +55,18 @@
 !lib/cli_adapter.sh
 !lib/ntfy_auth.sh
 !lib/agent_status.sh
+!lib/agent_registry.sh
 
 # Multi-CLI: Codex auto-load file
 !AGENTS.md
+
+# Multi-CLI: OpenCode agent file
+!.opencode/agents/*.md
+.opencode/agents/*-runtime.md
+
+# Multi-CLI: OpenCode custom tools
+!.opencode/tools/
+!.opencode/tools/mark-as-read.ts
 
 # Setup and deployment scripts
 !shutsujin_departure.sh
@@ -70,6 +80,8 @@
 # Config (sample files only, no secrets)
 !config/
 !config/ntfy_auth.env.sample
+!config/opencode-tui.json
+!config/opencode-permissions.yaml
 
 # Templates
 !templates/
@@ -117,6 +129,7 @@ logs/
 # Docs
 !docs/
 !docs/philosophy.md
+!docs/vps_pr118_verification_plan.md
 
 # Screenshots (masked — no secrets)
 !images/
@@ -196,4 +209,9 @@ tests/specs/osato_lms_*
 # Android companion app
 !android/
 !android/**
+
+# reports/ (empty placeholder only — content is intentionally local-only)
+!reports/
+!reports/.gitkeep
+
 .claude/settings.local.json
