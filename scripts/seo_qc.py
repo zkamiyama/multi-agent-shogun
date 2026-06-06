@@ -20,7 +20,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-DEFAULT_BASE_DIR = "/home/yohei/seo-affiliate"
+DEFAULT_BASE_DIR = str(Path.home() / "seo-affiliate")
 ALL_SITES = ["yane", "kagi", "kyutoki", "ohaka", "gaichuu", "kekkon", "ihin", "fuyouhin", "zeirishi"]
 
 # Forbidden words (check_009)
