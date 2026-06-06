@@ -92,6 +92,17 @@ opencode_startup_delay() {
     fi
 }
 
+cli_ready_pattern() {
+    local cli_type="$1"
+    case "$cli_type" in
+        claude)      echo "bypass permissions|Do you trust|Claude Code" ;;
+        codex)       echo "context left|\\? for shortcuts|Codex" ;;
+        opencode)    echo "esc.*interrupt|OpenCode|opencode" ;;
+        antigravity) echo "Antigravity|agy|type a message|Type a message|message" ;;
+        *)           echo "." ;;
+    esac
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # プロンプト生成関数（bash/zsh対応）
 # ───────────────────────────────────────────────────────────────────────────────
@@ -686,7 +697,7 @@ if [ "$SETUP_ONLY" = false ]; then
     rm -f /tmp/shogun_idle_*
     echo "idle flags cleared"
 
-    log_war "👑 全軍に Claude Code を召喚中..."
+    log_war "👑 全軍にエージェントCLIを召喚中..."
 
     # 将軍: CLI Adapter経由でコマンド構築
     _shogun_cli_type="claude"
@@ -866,12 +877,13 @@ NINJA_EOF
     echo -e "                               \033[0;36m[ASCII Art: syntax-samurai/ryu - CC0 1.0 Public Domain]\033[0m"
     echo ""
 
-    echo "  Claude Code の起動を待機中（最大30秒）..."
+    echo "  エージェントCLIの起動を待機中（最大30秒）..."
 
     # 将軍の起動を確認（最大30秒待機）
+    _shogun_ready_pattern=$(cli_ready_pattern "$_shogun_cli_type")
     for i in {1..30}; do
-        if tmux capture-pane -t shogun:main -p | grep -q "bypass permissions"; then
-            echo "  └─ 将軍の Claude Code 起動確認完了（${i}秒）"
+        if tmux capture-pane -t shogun:main -p | grep -qiE "$_shogun_ready_pattern"; then
+            echo "  └─ 将軍のCLI起動確認完了（${i}秒, ${_shogun_cli_type}）"
             break
         fi
         sleep 1

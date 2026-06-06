@@ -32,7 +32,7 @@ Run 10 AI coding agents in parallel — **Claude Code, OpenAI Codex, GitHub Copi
 
 ## Quick Start
 
-**Requirements:** tmux, bash 4+, at least one of: [Claude Code](https://claude.ai/code) / Codex / Copilot / Kimi / OpenCode
+**Requirements:** tmux, bash 4+, at least one of: [Claude Code](https://claude.ai/code) / Codex / Copilot / Kimi / OpenCode / Antigravity
 
 ```bash
 git clone https://github.com/yohey-w/multi-agent-shogun
@@ -135,8 +135,11 @@ Shogun isn't locked to one vendor. The system supports 6 CLI tools, each with un
 | **Kimi Code** | Free tier available, strong multilingual support | Kimi k2 |
 | **OpenCode** | Shared `AGENTS.md` instructions, agent-specific definitions via `--agent`, `/new` context reset, restart-only model changes, deterministic interactive TUI launch, provider-qualified `--model` routing | provider/model |
 | **Cursor** | Auto-loads `CLAUDE.md`/`AGENTS.md`/`.cursor/rules/`, built-in web search, `inbox-write` skill via `.cursor/skills/`, `/model` live switching, `--yolo` auto-run | Varies |
+| **Antigravity CLI** | Google Antigravity CLI integration via `agy`, host-managed auth, YOLO-style launch, `gemini`/`agy` legacy aliases | host default / last-used |
 
 OpenCode sessions load the agent-specific `.opencode/agents/<agent_id>.md` definition via `--agent` and keep automation resets on `/new`; model changes require a relaunch. Automation uses the repository-provided `config/opencode-tui.json` via `OPENCODE_TUI_CONFIG`, which disables `app_exit` and pins `session_interrupt`/`input_clear` to known bindings. Role boundaries are embedded in the generated agent frontmatter: Shogun can read `queue/reports/*` for oversight but cannot write them, Karo is limited to coordination files plus report aggregation, Ashigaru only touch their own task/report pair, and Gunshi reads ashigaru reports but only writes `gunshi_report.yaml`.
+
+Antigravity sessions launch with `agy --dangerously-skip-permissions`. Shogun treats `type: antigravity`, `type: agy`, and legacy `type: gemini` as Antigravity. Authentication and default model selection stay in the host user's Antigravity CLI setup; `settings.yaml` may optionally pass a concrete `model`, but `auto` uses the host default or last-used model.
 
 A unified instruction build system generates CLI-specific instruction files from shared templates:
 
@@ -487,6 +490,7 @@ If you prefer to install dependencies manually:
 | Kimi Code CLI | Install and authenticate Kimi Code | Required only for agents with `type: kimi` |
 | OpenCode CLI | `npm install -g opencode-ai` | Required only for agents with `type: opencode`; provider API keys must be available in the agent shell |
 | Cursor CLI | See [Cursor CLI docs](https://cursor.com/docs/cli/overview) — use `cursor-agent` or `agent` command | Required only for agents with `type: cursor` |
+| Antigravity CLI | Install and authenticate Google Antigravity CLI (`agy`) | Required only for agents with `type: antigravity`, `type: agy`, or legacy `type: gemini` |
 
 </details>
 
@@ -593,7 +597,7 @@ The agent formation (which CLI each agent uses) lives in `config/settings.yaml`:
 cli:
   agents:
     ashigaru1:
-      type: codex          # codex / claude / copilot / kimi / opencode
+      type: codex          # codex / claude / copilot / kimi / opencode / antigravity
       model: gpt-5.5
     ashigaru2:
       type: claude
