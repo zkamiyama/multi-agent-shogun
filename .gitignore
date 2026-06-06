@@ -110,8 +110,8 @@
 !scripts/build_instructions.sh
 !scripts/slim_yaml.sh
 !scripts/slim_yaml.py
-!scripts/seo_qc.py
-!scripts/seo_qc.sh
+scripts/seo_qc.py
+scripts/seo_qc.sh
 !scripts/stop_hook_inbox.sh
 !scripts/session_start_hook.sh
 !scripts/agent_status.sh
