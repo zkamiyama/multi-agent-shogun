@@ -106,6 +106,7 @@ EOFYAML
             ;;
         cursor)
             cat "$PARTS_DIR/cli_specific/cursor_tools.md" >> "$output_path"
+            ;;
         antigravity)
             cat "$PARTS_DIR/cli_specific/antigravity_tools.md" >> "$output_path"
             ;;
