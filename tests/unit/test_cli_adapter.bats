@@ -372,6 +372,21 @@ load_adapter_with() {
     [ "$result" = "claude --model opus --permission-mode auto-approved" ]
 }
 
+@test "build_cli_command: claude + effort:max → --effort max" {
+    cat > "${TEST_TMP}/settings_claude_effort.yaml" << 'YAML'
+cli:
+  default: claude
+  agents:
+    ashigaru1:
+      type: claude
+      model: claude-opus-4-8
+      effort: max
+YAML
+    load_adapter_with "${TEST_TMP}/settings_claude_effort.yaml"
+    result=$(build_cli_command "ashigaru1")
+    [ "$result" = "claude --model claude-opus-4-8 --effort max --dangerously-skip-permissions" ]
+}
+
 @test "build_cli_command: codex + default model → codex --model sonnet ..." {
     load_adapter_with "${TEST_TMP}/settings_mixed.yaml"
     expected_prompt_arg=$(get_startup_prompt_arg "ashigaru5")
@@ -810,6 +825,21 @@ YAML
     [ "$result" = "Opus+T" ]
 }
 
+@test "get_model_display_name: Claude effort:max → Opus+max" {
+    cat > "${TEST_TMP}/settings_display_effort.yaml" << 'YAML'
+cli:
+  default: claude
+  agents:
+    ashigaru1:
+      type: claude
+      model: claude-opus-4-8
+      effort: max
+YAML
+    load_adapter_with "${TEST_TMP}/settings_display_effort.yaml"
+    result=$(get_model_display_name "ashigaru1")
+    [ "$result" = "Opus+max" ]
+}
+
 @test "get_model_display_name: Haiku + thinking:false → Haiku" {
     cat > "${TEST_TMP}/settings_display.yaml" << 'YAML'
 cli:
@@ -930,6 +960,23 @@ YAML
     load_adapter_with "${TEST_TMP}/settings_thinking.yaml"
     result=$(build_cli_command "ashigaru1")
     [ "$result" = "claude --model claude-sonnet-4-6 --dangerously-skip-permissions" ]
+}
+
+@test "build_cli_command: invalid effort is ignored" {
+    cat > "${TEST_TMP}/settings_effort_invalid.yaml" << 'YAML'
+cli:
+  default: claude
+  agents:
+    ashigaru1:
+      type: claude
+      model: claude-opus-4-8
+      effort: turbo
+YAML
+    load_adapter_with "${TEST_TMP}/settings_effort_invalid.yaml"
+    run build_cli_command "ashigaru1"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"claude --model claude-opus-4-8 --dangerously-skip-permissions"* ]]
+    [[ "$output" != *"--effort turbo"* ]]
 }
 
 @test "build_cli_command: thinking:false → MAX_THINKING_TOKENS=0 prefix" {

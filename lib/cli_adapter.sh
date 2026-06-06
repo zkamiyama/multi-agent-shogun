@@ -8,6 +8,7 @@
 #   get_instruction_file(agent_id [,cli_type]) → 指示書パス
 #   validate_cli_availability(cli_type)     → 0=OK, 1=NG
 #   get_agent_model(agent_id)               → "opus" | "sonnet" | "haiku" | "k2.5"
+#   get_agent_effort(agent_id)              → "low" | "medium" | "high" | "xhigh" | "max" | ""
 #   get_startup_prompt(agent_id)            → 初期プロンプト文字列 or ""
 #   get_startup_prompt_arg(agent_id)        → 起動コマンド向けプロンプト引数 or ""
 
@@ -37,6 +38,12 @@ normalize_opencode_model() {
     case "$model" in
         gpt-5.4-mini|gpt-5.4|gpt-5.3-codex|gpt-5.3-codex-spark|gpt-5*)
             echo "openai/${model}"
+            ;;
+        claude-opus-4-8)
+            echo "anthropic/claude-opus-4-8"
+            ;;
+        claude-opus-4-7)
+            echo "anthropic/claude-opus-4-7"
             ;;
         claude-opus-4-6|opus)
             echo "anthropic/claude-opus-4-6"
@@ -211,6 +218,8 @@ build_cli_command() {
     model=$(get_agent_model "$agent_id")
     local thinking
     thinking=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.thinking" "")
+    local effort
+    effort=$(get_agent_effort "$agent_id")
     local permission_flag="${PERMISSION_FLAG:---dangerously-skip-permissions}"
 
     # thinking prefix: Claude CLI でのみ有効
@@ -227,6 +236,9 @@ build_cli_command() {
             cmd="claude"
             if [[ -n "$model" ]]; then
                 cmd="$cmd --model $model"
+            fi
+            if [[ -n "$effort" ]]; then
+                cmd="$cmd --effort $effort"
             fi
             cmd="$cmd $permission_flag"
             ;;
@@ -436,6 +448,28 @@ get_agent_model() {
     esac
 }
 
+# get_agent_effort(agent_id)
+# Claude CLI の --effort に渡す推論強度を返す。
+# 未指定・不正値は空文字にして後方互換を維持する。
+get_agent_effort() {
+    local agent_id="$1"
+    local effort
+    effort=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.effort" "")
+
+    case "$effort" in
+        low|medium|high|xhigh|max)
+            echo "$effort"
+            ;;
+        "")
+            echo ""
+            ;;
+        *)
+            echo "[WARN] Invalid effort '$effort' for agent '$agent_id'. Ignoring." >&2
+            echo ""
+            ;;
+    esac
+}
+
 # get_model_display_name(agent_id)
 # pane-border-format 用の短い表示名を返す
 # Format: "{ShortName}" or "{ShortName}+T" (thinking enabled)
@@ -448,6 +482,8 @@ get_model_display_name() {
     cli_type=$(get_cli_type "$agent_id")
     local thinking
     thinking=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.thinking" "")
+    local effort
+    effort=$(get_agent_effort "$agent_id")
 
     if [[ "$cli_type" == "opencode" ]]; then
         if [[ "$model" == */* ]]; then
@@ -488,7 +524,9 @@ get_model_display_name() {
     # Claude: thinking: false → なし, それ以外(true/未設定) → "+T"
     # Codex等: Thinkingなし → 常になし
     if [[ "$cli_type" == "claude" ]]; then
-        if [[ "$thinking" == "false" || "$thinking" == "False" ]]; then
+        if [[ -n "$effort" ]]; then
+            echo "${short}+${effort}"
+        elif [[ "$thinking" == "false" || "$thinking" == "False" ]]; then
             echo "$short"
         else
             echo "${short}+T"
