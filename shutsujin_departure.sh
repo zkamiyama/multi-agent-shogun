@@ -380,8 +380,8 @@ fi
 # macOSではfswatch使用のためシンボリックリンク不要
 if [ "$(uname -s)" != "Darwin" ]; then
     INBOX_LINUX_DIR="$HOME/.local/share/multi-agent-shogun/inbox"
+    mkdir -p "$INBOX_LINUX_DIR"  # 常に実行（べき等）— dangling symlink 防止
     if [ ! -L ./queue/inbox ]; then
-        mkdir -p "$INBOX_LINUX_DIR"
         [ -d ./queue/inbox ] && cp ./queue/inbox/*.yaml "$INBOX_LINUX_DIR/" 2>/dev/null && rm -rf ./queue/inbox
         ln -sf "$INBOX_LINUX_DIR" ./queue/inbox
         log_info "  └─ inbox → Linux FS ($INBOX_LINUX_DIR) にシンボリックリンク作成"
@@ -1016,6 +1016,20 @@ else
     log_info "📱 ntfy未設定のためリスナーはスキップ"
 fi
 echo ""
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# STEP 6.9: MCP ヘルスチェック（codex足軽のMCP初期化状態を検証）
+# ═══════════════════════════════════════════════════════════════════════════════
+log_info ""
+log_info "STEP 6.9: MCP ヘルスチェック..."
+log_info "  └─ 全エージェント起動完了まで10秒待機..."
+sleep 10
+if bash "$SCRIPT_DIR/scripts/mcp_health_check.sh" 2>&1 | tee -a "$SCRIPT_DIR/logs/mcp_health.log"; then
+    log_success "  └─ MCP ヘルスチェック: 全正常"
+else
+    log_error "  └─ ⚠️ MCP初期化失敗を検知。logs/mcp_health.log を確認せよ"
+    log_error "     該当エージェントを 'bash scripts/switch_cli.sh <agent>' で再起動することを推奨"
+fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # STEP 7: 環境確認・完了メッセージ
