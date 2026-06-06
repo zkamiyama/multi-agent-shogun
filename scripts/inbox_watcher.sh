@@ -627,6 +627,9 @@ send_cli_command() {
                 timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
                 sleep 3
                 NEW_CONTEXT_SENT=1
+                return 0
+            fi
+            ;;
         antigravity)
             if [[ "$cmd" == /model* ]]; then
                 echo "[$(date)] Skipping $cmd (Antigravity model changes are restart-only)" >&2
