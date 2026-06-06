@@ -4,7 +4,7 @@
 
 **AIコーディング軍団統率システム — Multi-CLI対応**
 
-*コマンド1つで、10体のAIエージェントが並列稼働 — **Claude Code / OpenAI Codex / GitHub Copilot / Kimi Code / OpenCode / Cursor** 混成軍*
+*コマンド1つで、10体のAIエージェントが並列稼働 — **Claude Code / OpenAI Codex / GitHub Copilot / Kimi Code / OpenCode / Cursor / Antigravity** 混成軍*
 
 **Talk Coding — Vibe Codingではなく、スマホに話すだけでAIが実行**
 
@@ -58,7 +58,7 @@ bash shutsujin_departure.sh                # 全エージェント起動
 
 ## これは何？
 
-**multi-agent-shogun** は、複数のAIコーディングCLIインスタンスを同時に実行し、戦国時代の軍制のように統率するシステムです。**Claude Code**、**OpenAI Codex**、**GitHub Copilot**、**Kimi Code**、**OpenCode**、**Cursor** の6CLIに対応。
+**multi-agent-shogun** は、複数のAIコーディングCLIインスタンスを同時に実行し、戦国時代の軍制のように統率するシステムです。**Claude Code**、**OpenAI Codex**、**GitHub Copilot**、**Kimi Code**、**OpenCode**、**Cursor**、**Antigravity** の7CLIに対応。
 
 **なぜ使うのか？**
 - 1つの命令で、7体のAIワーカー+1体の軍師が並列で実行
@@ -95,7 +95,7 @@ bash shutsujin_departure.sh                # 全エージェント起動
 | **アーキテクチャ** | 1プロセス内のサブエージェント | リード+チームメイト（JSONメールボックス） | グラフベースの状態機械 | ロールベースエージェント | tmux経由の階層構造 |
 | **並列性** | 逐次実行（1つずつ） | 複数の独立セッション | 並列ノード（v0.2+） | 限定的 | **8体の独立エージェント** |
 | **連携コスト** | TaskごとにAPIコール | 高い（各チームメイト=別コンテキスト） | API + インフラ（Postgres/Redis） | API + CrewAIプラットフォーム | **ゼロ**（YAML + tmux） |
-| **Multi-CLI** | Claude Codeのみ | Claude Codeのみ | 任意のLLM API | 任意のLLM API | **6 CLI**（Claude/Codex/Copilot/Kimi/OpenCode/Cursor） |
+| **Multi-CLI** | Claude Codeのみ | Claude Codeのみ | 任意のLLM API | 任意のLLM API | **7 CLI**（Claude/Codex/Copilot/Kimi/OpenCode/Cursor/Antigravity） |
 | **可観測性** | Claudeのログのみ | tmux分割ペインまたはインプロセス | LangSmith連携 | OpenTelemetry | **ライブtmuxペイン** + ダッシュボード |
 | **スキル発見** | なし | なし | なし | なし | **ボトムアップ自動提案** |
 | **セットアップ** | Claude Code内蔵 | 内蔵（実験的） | 重い（インフラ必要） | pip install | シェルスクリプト |
@@ -125,7 +125,7 @@ bash shutsujin_departure.sh                # 全エージェント起動
 
 ### Multi-CLI対応
 
-将軍システムは特定ベンダーに依存しない。6つのCLIツールに対応し、それぞれの強みを活かす：
+将軍システムは特定ベンダーに依存しない。7つのCLIツールに対応し、それぞれの強みを活かす：
 
 | CLI | 特徴 | デフォルトモデル |
 |-----|------|-----------------|
@@ -135,6 +135,7 @@ bash shutsujin_departure.sh                # 全エージェント起動
 | **Kimi Code** | 無料プランあり、多言語サポート | Kimi k2 |
 | **OpenCode** | `AGENTS.md` 自動読込、`--agent` による個体別エージェント定義、`/new` でのコンテキストリセット、モデル変更は再起動のみ、決定的な対話型 TUI 起動、`--model provider/model` ルーティング | provider/model |
 | **Cursor** | `CLAUDE.md`/`AGENTS.md`/`.cursor/rules/` 自動読込、組込 Web 検索、`.cursor/skills/` 経由の `inbox-write` スキル、`/model` でライブ切替、`--yolo` 自動実行 | 可変 |
+| **Antigravity CLI** | Google Antigravity CLI（`agy`）連携、ホスト管理認証、`--dangerously-skip-permissions` 自動実行、`gemini`/`agy` エイリアス対応 | ホスト既定 / 最後に使用したモデル |
 
 OpenCode の起動は `--agent` で生成済み `.opencode/agents/<agent_id>.md` を読み込み、リセットは `/new`、モデル変更は再起動で行う。ロール別の境界は生成されたエージェント frontmatter に埋め込まれており、将軍は監督のため `queue/reports/*` を読めるが書けず、家老は分配と報告集約のみ、足軽は自分の task/report のみ、軍師は足軽レポートを読み `gunshi_report.yaml` だけを書く。
 
@@ -491,6 +492,7 @@ wsl --install
 | Kimi Code CLI | Kimi Codeをインストールして認証 | `type: kimi` のエージェントでのみ必要 |
 | OpenCode CLI | `npm install -g opencode-ai` | `type: opencode` のエージェントでのみ必要。provider API key は起動シェルで読める必要あり |
 | Cursor CLI | [Cursor CLI ドキュメント](https://cursor.com/docs/cli/overview) 参照 — `cursor-agent` または `agent` コマンドで起動 | `type: cursor` のエージェントでのみ必要 |
+| Antigravity CLI | Google Antigravity CLI（`agy`）をインストールして認証 | `type: antigravity`、`type: agy`、または旧称 `type: gemini` のエージェントでのみ必要 |
 
 </details>
 

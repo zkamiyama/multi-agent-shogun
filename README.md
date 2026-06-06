@@ -4,7 +4,7 @@
 
 **Command your AI army like a feudal warlord.**
 
-Run 10 AI coding agents in parallel — **Claude Code, OpenAI Codex, GitHub Copilot, Kimi Code, OpenCode, Cursor** — orchestrated through a samurai-inspired hierarchy with zero coordination overhead.
+Run 10 AI coding agents in parallel — **Claude Code, OpenAI Codex, GitHub Copilot, Kimi Code, OpenCode, Cursor, Antigravity** — orchestrated through a samurai-inspired hierarchy with zero coordination overhead.
 
 **Talk Coding, not Vibe Coding. Speak to your phone, AI executes.**
 
@@ -58,7 +58,7 @@ You watch the dashboard. That's it.
 
 ## What is this?
 
-**multi-agent-shogun** is a system that runs multiple AI coding CLI instances simultaneously, orchestrating them like a feudal Japanese army. Supports **Claude Code**, **OpenAI Codex**, **GitHub Copilot**, **Kimi Code**, **OpenCode**, and **Cursor**.
+**multi-agent-shogun** is a system that runs multiple AI coding CLI instances simultaneously, orchestrating them like a feudal Japanese army. Supports **Claude Code**, **OpenAI Codex**, **GitHub Copilot**, **Kimi Code**, **OpenCode**, **Cursor**, and **Antigravity**.
 
 **Why use it?**
 - One command spawns 7 AI workers + 1 strategist executing in parallel
@@ -95,7 +95,7 @@ Most multi-agent frameworks burn API tokens on coordination. Shogun doesn't.
 | **Architecture** | Subagents inside one process | Team lead + teammates (JSON mailbox) | Graph-based state machine | Role-based agents | Feudal hierarchy via tmux |
 | **Parallelism** | Sequential (one at a time) | Multiple independent sessions | Parallel nodes (v0.2+) | Limited | **8 independent agents** |
 | **Coordination cost** | API calls per Task | Token-heavy (each teammate = separate context) | API + infra (Postgres/Redis) | API + CrewAI platform | **Zero** (YAML + tmux) |
-| **Multi-CLI** | Claude Code only | Claude Code only | Any LLM API | Any LLM API | **6 CLIs** (Claude/Codex/Copilot/Kimi/OpenCode/Cursor) |
+| **Multi-CLI** | Claude Code only | Claude Code only | Any LLM API | Any LLM API | **7 CLIs** (Claude/Codex/Copilot/Kimi/OpenCode/Cursor/Antigravity) |
 | **Observability** | Claude logs only | tmux split-panes or in-process | LangSmith integration | OpenTelemetry | **Live tmux panes** + dashboard |
 | **Skill discovery** | None | None | None | None | **Bottom-up auto-proposal** |
 | **Setup** | Built into Claude Code | Built-in (experimental) | Heavy (infra required) | pip install | Shell scripts |
@@ -125,7 +125,7 @@ Most AI coding tools charge per token. Running 8 Opus-grade agents through the A
 
 ### Multi-CLI Support
 
-Shogun isn't locked to one vendor. The system supports 6 CLI tools, each with unique strengths:
+Shogun isn't locked to one vendor. The system supports 7 CLI tools, each with unique strengths:
 
 | CLI | Key Strength | Default Model |
 |-----|-------------|---------------|

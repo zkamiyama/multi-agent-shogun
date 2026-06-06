@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.2.0] - 2026-06-06
+
+### Added
+- **Cursor Agent CLI** support as 6th CLI (`type: cursor`): `cursor-agent --yolo` launch, `/new-chat` context reset, busy detection via `ctrl+c to stop` marker, generated instructions for all 4 roles, `.cursor/skills/inbox-write/` skill (PR #155)
+- **Antigravity CLI** support as 7th CLI (`type: antigravity`): `agy --dangerously-skip-permissions` launch, `gemini`/`agy` legacy alias normalization, tests for cli_adapter/switch_cli/build_system/send_wakeup (PR #154)
+
+### Fixed
+- `scripts/watcher_supervisor.sh`: prevent duplicate `inbox_watcher.sh` startup via per-agent `flock -n` — eliminates TOCTOU race on supervisor restart (closes #159)
+- `.claude/settings.json`: stop hook path changed from hardcoded absolute to relative `bash scripts/stop_hook_inbox.sh` — works on any clone path (PR #161, closes #160)
+- `instructions/karo.md`, `instructions/roles/karo_role.md`: removed hardcoded `/home/tono/` and `/mnt/c/tools/multi-agent-shogun/` paths; regenerated all CLI-specific instruction files
+- `scripts/seo_qc.py`: replaced hardcoded `/home/yohei/seo-affiliate` with `Path.home() / "seo-affiliate"`
+
+### Tests
+- Added `tests/unit/test_watcher_supervisor.bats` — 4 tests for flock-based duplicate prevention
+
 ## [5.1.0] - 2026-05-23
 
 ### Changed
