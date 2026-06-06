@@ -56,7 +56,7 @@ usage() {
     echo "Usage: $0 <agent_id> [--type <cli_type>] [--model <model_name>] [--variant <variant>]"
     echo ""
     echo "  agent_id   Agent configured in config/settings.yaml (e.g. karo, ashigaru1, gunshi)"
-    echo "  --type     claude | codex | copilot | kimi | opencode"
+    echo "  --type     claude | codex | copilot | kimi | opencode | cursor"
     echo "  --model    claude-sonnet-4-6 | claude-opus-4-6 | gpt-5.3-codex | openai/gpt-5.4-mini | etc."
     echo "  --variant  OpenCode model variant such as xhigh, high, max, minimal"
     echo ""
@@ -318,6 +318,11 @@ send_exit() {
             tmux send-keys -t "$pane" "/exit" 2>/dev/null || true
             sleep 0.3
             tmux send-keys -t "$pane" Enter 2>/dev/null || true
+            ;;
+        cursor)
+            tmux send-keys -t "$pane" "/quit" 2>/dev/null || true
+            sleep 0.3
+            tmux send-keys -t "$pane" "" Enter 2>/dev/null || true
             ;;
         *)
             tmux send-keys -t "$pane" "/exit" 2>/dev/null || true
