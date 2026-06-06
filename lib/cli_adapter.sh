@@ -180,7 +180,7 @@ get_cli_type() {
     local result
     result=$("$CLI_ADAPTER_PROJECT_ROOT/.venv/bin/python3" -c "
 import yaml, sys
-allowed = ('claude', 'codex', 'copilot', 'kimi', 'opencode', 'antigravity')
+allowed = ('claude', 'codex', 'copilot', 'kimi', 'opencode', 'cursor', 'antigravity')
 def normalize_cli(value):
     value = str(value or '').lower()
     if value in ('gemini', 'agy'):
@@ -194,23 +194,18 @@ try:
         print('claude'); sys.exit(0)
     agents = cli.get('agents', {})
     if not isinstance(agents, dict):
-        print(cli.get('default', 'claude') if cli.get('default', 'claude') in ('claude','codex','copilot','kimi','opencode','cursor') else 'claude')
+        default = normalize_cli(cli.get('default', 'claude'))
+        print(default if default in allowed else 'claude')
         sys.exit(0)
     agent_cfg = agents.get('${agent_id}')
     if isinstance(agent_cfg, dict):
-        t = agent_cfg.get('type', '')
-        if t in ('claude', 'codex', 'copilot', 'kimi', 'opencode', 'cursor'):
-            print(t); sys.exit(0)
-    elif isinstance(agent_cfg, str):
-        if agent_cfg in ('claude', 'codex', 'copilot', 'kimi', 'opencode', 'cursor'):
-            print(agent_cfg); sys.exit(0)
-    default = cli.get('default', 'claude')
-    if default in ('claude', 'codex', 'copilot', 'kimi', 'opencode', 'cursor'):
-        default = normalize_cli(cli.get('default', 'claude'))
-        print(default if default in allowed else 'claude')
         t = normalize_cli(agent_cfg.get('type', ''))
         if t in allowed:
+            print(t); sys.exit(0)
+    elif isinstance(agent_cfg, str):
         t = normalize_cli(agent_cfg)
+        if t in allowed:
+            print(t); sys.exit(0)
     default = normalize_cli(cli.get('default', 'claude'))
     if default in allowed:
         print(default)
@@ -482,8 +477,12 @@ get_agent_model() {
             # Antigravity CLI はホスト側の既定/最後のモデル設定を使う。
             echo "auto"
             ;;
+        copilot)
+            # Copilot CLI manages model selection internally; no default
+            echo ""
+            ;;
         *)
-            # Claude Code/Codex/Copilot用デフォルトモデル
+            # Claude Code/Codex用デフォルトモデル
             case "$agent_id" in
                 shogun)         echo "opus" ;;
                 karo)           echo "sonnet" ;;
