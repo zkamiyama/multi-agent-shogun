@@ -211,6 +211,7 @@ PYEOF
     [[ "$output" == *"Usage"* ]]
     [[ "$output" == *"opencode"* ]]
     [[ "$output" == *"openai/gpt-5.4-mini"* ]]
+    [[ "$output" == *"--effort"* ]]
 }
 
 @test "switch_cli.sh -h → usage表示 + exit 1" {
@@ -230,8 +231,23 @@ PYEOF
     [ "$status" -ne 0 ]
 }
 
+@test "switch_cli.sh 不正effort → エラー" {
+    run bash "${PROJECT_ROOT}/scripts/switch_cli.sh" ashigaru1 --effort turbo
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Invalid effort"* ]]
+}
+
 @test "switch_cli validation: opencode type is accepted" {
     _cli_adapter_is_valid_cli "opencode"
+    [ "$?" -eq 0 ]
+}
+
+@test "switch_cli validation: antigravity type and aliases are accepted" {
+    _cli_adapter_is_valid_cli "antigravity"
+    [ "$?" -eq 0 ]
+    _cli_adapter_is_valid_cli "agy"
+    [ "$?" -eq 0 ]
+    _cli_adapter_is_valid_cli "gemini"
     [ "$?" -eq 0 ]
 }
 

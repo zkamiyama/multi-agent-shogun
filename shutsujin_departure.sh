@@ -92,6 +92,17 @@ opencode_startup_delay() {
     fi
 }
 
+cli_ready_pattern() {
+    local cli_type="$1"
+    case "$cli_type" in
+        claude)      echo "bypass permissions|Do you trust|Claude Code" ;;
+        codex)       echo "context left|\\? for shortcuts|Codex" ;;
+        opencode)    echo "esc.*interrupt|OpenCode|opencode" ;;
+        antigravity) echo "Antigravity|agy|type a message|Type a message|message" ;;
+        *)           echo "." ;;
+    esac
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # プロンプト生成関数（bash/zsh対応）
 # ───────────────────────────────────────────────────────────────────────────────
@@ -369,8 +380,8 @@ fi
 # macOSではfswatch使用のためシンボリックリンク不要
 if [ "$(uname -s)" != "Darwin" ]; then
     INBOX_LINUX_DIR="$HOME/.local/share/multi-agent-shogun/inbox"
+    mkdir -p "$INBOX_LINUX_DIR"  # 常に実行（べき等）— dangling symlink 防止
     if [ ! -L ./queue/inbox ]; then
-        mkdir -p "$INBOX_LINUX_DIR"
         [ -d ./queue/inbox ] && cp ./queue/inbox/*.yaml "$INBOX_LINUX_DIR/" 2>/dev/null && rm -rf ./queue/inbox
         ln -sf "$INBOX_LINUX_DIR" ./queue/inbox
         log_info "  └─ inbox → Linux FS ($INBOX_LINUX_DIR) にシンボリックリンク作成"
@@ -686,7 +697,7 @@ if [ "$SETUP_ONLY" = false ]; then
     rm -f /tmp/shogun_idle_*
     echo "idle flags cleared"
 
-    log_war "👑 全軍に Claude Code を召喚中..."
+    log_war "👑 全軍にエージェントCLIを召喚中..."
 
     # 将軍: CLI Adapter経由でコマンド構築
     _shogun_cli_type="claude"
@@ -866,12 +877,13 @@ NINJA_EOF
     echo -e "                               \033[0;36m[ASCII Art: syntax-samurai/ryu - CC0 1.0 Public Domain]\033[0m"
     echo ""
 
-    echo "  Claude Code の起動を待機中（最大30秒）..."
+    echo "  エージェントCLIの起動を待機中（最大30秒）..."
 
     # 将軍の起動を確認（最大30秒待機）
+    _shogun_ready_pattern=$(cli_ready_pattern "$_shogun_cli_type")
     for i in {1..30}; do
-        if tmux capture-pane -t shogun:main -p | grep -q "bypass permissions"; then
-            echo "  └─ 将軍の Claude Code 起動確認完了（${i}秒）"
+        if tmux capture-pane -t shogun:main -p | grep -qiE "$_shogun_ready_pattern"; then
+            echo "  └─ 将軍のCLI起動確認完了（${i}秒, ${_shogun_cli_type}）"
             break
         fi
         sleep 1
@@ -1004,6 +1016,20 @@ else
     log_info "📱 ntfy未設定のためリスナーはスキップ"
 fi
 echo ""
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# STEP 6.9: MCP ヘルスチェック（codex足軽のMCP初期化状態を検証）
+# ═══════════════════════════════════════════════════════════════════════════════
+log_info ""
+log_info "STEP 6.9: MCP ヘルスチェック..."
+log_info "  └─ 全エージェント起動完了まで10秒待機..."
+sleep 10
+if bash "$SCRIPT_DIR/scripts/mcp_health_check.sh" 2>&1 | tee -a "$SCRIPT_DIR/logs/mcp_health.log"; then
+    log_success "  └─ MCP ヘルスチェック: 全正常"
+else
+    log_error "  └─ ⚠️ MCP初期化失敗を検知。logs/mcp_health.log を確認せよ"
+    log_error "     該当エージェントを 'bash scripts/switch_cli.sh <agent>' で再起動することを推奨"
+fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # STEP 7: 環境確認・完了メッセージ

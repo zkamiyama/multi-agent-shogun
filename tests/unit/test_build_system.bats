@@ -103,6 +103,22 @@ setup() {
     [ -f "$OUTPUT_DIR/opencode-gunshi.md" ]
 }
 
+@test "antigravity: antigravity-shogun.md generated" {
+    [ -f "$OUTPUT_DIR/antigravity-shogun.md" ]
+}
+
+@test "antigravity: antigravity-karo.md generated" {
+    [ -f "$OUTPUT_DIR/antigravity-karo.md" ]
+}
+
+@test "antigravity: antigravity-ashigaru.md generated" {
+    [ -f "$OUTPUT_DIR/antigravity-ashigaru.md" ]
+}
+
+@test "antigravity: antigravity-gunshi.md generated" {
+    [ -f "$OUTPUT_DIR/antigravity-gunshi.md" ]
+}
+
 @test "opencode: generated markdown is LF-only and has no trailing whitespace [R6]" {
     local file
 
@@ -181,6 +197,10 @@ setup() {
     [ -s "$OUTPUT_DIR/opencode-gunshi.md" ]
 }
 
+@test "content: antigravity-shogun.md is not empty" {
+    [ -s "$OUTPUT_DIR/antigravity-shogun.md" ]
+}
+
 # =============================================================================
 # 内容検証テスト — ロール名含有
 # =============================================================================
@@ -225,6 +245,10 @@ setup() {
     grep -qi "gunshi\|軍師" "$OUTPUT_DIR/opencode-gunshi.md"
 }
 
+@test "content: antigravity-shogun.md contains shogun role reference" {
+    grep -qi "shogun\|将軍" "$OUTPUT_DIR/antigravity-shogun.md"
+}
+
 # =============================================================================
 # 内容検証テスト — CLI固有セクション
 # =============================================================================
@@ -240,6 +264,10 @@ setup() {
 
 @test "content: opencode files contain OpenCode-specific content [R6]" {
     grep -qi "opencode\|OpenCode\|--agent" "$OUTPUT_DIR/opencode-shogun.md"
+}
+
+@test "content: antigravity files contain Antigravity-specific content" {
+    grep -qi "antigravity\|Antigravity\|agy" "$OUTPUT_DIR/antigravity-shogun.md"
 }
 
 @test "content: copilot files contain Copilot-specific content [Phase 2+3]" {
