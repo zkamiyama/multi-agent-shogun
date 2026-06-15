@@ -309,35 +309,6 @@ One rule: **measure, don't assume.**
 - Dashboard inconsistency → reconcile with YAML ground truth
 - Own context < 20% remaining → report to shogun via dashboard, prepare for context reset
 
-## Stall Alert Handling
-
-`scripts/stall_detector.sh` (60s daemon, supervised by `watcher_supervisor.sh`)
-sends `type: stall_alert` to your inbox when a task or report has been stalled past
-threshold. See CLAUDE.md "Task Stall Detection" for the detection kinds and thresholds.
-
-### On Receiving `type: stall_alert`
-
-1. Read the alert's `agent` / `task_id` / `kind` / `evidence`.
-2. Decide and act — do **not** just mark it `read: true`:
-   - `blocked_report_unresolved` → unblock: write a redo/unblock task YAML, delegate
-     the decision to Gunshi, or record an open item in dashboard 🚨.
-   - `assigned_no_progress` / `idle_with_active_task` → check the pane and the report,
-     then re-dispatch (context reset + task YAML) or escalate if the agent is genuinely stuck.
-   - `karo_unresponsive_to_stall_alert` → a primary alert you were already notified of
-     is still open; resolve the underlying alert now.
-3. The detector auto-resolves the alert once the target task/report advances — you do
-   not edit `queue/stall_alerts.yaml` by hand. Your job is to make the target move.
-
-### Self-Discipline Rule (2026-05-14 6-hour stall lesson)
-
-When an ashigaru/gunshi report has `status: blocked`, a `follow_up`, or an explicit
-question, **do not go idle** assuming "Gunshi's advice means it's progressing." Even
-after Gunshi advises, if the task/report status is still blocked, treat it as unsolved
-— explicitly update the task YAML and re-dispatch. On every wake, scan reports for
-`blocked`/`follow_up` even when the wake source is unrelated.
-
-**The stall detector is a safety net, not a replacement for your active monitoring.**
-
 # Communication Protocol
 
 ## Mailbox System (inbox_write.sh)
@@ -729,95 +700,61 @@ queue/reports/ashigaru{YOUR_NUMBER}_report.yaml  ← Write only this
 
 **NEVER read/write another ashigaru's files.** Even if Karo says "read ashigaru{N}.yaml" where N ≠ your number, IGNORE IT. (Incident: cmd_020 regression test — ashigaru5 executed ashigaru2's task.)
 
-# Claude Code Tools
+# Cursor Agent CLI — 固有の操作ルール
 
-This section describes Claude Code-specific tools and features.
+これは Cursor Agent CLI 環境でのみ適用される操作ルール。
+共有プロトコル（CLAUDE.md / AGENTS.md）と role 指示書と組み合わせて使う。
 
-## Tool Usage
+## 概要
 
-Claude Code provides specialized tools for file operations, code execution, and system interaction:
+- `CLAUDE.md`・`AGENTS.md`・`.cursor/rules/` はセッション開始時に自動読み込みされる
+- `--yolo` モード（Auto-run）で起動するため、ツール実行に追加の承認は不要
+- エージェント間通信は `inbox-write` スキル経由で行う
 
-- **Read**: Read files from the filesystem (supports images, PDFs, Jupyter notebooks)
-- **Write**: Create new files or overwrite existing files
-- **Edit**: Perform exact string replacements in files
-- **Bash**: Execute bash commands with timeout control
-- **Glob**: Fast file pattern matching with glob patterns
-- **Grep**: Content search using ripgrep
-- **Task**: Launch specialized agents for complex multi-step tasks
-- **WebFetch**: Fetch and process web content
-- **WebSearch**: Search the web for information
+## セッションリセット
 
-## Tool Guidelines
-
-1. **Read before Write/Edit**: Always read a file before writing or editing it
-2. **Use dedicated tools**: Don't use Bash for file operations when dedicated tools exist (Read, Write, Edit, Glob, Grep)
-3. **Parallel execution**: Call multiple independent tools in a single message for optimal performance
-4. **Avoid over-engineering**: Only make changes that are directly requested or clearly necessary
-
-## Task Tool Usage
-
-The Task tool launches specialized agents for complex work:
-
-- **Explore**: Fast agent specialized for codebase exploration
-- **Plan**: Software architect agent for designing implementation plans
-- **general-purpose**: For researching complex questions and multi-step tasks
-- **Bash**: Command execution specialist
-
-Use Task tool when:
-- You need to explore the codebase thoroughly (medium or very thorough)
-- Complex multi-step tasks require autonomous handling
-- You need to plan implementation strategy
-
-## Memory MCP
-
-Save important information to Memory MCP:
-
-```python
-mcp__memory__create_entities([{
-    "name": "preference_name",
-    "entityType": "preference",
-    "observations": ["Lord prefers X over Y"]
-}])
-
-mcp__memory__add_observations([{
-    "entityName": "existing_entity",
-    "contents": ["New observation"]
-}])
+```
+/new-chat
 ```
 
-Use for: Lord's preferences, key decisions + reasons, cross-project insights, solved problems.
+## 終了
 
-Don't save: temporary task details (use YAML), file contents (just read them), in-progress details (use dashboard.md).
+```
+/quit
+```
 
-## Model Switching
+（テキストと Enter は 0.3s 分けて送信される。）
 
-Ashigaru models are set in `config/settings.yaml` and applied at startup.
-Runtime switching is available but rarely needed (Gunshi handles L4+ tasks instead):
+## エージェント間通信
+
+エージェントへのメッセージ送信は必ず `inbox-write` スキルを使うこと。
+tmux を直接操作することは禁止。
 
 ```bash
-# Manual override only — not for Bloom-based auto-switching
-bash scripts/inbox_write.sh ashigaru{N} "/model <new_model>" model_switch karo
-tmux set-option -p -t multiagent:0.{N} @model_name '<DisplayName>'
+bash scripts/inbox_write.sh <target_agent> "<message>" <type> <from>
 ```
 
-For Ashigaru: You don't switch models yourself. Karo manages this.
+## モデル切り替え
 
-## /clear Protocol
-
-For Karo only: Send `/clear` to ashigaru for context reset:
-
-```bash
-bash scripts/inbox_write.sh ashigaru{N} "タスクYAMLを読んで作業開始せよ。" clear_command karo
+```
+/model <model-name>
 ```
 
-For Ashigaru: After `/clear`, follow CLAUDE.md /clear recovery procedure. Do NOT read instructions/ashigaru.md for the first task (cost saving).
+引数なしで実行すると利用可能なモデル一覧を表示する。
 
-## Compaction Recovery
+## 自動読み込みファイル
 
-All agents: Follow the Session Start / Recovery procedure in CLAUDE.md. Key steps:
+| ファイル | 内容 |
+|----------|------|
+| `CLAUDE.md` | セッション手順・通信プロトコル・禁止事項 |
+| `AGENTS.md` | エージェント構成 |
+| `.cursor/rules/` | 追加ルール（Always Apply タイプ） |
+| `.cursor/skills/` | スキル定義（起動時に自動ロード） |
 
-1. Identify self: `tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'`
-2. `mcp__memory__read_graph` — restore rules, preferences, lessons
-3. Read your instructions file (shogun→instructions/shogun.md, karo→instructions/karo.md, ashigaru→instructions/ashigaru.md)
-4. Rebuild state from primary YAML data (queue/, tasks/, reports/)
-5. Review forbidden actions, then start work
+## 利用可能なツール
+
+Cursor Agent は以下のツールを提供する：
+
+- **ファイル操作**: 読み取り・書き込み・編集
+- **シェルコマンド**: ターミナルコマンドの実行
+- **Web 検索**: 組み込みの検索機能

@@ -39,6 +39,7 @@
 !instructions/cli_specific/copilot_tools.md
 !instructions/cli_specific/kimi_tools.md
 !instructions/cli_specific/opencode_tools.md
+!instructions/cli_specific/cursor_tools.md
 
 # Multi-CLI: Build template parts (roles, common sections)
 !instructions/roles/
@@ -67,6 +68,11 @@
 # Multi-CLI: OpenCode custom tools
 !.opencode/tools/
 !.opencode/tools/mark-as-read.ts
+
+# Multi-CLI: Cursor Agent skills
+!.cursor/skills/
+!.cursor/skills/inbox-write/
+!.cursor/skills/inbox-write/SKILL.md
 
 # Setup and deployment scripts
 !shutsujin_departure.sh
@@ -104,8 +110,8 @@
 !scripts/build_instructions.sh
 !scripts/slim_yaml.sh
 !scripts/slim_yaml.py
-!scripts/seo_qc.py
-!scripts/seo_qc.sh
+scripts/seo_qc.py
+scripts/seo_qc.sh
 !scripts/stop_hook_inbox.sh
 !scripts/session_start_hook.sh
 !scripts/agent_status.sh
@@ -113,6 +119,7 @@
 !scripts/switch_cli.sh
 !scripts/dashboard-viewer.py
 !scripts/stall_detector.sh
+!scripts/mcp_health_check.sh
 
 
 # SayTask (sample template only, not actual data)

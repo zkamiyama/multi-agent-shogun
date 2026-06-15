@@ -31,7 +31,10 @@ if [ "${__INBOX_WATCHER_TESTING__:-}" != "1" ]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     AGENT_ID="$1"
     PANE_TARGET="$2"
-    CLI_TYPE="${3:-claude}"  # CLI種別（claude/codex/copilot/kimi/opencode）。未指定→claude（後方互換）
+    CLI_TYPE="${3:-claude}"  # CLI種別（claude/codex/copilot/kimi/opencode/antigravity）。未指定→claude（後方互換）
+    case "$CLI_TYPE" in
+        gemini|agy) CLI_TYPE="antigravity" ;;
+    esac
 
     INBOX="$SCRIPT_DIR/queue/inbox/${AGENT_ID}.yaml"
     LOCKFILE="${INBOX}.lock"
@@ -258,8 +261,15 @@ should_throttle_nudge() {
 
 is_valid_cli_type() {
     case "${1:-}" in
-        claude|codex|copilot|kimi|opencode) return 0 ;;
+        claude|codex|copilot|kimi|opencode|antigravity|gemini|agy) return 0 ;;
         *) return 1 ;;
+    esac
+}
+
+normalize_watcher_cli_type() {
+    case "${1:-}" in
+        gemini|agy) echo "antigravity" ;;
+        *) echo "${1:-}" ;;
     esac
 }
 
@@ -271,7 +281,10 @@ get_effective_cli_type() {
     pane_cli=$(echo "$pane_cli_raw" | tr -d '\r' | head -n1 | tr -d '[:space:]')
 
     if is_valid_cli_type "$pane_cli"; then
-        if is_valid_cli_type "${CLI_TYPE:-}" && [ "$pane_cli" != "${CLI_TYPE}" ]; then
+        pane_cli=$(normalize_watcher_cli_type "$pane_cli")
+        local arg_cli
+        arg_cli=$(normalize_watcher_cli_type "${CLI_TYPE:-}")
+        if is_valid_cli_type "${CLI_TYPE:-}" && [ "$pane_cli" != "$arg_cli" ]; then
             echo "[$(date)] [WARN] CLI drift detected for $AGENT_ID: arg=${CLI_TYPE}, pane=${pane_cli}. Using pane value." >&2
         fi
         echo "$pane_cli"
@@ -282,7 +295,7 @@ get_effective_cli_type() {
         if [ -n "$pane_cli" ]; then
             echo "[$(date)] [WARN] Invalid pane @agent_cli for $AGENT_ID: '${pane_cli}'. Falling back to arg=${CLI_TYPE}." >&2
         fi
-        echo "${CLI_TYPE}"
+        normalize_watcher_cli_type "${CLI_TYPE}"
         return 0
     fi
 
@@ -489,7 +502,8 @@ PY
 # ─── Send CLI command via pty direct write ───
 # For /clear and /model only. These are CLI commands, not conversation messages.
 # CLI_TYPE別分岐: claude→そのまま, codex→/clear対応・/modelスキップ,
-#                  copilot→Ctrl-C+再起動・/modelスキップ, opencode→/clear→/new・/modelスキップ
+#                  copilot→Ctrl-C+再起動・/modelスキップ, opencode→/clear→/new・/modelスキップ,
+#                  antigravity→/clearそのまま・/modelスキップ
 # 実行時にtmux paneの @agent_cli を再確認し、ドリフト時はpane値を優先する。
 send_cli_command() {
     local cmd="$1"
@@ -600,6 +614,28 @@ send_cli_command() {
                 return 0
             fi
             ;;
+        cursor)
+            # Cursor: /clear不存在→/new-chatで新規会話開始, /modelは対応
+            if [[ "$cmd" == "/clear" ]]; then
+                if [ "${NEW_CONTEXT_SENT:-0}" -eq 1 ]; then
+                    echo "[$(date)] [SKIP] Cursor /new-chat already sent for $AGENT_ID — skipping duplicate clear_command" >&2
+                    return 0
+                fi
+                echo "[$(date)] [SEND-KEYS] Cursor /clear→/new-chat: starting new conversation for $AGENT_ID" >&2
+                timeout 5 tmux send-keys -t "$PANE_TARGET" "/new-chat" 2>/dev/null || true
+                sleep 0.3
+                timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+                sleep 3
+                NEW_CONTEXT_SENT=1
+                return 0
+            fi
+            ;;
+        antigravity)
+            if [[ "$cmd" == /model* ]]; then
+                echo "[$(date)] Skipping $cmd (Antigravity model changes are restart-only)" >&2
+                return 0
+            fi
+            ;;
         # claude: commands pass through as-is
     esac
 
@@ -680,7 +716,8 @@ send_startup_prompt() {
 # Called when task_assigned is detected in unread messages.
 # Sends the appropriate "new conversation" command per CLI type to clear
 # stale context from the previous task.
-# CLI mapping: claude→/clear, codex→/new, opencode→/new, copilot→/clear, kimi→/clear
+# CLI mapping: claude→/clear, codex→/new, opencode→/new, cursor→/new-chat, copilot→/clear, kimi→/clear
+# CLI mapping: claude→/clear, codex→/new, opencode→/new, copilot→/clear, kimi→/clear, antigravity→/clear
 
 send_context_reset() {
     local effective_cli
@@ -699,26 +736,30 @@ send_context_reset() {
     case "$effective_cli" in
         codex)    reset_cmd="/new" ;;
         opencode) reset_cmd="/new" ;;
+        cursor)   reset_cmd="/new-chat" ;;
         claude)   reset_cmd="/clear" ;;
         copilot)  reset_cmd="/clear" ;;
         kimi)     reset_cmd="/clear" ;;
+        antigravity) reset_cmd="/clear" ;;
         *)        reset_cmd="/new" ;;  # safe default (codex-safe)
     esac
 
     echo "[$(date)] [CONTEXT-RESET] Sending $reset_cmd before task_assigned for $AGENT_ID ($effective_cli)" >&2
 
-    # Codex/OpenCode: send /new as a single atomic operation.
+    # Codex/OpenCode/Cursor: send new-context command as a single atomic operation.
     # When called from clear_command path, NEW_CONTEXT_SENT=1 prevents reaching here.
-    # When called for standalone task_assigned, this is the only /new send.
-    if [[ "$effective_cli" == "codex" || "$effective_cli" == "opencode" ]]; then
-        # Dismiss suggestion UI (Codex only) + send /new
+    # When called for standalone task_assigned, this is the only send.
+    if [[ "$effective_cli" == "codex" || "$effective_cli" == "opencode" || "$effective_cli" == "cursor" ]]; then
+        # Dismiss suggestion UI (Codex only) + send reset command
         if [[ "$effective_cli" == "codex" ]]; then
             timeout 5 tmux send-keys -t "$PANE_TARGET" "x" 2>/dev/null || true
             sleep 0.3
         fi
-        timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
-        sleep 0.3
-        timeout 5 tmux send-keys -t "$PANE_TARGET" "/new" 2>/dev/null || true
+        if [[ "$effective_cli" != "cursor" ]]; then
+            timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
+            sleep 0.3
+        fi
+        timeout 5 tmux send-keys -t "$PANE_TARGET" "$reset_cmd" 2>/dev/null || true
         sleep 0.3
         timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
         sleep 3
@@ -965,7 +1006,7 @@ send_wakeup_with_escape() {
 
     # OpenCode: Escape is bound to session_interrupt in the pinned TUI config.
     # Phase 2 must not interrupt the session; fall back to a plain nudge.
-    if [[ "$effective_cli" == "opencode" ]]; then
+    if [[ "$effective_cli" == "opencode" || "$effective_cli" == "antigravity" ]]; then
         echo "[$(date)] [SKIP] opencode: suppressing Escape escalation for $AGENT_ID (Escape interrupts the session); sending plain nudge" >&2
         send_wakeup "$unread_count"
         return 0
