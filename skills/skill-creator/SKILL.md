@@ -40,7 +40,7 @@ context: fork                  # fork = サブエージェントで隔離実行
 agent: general-purpose         # fork時のエージェント種別: Explore, Plan, general-purpose
 license: MIT                   # OSSスキル用。MIT, Apache-2.0 等
 compatibility: |               # 環境要件（1-500文字）
-  Claude Code + tmux + WSL2
+  Claude Code + mux backend (Zellij default / tmux legacy) + WSL2
 metadata:                      # カスタムメタデータ
   author: your-name
   version: 1.0.0

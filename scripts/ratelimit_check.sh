@@ -27,6 +27,7 @@ done
 # ─── Load shared libraries ───
 source "$SCRIPT_DIR/lib/agent_status.sh"
 source "$SCRIPT_DIR/lib/cli_adapter.sh"
+source "$SCRIPT_DIR/lib/mux_adapter.sh"
 
 PYTHON="${SCRIPT_DIR}/.venv/bin/python3"
 
@@ -47,26 +48,23 @@ for _aid in $_ashigaru_ids_str; do ALL_AGENTS+=("$_aid"); done
 ALL_AGENTS+=("gunshi")
 
 # ═══════════════════════════════════════════════════════
-# Phase 1: Scan all tmux panes for metadata
+# Phase 1: Scan all mux panes for metadata
 # ═══════════════════════════════════════════════════════
 declare -A AGENT_CLI AGENT_MODEL AGENT_PANE
 
 for agent in "${ALL_AGENTS[@]}"; do
-    # Determine pane target using @agent_id tmux option (dynamic, no hardcoded pane indices)
-    if [[ "$agent" == "shogun" ]]; then
+    pane_target=$(mux_find_pane_by_agent "$agent" 2>/dev/null || true)
+    if [[ -z "$pane_target" && "$(mux_backend_name)" == "tmux" && "$agent" == "shogun" ]]; then
         pane_target="shogun:main"
-    else
-        pane_target=$(tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} #{@agent_id}' 2>/dev/null \
-            | awk -v a="$agent" '$2 == a {print $1}' | head -1)
     fi
 
     # Read pane metadata (fallback to cli_adapter)
-    cli=$(timeout 2 tmux display-message -t "$pane_target" -p '#{@agent_cli}' 2>/dev/null || echo "")
+    cli=$(timeout 2 mux_get_meta "$pane_target" agent_cli 2>/dev/null || echo "")
     if [[ -z "$cli" ]]; then
         cli=$(get_cli_type "$agent" 2>/dev/null || echo "?")
     fi
 
-    model=$(timeout 2 tmux display-message -t "$pane_target" -p '#{@model_name}' 2>/dev/null || echo "")
+    model=$(timeout 2 mux_get_meta "$pane_target" model_name 2>/dev/null || echo "")
     if [[ -z "$model" ]]; then
         model=$(get_agent_model "$agent" 2>/dev/null || echo "?")
     fi
@@ -95,49 +93,17 @@ done
 capture_tmux_pane_zoomed() {
     local pane="$1"
     local start="${2:--80}"
-    local restore_zoom=false
-    local was_zoomed="0"
-    local out=""
-
-    was_zoomed=$(timeout 2 tmux display-message -t "$pane" -p '#{window_zoomed_flag}' 2>/dev/null || echo "0")
-    if [[ "$was_zoomed" != "1" ]]; then
-        tmux resize-pane -t "$pane" -Z 2>/dev/null || true
-        restore_zoom=true
-        sleep 0.2
-    fi
-
-    out=$(tmux capture-pane -t "$pane" -p -J -S "$start" 2>/dev/null || echo "")
-
-    if $restore_zoom; then
-        tmux resize-pane -t "$pane" -Z 2>/dev/null || true
-    fi
-
-    printf '%s' "$out"
+    mux_capture "$pane" --join --start "$start" 2>/dev/null || true
 }
 
 capture_codex_status_snapshot() {
     local pane="$1"
-    local restore_zoom=false
-    local was_zoomed="0"
     local out=""
 
-    was_zoomed=$(timeout 2 tmux display-message -t "$pane" -p '#{window_zoomed_flag}' 2>/dev/null || echo "0")
-    if [[ "$was_zoomed" != "1" ]]; then
-        tmux resize-pane -t "$pane" -Z 2>/dev/null || true
-        restore_zoom=true
-        sleep 0.2
-    fi
-
-    tmux send-keys -t "$pane" '/status' 2>/dev/null || true
-    sleep 0.3
-    tmux send-keys -t "$pane" Enter 2>/dev/null || true
+    mux_send_line "$pane" '/status' 2>/dev/null || true
     sleep 2
 
-    out=$(tmux capture-pane -t "$pane" -p -J -S -80 2>/dev/null || echo "")
-
-    if $restore_zoom; then
-        tmux resize-pane -t "$pane" -Z 2>/dev/null || true
-    fi
+    out=$(mux_capture "$pane" --join --start -80 2>/dev/null || echo "")
 
     printf '%s' "$out"
 }
@@ -351,6 +317,10 @@ if [[ ${#CODEX_AGENTS[@]} -gt 0 ]]; then
 
     for agent in "${CODEX_AGENTS[@]}"; do
         pane="${AGENT_PANE[$agent]}"
+        if [[ -z "$pane" ]]; then
+            CODEX_CONTEXT["$agent"]="?"
+            continue
+        fi
         _pane_snapshot=$(capture_tmux_pane_zoomed "$pane" -80)
 
         # Context: use a zoomed capture so the Codex prompt or recent /status block survives narrow panes.

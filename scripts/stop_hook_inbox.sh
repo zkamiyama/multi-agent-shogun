@@ -28,6 +28,8 @@ INPUT=$(cat)
 # ─── Identify agent ───
 if [ -n "${__STOP_HOOK_AGENT_ID+x}" ]; then
     AGENT_ID="$__STOP_HOOK_AGENT_ID"
+elif [ -x "$SCRIPT_DIR/scripts/agent_identity.sh" ]; then
+    AGENT_ID=$("$SCRIPT_DIR/scripts/agent_identity.sh" 2>/dev/null || true)
 elif [ -n "${TMUX_PANE:-}" ]; then
     AGENT_ID=$(tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}' 2>/dev/null || true)
 else

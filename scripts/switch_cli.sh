@@ -43,6 +43,7 @@ LOG_FILE="${PROJECT_ROOT}/logs/switch_cli.log"
 # cli_adapter.sh をロード
 source "${PROJECT_ROOT}/lib/cli_adapter.sh"
 source "${PROJECT_ROOT}/lib/agent_registry.sh"
+source "${PROJECT_ROOT}/lib/tmux_compat.sh"
 
 # ─── ログ ───
 log() {
@@ -67,13 +68,24 @@ usage() {
     exit 1
 }
 
-# ─── Agent ID → tmux pane 解決 ───
-# @agent_id メタデータから動的にペインを検索する（ペイン番号のズレに対応）
-# フォールバック: メタデータが見つからない場合は従来の固定マッピングを使用
+# ─── Agent ID → mux pane 解決 ───
+# tmux backend: @agent_id メタデータから動的にペインを検索し、見つからない場合は従来の固定マッピング。
+# non-tmux backend: runtime state の agent_id mapping を正とする。固定tmux targetへのfallbackは使わない。
 resolve_pane() {
     local agent_id="$1"
 
-    # Phase 1: @agent_id メタデータから動的検索
+    if [ "$(mux_backend_name)" != "tmux" ]; then
+        local mux_pane
+        mux_pane=$(mux_find_pane_by_agent "$agent_id" 2>/dev/null || true)
+        if [ -n "$mux_pane" ] && mux_pane_exists "$mux_pane"; then
+            echo "$mux_pane"
+            return 0
+        fi
+        log "ERROR: agent_id=${agent_id} not found in $(mux_backend_name) runtime state. Run shutsujin_departure.sh first."
+        return 1
+    fi
+
+    # Phase 1: tmux @agent_id メタデータから動的検索
     local pane_count
     pane_count=$(tmux list-panes -t "multiagent:agents" 2>/dev/null | wc -l)
     if [[ "$pane_count" -gt 0 ]]; then
@@ -88,7 +100,7 @@ resolve_pane() {
         log "WARN: @agent_id=$agent_id not found in any pane. Falling back to fixed mapping."
     fi
 
-    # Phase 2: フォールバック（settings.yaml の編成順から解決）
+    # Phase 2: tmux フォールバック（settings.yaml の編成順から解決）
     local pane_base
     pane_base=$(tmux show-options -t multiagent -v @pane_base 2>/dev/null || echo "0")
 
@@ -476,14 +488,9 @@ if [[ -n "$NEW_EFFORT" && ! "$NEW_EFFORT" =~ ^(low|medium|high|xhigh|max)$ ]]; t
     exit 1
 fi
 
-# Step 0: pane解決
-PANE_TARGET=$(resolve_pane "$AGENT_ID")
-if [ -z "$PANE_TARGET" ]; then
-    exit 1
-fi
-log "=== Starting CLI switch for ${AGENT_ID} (pane: ${PANE_TARGET}) ==="
-
-# Step 0.5: --model指定時に--type未指定なら、CLI種別を安全に補完する
+# Step 0: --model指定時に--type未指定なら、CLI種別を安全に補完する
+# Validate this before pane resolution so CLI argument errors stay actionable
+# even when a non-tmux backend runtime state has not been initialized yet.
 if [[ -n "$NEW_MODEL" && -z "$NEW_TYPE" ]]; then
     case "$NEW_MODEL" in
         gpt-5.3-codex*|gpt-5-codex*)
@@ -505,6 +512,13 @@ if [[ -n "$NEW_MODEL" && -z "$NEW_TYPE" ]]; then
             ;;
     esac
 fi
+
+# Step 0.5: pane解決
+PANE_TARGET=$(resolve_pane "$AGENT_ID")
+if [ -z "$PANE_TARGET" ]; then
+    exit 1
+fi
+log "=== Starting CLI switch for ${AGENT_ID} (pane: ${PANE_TARGET}) ==="
 
 # Step 1: settings.yaml 更新（--type/--model/--variant 指定時のみ）
 if [[ -n "$NEW_TYPE" || -n "$NEW_MODEL" || -n "$NEW_VARIANT" || -n "$NEW_EFFORT" ]]; then

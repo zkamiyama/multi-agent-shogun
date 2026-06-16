@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# scripts/agent_status.sh — Show busy/idle status of all agents in tmux panes
+# scripts/agent_status.sh — Show busy/idle status of all agents in mux panes
 #
 # Usage:
 #   bash scripts/agent_status.sh                    # Auto-detect from config
-#   bash scripts/agent_status.sh --session myses    # Specify tmux session
+#   bash scripts/agent_status.sh --session myses    # Specify session (legacy tmux standalone mode)
 #   bash scripts/agent_status.sh --panes 0,1,2,3    # Specify pane indices
 #   bash scripts/agent_status.sh --lang en          # English labels
 #
 # Works in two modes:
 #   1. Project mode (default): Reads agent list from config/settings.yaml
 #      and shows task YAML + inbox status alongside pane state.
-#   2. Standalone mode (--session/--panes): Just shows tmux pane busy/idle
+#   2. Standalone mode (--session/--panes): Just shows legacy tmux pane busy/idle
 #      state without project-specific data. Works anywhere.
 set -euo pipefail
 
@@ -45,6 +45,7 @@ done
 
 # ─── Load shared library ───
 source "$SCRIPT_DIR/lib/agent_status.sh"
+source "$SCRIPT_DIR/lib/mux_adapter.sh"
 
 # ─── Label functions ───
 state_label() {
@@ -87,6 +88,11 @@ print_padded() {
 # Standalone mode: just scan tmux panes
 # ═══════════════════════════════════════════
 if $STANDALONE; then
+    if [ "$(mux_backend_name)" != "tmux" ]; then
+        echo "Error: --session/--panes standalone mode is legacy tmux-only. Use project mode for $(mux_backend_name)." >&2
+        exit 1
+    fi
+
     # Determine session
     if [[ -z "$SESSION_NAME" ]]; then
         SESSION_NAME=$(tmux display-message -p '#{session_name}' 2>/dev/null || echo "")
@@ -120,7 +126,7 @@ if $STANDALONE; then
 
     for pane_target in "${PANE_TARGETS[@]}"; do
         # Try reading @agent_id from the pane
-        agent_id=$(timeout 2 tmux display-message -t "$pane_target" -p '#{@agent_id}' 2>/dev/null || echo "---")
+        agent_id=$(timeout 2 mux_get_meta "$pane_target" agent_id 2>/dev/null || echo "---")
         [[ -z "$agent_id" ]] && agent_id="---"
 
         agent_is_busy_check "$pane_target" && rc=0 || rc=$?
@@ -169,8 +175,18 @@ if [ "${#AGENTS[@]}" -eq 0 ]; then
     AGENTS=("karo" "ashigaru1" "ashigaru2" "ashigaru3" "ashigaru4" "ashigaru5" "ashigaru6" "ashigaru7" "gunshi")
 fi
 
-# pane-base-index
-PANE_BASE=$(tmux show-options -gv pane-base-index 2>/dev/null || echo 0)
+resolve_agent_pane() {
+    local agent="$1"
+    if [ "$(mux_backend_name)" != "tmux" ]; then
+        mux_find_pane_by_agent "$agent" 2>/dev/null || true
+        return 0
+    fi
+    local pane_idx=$((PANE_BASE + $2))
+    printf 'multiagent:agents.%s\n' "$pane_idx"
+}
+
+# pane-base-index (legacy tmux project mode only)
+PANE_BASE=$(mux_show_global_option pane-base-index 2>/dev/null || echo 0)
 
 # ─── Helper: task info from YAML ───
 get_task_info() {
@@ -227,8 +243,7 @@ fi
 
 for i in "${!AGENTS[@]}"; do
     agent="${AGENTS[$i]}"
-    pane_idx=$((PANE_BASE + i))
-    pane_target="multiagent:agents.${pane_idx}"
+    pane_target="$(resolve_agent_pane "$agent" "$i")"
 
     # CLI type
     if $CLI_ADAPTER_AVAILABLE; then
@@ -238,7 +253,11 @@ for i in "${!AGENTS[@]}"; do
     fi
 
     # Pane state
-    agent_is_busy_check "$pane_target" "$cli_type" && rc=0 || rc=$?
+    if [ -z "$pane_target" ]; then
+        rc=2
+    else
+        agent_is_busy_check "$pane_target" "$cli_type" && rc=0 || rc=$?
+    fi
     pane_state=$(state_label "$rc")
 
     # Task info

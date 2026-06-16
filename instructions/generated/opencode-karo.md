@@ -309,6 +309,35 @@ One rule: **measure, don't assume.**
 - Dashboard inconsistency → reconcile with YAML ground truth
 - Own context < 20% remaining → report to shogun via dashboard, prepare for context reset
 
+## Stall Alert Handling
+
+`scripts/stall_detector.sh` (60s daemon, supervised by `watcher_supervisor.sh`)
+sends `type: stall_alert` to your inbox when a task or report has been stalled past
+threshold. See CLAUDE.md "Task Stall Detection" for the detection kinds and thresholds.
+
+### On Receiving `type: stall_alert`
+
+1. Read the alert's `agent` / `task_id` / `kind` / `evidence`.
+2. Decide and act — do **not** just mark it `read: true`:
+   - `blocked_report_unresolved` → unblock: write a redo/unblock task YAML, delegate
+     the decision to Gunshi, or record an open item in dashboard 🚨.
+   - `assigned_no_progress` / `idle_with_active_task` → check the pane and the report,
+     then re-dispatch (context reset + task YAML) or escalate if the agent is genuinely stuck.
+   - `karo_unresponsive_to_stall_alert` → a primary alert you were already notified of
+     is still open; resolve the underlying alert now.
+3. The detector auto-resolves the alert once the target task/report advances — you do
+   not edit `queue/stall_alerts.yaml` by hand. Your job is to make the target move.
+
+### Self-Discipline Rule (2026-05-14 6-hour stall lesson)
+
+When an ashigaru/gunshi report has `status: blocked`, a `follow_up`, or an explicit
+question, **do not go idle** assuming "Gunshi's advice means it's progressing." Even
+after Gunshi advises, if the task/report status is still blocked, treat it as unsolved
+— explicitly update the task YAML and re-dispatch. On every wake, scan reports for
+`blocked`/`follow_up` even when the wake source is unrelated.
+
+**The stall detector is a safety net, not a replacement for your active monitoring.**
+
 # Communication Protocol
 
 ## Mailbox System (inbox_write.sh)
@@ -332,7 +361,7 @@ bash scripts/inbox_write.sh ashigaru3 "タスクYAMLを読んで作業開始せ�
 ```
 
 Delivery is handled by `inbox_watcher.sh` (infrastructure layer).
-**Agents NEVER call tmux send-keys directly.**
+**Agents NEVER call backend input commands directly** (`tmux send-keys`, `zellij action write`, `zellij action paste`, etc.). Use `inbox_write.sh`; infrastructure routes wakeups through the mux adapter.
 
 ## Delivery Mechanism
 
@@ -340,18 +369,18 @@ Two layers:
 1. **Message persistence**: `inbox_write.sh` writes to `queue/inbox/{agent}.yaml` with flock. Guaranteed.
 2. **Wake-up signal**: `inbox_watcher.sh` detects file change via `inotifywait` → wakes agent:
    - **Priority 1**: Agent self-watch (agent's own `inotifywait` on its inbox) → no nudge needed
-   - **Priority 2**: `tmux send-keys` — short nudge only (text and Enter sent separately, 0.3s gap)
+   - **Priority 2**: mux adapter input — short nudge only (text and Enter sent separately, 0.3s gap)
 
 The nudge is minimal: `inboxN` (e.g. `inbox3` = 3 unread). That's it.
-**Agent reads the inbox file itself.** Message content never travels through tmux — only a short wake-up signal.
+**Agent reads the inbox file itself.** Message content never travels through the terminal mux — only a short wake-up signal.
 
 Safety note (shogun):
-- If the Shogun pane is active (the Lord is typing), `inbox_watcher.sh` must not inject keystrokes. It should use tmux `display-message` only.
+- If the Shogun pane is active (the Lord is typing), `inbox_watcher.sh` must not inject keystrokes. It should use mux metadata/status APIs only.
 - Escalation keystrokes (`Escape×2`, context reset, `C-u`) must be suppressed for shogun to avoid clobbering human input.
 
-Special cases (CLI commands sent via `tmux send-keys`):
-- `type: clear_command` → sends context reset command via send-keys (Claude/Copilot/Kimi: `/clear`, Codex/OpenCode: `/new`)
-- `type: model_switch` → sends the /model command via send-keys
+Special cases (CLI commands sent through the mux adapter / compatibility layer):
+- `type: clear_command` → sends context reset command (Claude/Copilot/Kimi: `/clear`, Codex/OpenCode: `/new`)
+- `type: model_switch` → sends the /model command
 
 ## Agent Self-Watch Phase Policy (cmd_107)
 
@@ -359,7 +388,7 @@ Phase migration is controlled by watcher flags:
 
 - **Phase 1 (baseline)**: `process_unread_once` at startup + `inotifywait` event-driven loop + timeout fallback.
 - **Phase 2 (normal nudge off)**: `disable_normal_nudge` behavior enabled (`ASW_DISABLE_NORMAL_NUDGE=1` or `ASW_PHASE>=2`).
-- **Phase 3 (final escalation only)**: `FINAL_ESCALATION_ONLY=1` (or `ASW_PHASE>=3`) so normal `send-keys inboxN` is suppressed; escalation lane remains for recovery.
+- **Phase 3 (final escalation only)**: `FINAL_ESCALATION_ONLY=1` (or `ASW_PHASE>=3`) so normal mux nudge `inboxN` is suppressed; escalation lane remains for recovery.
 
 Read-cost controls:
 
@@ -609,7 +638,7 @@ Cross-reference with dashboard.md — process any reports not yet reflected.
 | Read / Write / Edit | Foreground | Completes instantly |
 | inbox_write.sh | Foreground | Completes instantly |
 | `sleep N` | **FORBIDDEN** | Use inbox event-driven instead |
-| tmux capture-pane | **FORBIDDEN** | Read report YAML instead |
+| backend-specific capture (`tmux capture-pane`, `zellij action dump-screen`) | **FORBIDDEN** | Read report YAML instead |
 
 ### Dispatch-then-Stop Pattern
 
@@ -686,11 +715,11 @@ git diff --exit-code instructions/generated/
 
 **Always confirm your ID first:**
 ```bash
-tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'
+bash scripts/agent_identity.sh
 ```
 Output: `ashigaru3` → You are Ashigaru 3. The number is your ID.
 
-Why `@agent_id` not `pane_index`: pane_index shifts on pane reorganization. @agent_id is set by shutsujin_departure.sh at startup and never changes.
+Why agent identity not `pane_index`: pane_index shifts on pane reorganization. Identity is set by shutsujin_departure.sh at startup and resolved through the mux adapter, so it works with both Zellij and tmux.
 
 **Your files ONLY:**
 ```

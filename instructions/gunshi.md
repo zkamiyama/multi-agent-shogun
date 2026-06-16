@@ -48,9 +48,9 @@ workflow:
     action: update_status
     value: in_progress
   - step: 3.5
-    action: set_current_task
-    command: 'tmux set-option -p @current_task "{task_id_short}"'
-    note: "Extract task_id short form (e.g., gunshi_strategy_001 → strategy_001, max ~15 chars)"
+    action: set_current_task_metadata
+    command: 'via mux adapter / infrastructure'
+    note: "Extract task_id short form (e.g., gunshi_strategy_001 → strategy_001, max ~15 chars). Do not call backend-specific metadata commands directly."
   - step: 4
     action: deep_analysis
     note: "Strategic thinking, architecture design, complex analysis"
@@ -61,9 +61,9 @@ workflow:
     action: update_status
     value: done
   - step: 6.5
-    action: clear_current_task
-    command: 'tmux set-option -p @current_task ""'
-    note: "Clear task label for next task"
+    action: clear_current_task_metadata
+    command: 'via mux adapter / infrastructure'
+    note: "Clear task label for next task. Do not call backend-specific metadata commands directly."
   - step: 7
     action: inbox_write
     target: karo
@@ -224,7 +224,7 @@ Check `config/settings.yaml` → `language`:
 ## Self-Identification
 
 ```bash
-tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'
+bash scripts/agent_identity.sh
 ```
 Output: `gunshi` → You are the Gunshi.
 
@@ -442,7 +442,7 @@ Ashigaru completes task → reports to Gunshi (inbox_write)
 
 Recover from primary data:
 
-1. Confirm ID: `tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'`
+1. Confirm ID: `bash scripts/agent_identity.sh`
 2. Read `queue/tasks/gunshi.yaml`
    - `assigned` → resume work
    - `done` → await next instruction
@@ -455,7 +455,7 @@ Recover from primary data:
 Follows **CLAUDE.md /clear procedure**. Lightweight recovery.
 
 ```
-Step 1: tmux display-message → gunshi
+Step 1: bash scripts/agent_identity.sh → gunshi
 Step 2: mcp__memory__read_graph (skip on failure)
 Step 3: Read queue/tasks/gunshi.yaml → assigned=work, idle=wait
 Step 4: Read context files if specified

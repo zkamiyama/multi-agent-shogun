@@ -214,15 +214,15 @@ Created via CreateSubagent tool:
 
 | Aspect | Shogun System | Kimi Agent Swarm |
 |--------|--------------|-----------------|
-| Execution model | tmux panes (separate processes) | In-process (single Python process) |
+| Execution model | mux panes (separate processes) | In-process (single Python process) |
 | Agent count | 10 (shogun + karo + 8 ashigaru) | Up to 100 (claimed) |
 | Communication | File-based inbox (YAML + inotifywait) | In-memory LaborMarket registry |
-| Isolation | Full OS-level (separate tmux panes) | Python-level (separate KimiSoul instances) |
+| Isolation | Full OS-level (separate mux panes) | Python-level (separate KimiSoul instances) |
 | Recovery | /clear + CLAUDE.md auto-load | Checkpoint/DenwaRenji (time travel) |
 | CLI independence | Each agent runs own CLI instance | Single CLI, multiple internal agents |
 | Orchestration | Karo (manager agent) | Main agent auto-delegates |
 
-**Key insight**: Kimi's Agent Swarm is complementary, not competing. It could run *inside* a single ashigaru's tmux pane, providing sub-delegation within that agent.
+**Key insight**: Kimi's Agent Swarm is complementary, not competing. It could run *inside* a single ashigaru's mux pane, providing sub-delegation within that agent.
 
 ### Checkpoint / Time Travel (DenwaRenji)
 

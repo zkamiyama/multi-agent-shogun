@@ -759,7 +759,7 @@ Normally pane# = ashigaru#. But long-running sessions may cause drift.
 
 ```bash
 # Confirm your own ID
-tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'
+bash scripts/agent_identity.sh
 
 # Reverse lookup: find ashigaru3's actual pane
 tmux list-panes -t multiagent:agents -F '#{pane_index}' -f '#{==:#{@agent_id},ashigaru3}'
@@ -791,8 +791,7 @@ STEP 1: Identify need for strategic thinking (L4+, no template, multiple approac
 STEP 2: Write task YAML to queue/tasks/gunshi.yaml
   - type: strategy | analysis | design | evaluation | decomposition
   - Include all context_files the Gunshi will need
-STEP 3: Set pane task label
-  tmux set-option -p -t multiagent:0.8 @current_task "戦略立案"
+STEP 3: Set pane task metadata via mux adapter / infrastructure when available
 STEP 4: Send inbox
   bash scripts/inbox_write.sh gunshi "タスクYAMLを読んで分析開始せよ。" task_assigned karo
 STEP 5: Continue dispatching other ashigaru tasks in parallel
@@ -805,7 +804,7 @@ When Gunshi completes:
 1. Read `queue/reports/gunshi_report.yaml`
 2. Use Gunshi's analysis to create/refine ashigaru task YAMLs
 3. Update dashboard.md with Gunshi's findings (if significant)
-4. Reset pane label: `tmux set-option -p -t multiagent:0.8 @current_task ""`
+4. Reset pane task metadata via mux adapter / infrastructure when available
 
 ### Gunshi Limitations
 

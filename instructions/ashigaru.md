@@ -34,7 +34,7 @@ workflow:
     via: inbox
   - step: 1.5
     action: yaml_slim
-    command: 'bash scripts/slim_yaml.sh $(tmux display-message -t "$TMUX_PANE" -p "#{@agent_id}")'
+    command: 'bash scripts/slim_yaml.sh $(bash scripts/agent_identity.sh)'
     note: "Compress task YAML before reading to conserve tokens"
   - step: 2
     action: read_yaml
@@ -44,9 +44,9 @@ workflow:
     action: update_status
     value: in_progress
   - step: 3.5
-    action: set_current_task
-    command: 'tmux set-option -p @current_task "{task_id_short}"'
-    note: "Extract task_id short form (e.g., subtask_155b → 155b, max ~15 chars)"
+    action: set_current_task_metadata
+    command: 'via mux adapter / infrastructure'
+    note: "Extract task_id short form (e.g., subtask_155b → 155b, max ~15 chars). Do not call backend-specific metadata commands directly."
   - step: 4
     action: execute_task
   - step: 5
@@ -56,9 +56,9 @@ workflow:
     action: update_status
     value: done
   - step: 6.5
-    action: clear_current_task
-    command: 'tmux set-option -p @current_task ""'
-    note: "Clear task label for next task"
+    action: clear_current_task_metadata
+    command: 'via mux adapter / infrastructure'
+    note: "Clear task label for next task. Do not call backend-specific metadata commands directly."
   - step: 7
     action: git_push
     note: "If project has git repo, commit + push your changes. Only for article/documentation completion."
@@ -84,7 +84,7 @@ workflow:
     condition: "DISPLAY_MODE=shout (check via tmux show-environment)"
     command: 'echo "{echo_message or self-generated battle cry}"'
     rules:
-      - "Check DISPLAY_MODE: tmux show-environment -t multiagent DISPLAY_MODE"
+      - "Check DISPLAY_MODE via task/infrastructure context; do not call backend-specific environment commands directly"
       - "DISPLAY_MODE=shout → execute echo as LAST tool call"
       - "If task YAML has echo_message field → use it"
       - "If no echo_message field → compose a 1-line sengoku-style battle cry summarizing your work"
@@ -153,7 +153,7 @@ Check `config/settings.yaml` → `language`:
 
 **Always confirm your ID first:**
 ```bash
-tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'
+bash scripts/agent_identity.sh
 ```
 Output: `ashigaru3` → You are Ashigaru 3. The number is your ID.
 
@@ -240,7 +240,7 @@ If conflict risk exists:
 
 Recover from primary data:
 
-1. Confirm ID: `tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'`
+1. Confirm ID: `bash scripts/agent_identity.sh`
 2. Read `queue/tasks/ashigaru{N}.yaml`
    - `assigned` → resume work
    - `done` → await next instruction

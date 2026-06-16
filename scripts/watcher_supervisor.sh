@@ -8,15 +8,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 source "$SCRIPT_DIR/lib/agent_registry.sh"
+source "$SCRIPT_DIR/lib/mux_adapter.sh"
 
 mkdir -p logs queue/inbox
+
+HEARTBEAT_FILE="${SCRIPT_DIR}/queue/supervisor.heartbeat"
+
+# Heartbeat write on startup so any hook check shortly after spawn sees us alive.
+date +%s > "$HEARTBEAT_FILE" 2>/dev/null || true
 
 get_multiagent_pane_base() {
     if [ -n "${SHOGUN_PANE_BASE:-}" ]; then
         echo "$SHOGUN_PANE_BASE"
         return 0
     fi
-    tmux show-options -gv pane-base-index 2>/dev/null || echo 0
+    local pane_base
+    pane_base=$(mux_show_global_option pane-base-index 2>/dev/null || true)
+    echo "${pane_base:-0}"
 }
 
 ensure_inbox_file() {
@@ -28,7 +36,7 @@ ensure_inbox_file() {
 
 pane_exists() {
     local pane="$1"
-    tmux list-panes -a -F "#{session_name}:#{window_name}.#{pane_index}" 2>/dev/null | grep -qx "$pane"
+    mux_list_panes 2>/dev/null | grep -qx "$pane"
 }
 
 start_watcher_if_missing() {
@@ -53,7 +61,7 @@ start_watcher_if_missing() {
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] stale watcher detected for ${agent}; starting watcher for expected pane ${pane}" >&2
         fi
 
-        cli=$(tmux show-options -p -t "$pane" -v @agent_cli 2>/dev/null || echo "codex")
+        cli=$(mux_get_meta "$pane" agent_cli 2>/dev/null || echo "codex")
         nohup bash scripts/inbox_watcher.sh "$agent" "$pane" "$cli" >> "$log_file" 2>&1 &
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] [START] inbox_watcher started for ${agent} pane=${pane} PID=$!" >&2
     ) 9>"$lockfile"
@@ -79,7 +87,10 @@ watcher_specs() {
     while IFS= read -r agent; do
         [ -z "$agent" ] && continue
         local pane
-        if ! pane=$(agent_registry_pane_for_agent "$agent" "$pane_base"); then
+        if [ "$(mux_backend_name)" != "tmux" ]; then
+            pane=$(mux_find_pane_by_agent "$agent" 2>/dev/null || true)
+            [ -n "$pane" ] || continue
+        elif ! pane=$(agent_registry_pane_for_agent "$agent" "$pane_base"); then
             continue
         fi
         printf '%s\t%s\tlogs/inbox_watcher_%s.log\n' "$agent" "$pane" "$agent"
@@ -99,6 +110,7 @@ if [ "${1:-}" = "--print-watchers" ]; then
 fi
 
 while true; do
+    date +%s > "$HEARTBEAT_FILE" 2>/dev/null || true
     start_all_watchers
     start_stall_detector_if_missing
     sleep 5
