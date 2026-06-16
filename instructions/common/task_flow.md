@@ -168,7 +168,7 @@ Cross-reference with dashboard.md — process any reports not yet reflected.
 | Read / Write / Edit | Foreground | Completes instantly |
 | inbox_write.sh | Foreground | Completes instantly |
 | `sleep N` | **FORBIDDEN** | Use inbox event-driven instead |
-| tmux capture-pane | **FORBIDDEN** | Read report YAML instead |
+| backend-specific capture (`tmux capture-pane`, `zellij action dump-screen`) | **FORBIDDEN** | Read report YAML instead |
 
 ### Dispatch-then-Stop Pattern
 

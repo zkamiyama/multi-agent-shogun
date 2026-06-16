@@ -100,6 +100,15 @@ if [ -f "$_agent_status_lib" ]; then
     source "$_agent_status_lib"
 fi
 
+resolve_agent_pane() {
+    local agent="$1"
+    if type mux_backend_name &>/dev/null && [ "$(mux_backend_name)" != "tmux" ]; then
+        mux_find_pane_by_agent "$agent" 2>/dev/null || true
+        return 0
+    fi
+    printf '%s\n' "${AGENT_PANE[$agent]:-}"
+}
+
 # compute_pane_states — 全 agent の pane 状態を JSON で stdout に出す。
 # {"karo":"idle","ashigaru1":"busy",...}  state ∈ idle|busy|absent|unknown
 compute_pane_states() {
@@ -107,9 +116,11 @@ compute_pane_states() {
     local first=1
     local agent pane state rc
     for agent in "${AGENTS[@]}"; do
-        pane="${AGENT_PANE[$agent]}"
+        pane="$(resolve_agent_pane "$agent")"
         state="unknown"
-        if type agent_is_busy_check &>/dev/null; then
+        if [ -z "$pane" ]; then
+            state="absent"
+        elif type agent_is_busy_check &>/dev/null; then
             set +e
             agent_is_busy_check "$pane"
             rc=$?
@@ -1065,6 +1076,33 @@ PYEOF
                         log "NOTIFY karo ($severity): $summary"
                     else
                         log "ERROR: inbox_write.sh karo failed for: $summary"
+                    fi
+
+                    # ─────────────────────────────────────────────────────
+                    # 2026-05-18 殿 mandate Option A: stall_detector が
+                    # `idle_with_active_task` / `assigned_no_progress` 検知時、
+                    # karo alert に加えて target agent inbox にも auto-recovery
+                    # message を送信し、家老の手動 wake-up なしで agent 復帰可能に。
+                    # Watchdog 30s timer 終了後の long-idle stall (W14 Wave 2
+                    # で 4 件同時発生) を完全自動で救う設計。
+                    # summary format: `[P2] <kind> — <agent>: ...`
+                    # ─────────────────────────────────────────────────────
+                    local stall_kind stall_agent
+                    stall_kind=$(echo "$summary" | grep -oE '\] [a-z_]+ —' | sed 's/^\] //; s/ —$//' | head -1)
+                    stall_agent=$(echo "$summary" | grep -oE '— ashigaru[0-9]+:' | sed 's/^— //; s/:$//' | head -1)
+                    if [ -n "$stall_kind" ] && [ -n "$stall_agent" ]; then
+                        case "$stall_kind" in
+                            idle_with_active_task|assigned_no_progress)
+                                local wake_msg
+                                wake_msg="[stall_detector auto-wake] ${stall_kind} 検知 — queue/tasks/${stall_agent}.yaml を読んで assigned/in-progress task を再開せよ。worktree に未 commit work あれば build/test verify + commit + 報告 (karo+gunshi 並行) で完了せよ。詳細 stall summary: ${summary}"
+                                if bash "${SCRIPT_DIR}/scripts/inbox_write.sh" \
+                                    "$stall_agent" "$wake_msg" task_assigned stall_detector >/dev/null 2>&1; then
+                                    log "AUTO-WAKE $stall_agent ($stall_kind, severity=$severity)"
+                                else
+                                    log "ERROR: auto-wake inbox_write.sh failed for $stall_agent"
+                                fi
+                                ;;
+                        esac
                     fi
                 else
                     log "NOTIFY (test-mode, inbox suppressed) ($severity): $summary"

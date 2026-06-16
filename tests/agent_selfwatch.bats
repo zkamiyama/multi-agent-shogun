@@ -45,6 +45,7 @@ CLI_TYPE="${TEST_CLI_TYPE:-claude}"
 INBOX="$TEST_INBOX"
 LOCKFILE="${INBOX}.lock"
 SCRIPT_DIR="$PROJECT_ROOT"
+export MUX_BACKEND=tmux
 
 tmux() {
     echo "tmux $*" >> "$MOCK_LOG"

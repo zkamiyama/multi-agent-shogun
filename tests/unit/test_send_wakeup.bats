@@ -115,6 +115,7 @@ CLI_TYPE="claude"
 INBOX="$TEST_INBOX_DIR/test_agent.yaml"
 LOCKFILE="\${INBOX}.lock"
 SCRIPT_DIR="$PROJECT_ROOT"
+export MUX_BACKEND=tmux
 export IDLE_FLAG_DIR="$TEST_TMPDIR"
 
 # Mock external commands (defined before sourcing so they override real commands)

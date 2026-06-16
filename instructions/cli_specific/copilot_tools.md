@@ -117,19 +117,19 @@ Available via `/model` command or `--model` flag:
 
 For Ashigaru: Model set at startup via settings.yaml. Runtime switching via `type: model_switch` available but rarely needed.
 
-## tmux Interaction
+## Mux Interaction
 
-**WARNING: Copilot CLI tmux integration is UNVERIFIED.**
+**WARNING: Copilot CLI terminal-mux integration is UNVERIFIED.**
 
 | Aspect | Status |
 |--------|--------|
-| TUI in tmux pane | Expected to work (TUI-based) |
-| send-keys | **Untested** — TUI may use alt-screen |
-| capture-pane | **Untested** — alt-screen may interfere |
+| TUI in managed pane | Expected to work (TUI-based) |
+| mux input | **Untested** — TUI may use alt-screen |
+| mux capture | **Untested** — alt-screen may interfere |
 | Prompt detection | Unknown prompt format (not `❯`) |
 | Non-interactive pipe | Unconfirmed (`copilot -p` undocumented) |
 
-For the 将軍 system, tmux compatibility is a **high-risk area** requiring dedicated testing.
+For the 将軍 system, terminal-mux compatibility is a **high-risk area** requiring dedicated testing.
 
 ### Potential Workarounds
 - `!` prefix for shell commands may bypass TUI input issues
@@ -140,7 +140,7 @@ For the 将軍 system, tmux compatibility is a **high-risk area** requiring dedi
 
 | Feature | Claude Code | Copilot CLI |
 |---------|------------|-------------|
-| tmux integration | ✅ Battle-tested | ⚠️ Untested |
+| terminal-mux integration | ✅ Battle-tested | ⚠️ Untested |
 | Non-interactive mode | ✅ `claude -p` | ⚠️ Unconfirmed |
 | `/clear` context reset | ✅ Available | ❌ None (use /compact or restart) |
 | Memory MCP | ✅ Persistent knowledge graph | ❌ No equivalent |

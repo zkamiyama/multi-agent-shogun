@@ -19,8 +19,13 @@
 
 set -uo pipefail
 
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
 AGENT_ID=""
-if [ -n "${TMUX_PANE:-}" ]; then
+if [ -x "$REPO_DIR/scripts/agent_identity.sh" ]; then
+    AGENT_ID=$(bash "$REPO_DIR/scripts/agent_identity.sh" 2>/dev/null || true)
+fi
+if [ -z "$AGENT_ID" ] && [ -n "${TMUX_PANE:-}" ]; then
     AGENT_ID=$(tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}' 2>/dev/null || true)
 fi
 
@@ -29,10 +34,94 @@ if [ -z "$AGENT_ID" ]; then
     exit 0
 fi
 
-LOG_DIR="$(dirname "$0")/../logs"
+LOG_DIR="$REPO_DIR/logs"
 mkdir -p "$LOG_DIR" || true
 echo "[$(date -Iseconds)] $AGENT_ID session_start_hook fired" \
     >> "$LOG_DIR/session_start_hook.log" || true
+
+# ─── watcher_supervisor liveness check (zombie revival) ─────────────────────
+# 2026-03-04 に supervisor が静かに死亡 → karo/ashigaru4 watcher 復活せず inbox
+# 通知 2.5h 不達 (2026-05-13) の再発防止。heartbeat ファイルが 60 秒以上古い、
+# または process 不在なら setsid で完全 detach して再起動する。
+# 出力は全て log に流し stdout (Claude additionalContext) を汚さない。
+ensure_watcher_supervisor() {
+    local heartbeat="${REPO_DIR}/queue/supervisor.heartbeat"
+    local lockfile="${REPO_DIR}/queue/supervisor.lock"
+    local sup_log="${LOG_DIR}/watcher_supervisor.log"
+    local now hb_age=999999 alive=0
+
+    now=$(date +%s 2>/dev/null || echo 0)
+    if [ -f "$heartbeat" ]; then
+        local hb_ts
+        hb_ts=$(stat -c %Y "$heartbeat" 2>/dev/null || echo 0)
+        hb_age=$((now - hb_ts))
+    fi
+    # argv-based liveness: only match processes whose argv[0] ends with "bash"
+    # AND argv[1] ends with "/watcher_supervisor.sh". This avoids false matches
+    # against shells whose -c argument happens to contain the script path (e.g.
+    # Bash tool wrappers in test environments).
+    local pid argv0 argv1
+    for pid in $(pgrep -f "watcher_supervisor.sh" 2>/dev/null); do
+        [ -r "/proc/$pid/cmdline" ] || continue
+        argv0=$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | sed -n '1p')
+        argv1=$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | sed -n '2p')
+        if [[ "$argv0" == *bash ]] && [[ "$argv1" == */watcher_supervisor.sh ]]; then
+            alive=1
+            break
+        fi
+    done
+
+    # Healthy: process alive AND heartbeat fresh (or no heartbeat but process running
+    # for <30s, accounting for startup before first heartbeat write)
+    if [ "$alive" -eq 1 ] && [ "$hb_age" -lt 60 ]; then
+        return 0
+    fi
+
+    # Unhealthy: need to (re)spawn. Serialize with flock so concurrent hooks don't race.
+    mkdir -p "$(dirname "$lockfile")" 2>/dev/null || true
+    (
+        if command -v flock >/dev/null 2>&1; then
+            flock -n 9 || exit 0
+        fi
+        # Re-check after acquiring lock (another hook may have already revived).
+        # Use argv-based filter (same rationale as outer check).
+        local rcheck_pid rcheck_argv0 rcheck_argv1 rcheck_alive=0
+        for rcheck_pid in $(pgrep -f "watcher_supervisor.sh" 2>/dev/null); do
+            [ -r "/proc/$rcheck_pid/cmdline" ] || continue
+            rcheck_argv0=$(tr '\0' '\n' < "/proc/$rcheck_pid/cmdline" 2>/dev/null | sed -n '1p')
+            rcheck_argv1=$(tr '\0' '\n' < "/proc/$rcheck_pid/cmdline" 2>/dev/null | sed -n '2p')
+            if [[ "$rcheck_argv0" == *bash ]] && [[ "$rcheck_argv1" == */watcher_supervisor.sh ]]; then
+                rcheck_alive=1
+                break
+            fi
+        done
+        if [ "$rcheck_alive" -eq 1 ]; then
+            local recheck_age=999999
+            if [ -f "$heartbeat" ]; then
+                recheck_age=$(( $(date +%s) - $(stat -c %Y "$heartbeat" 2>/dev/null || echo 0) ))
+            fi
+            [ "$recheck_age" -lt 60 ] && exit 0
+            # Zombie: process exists but heartbeat stale → kill before respawn (by exact PID)
+            for rcheck_pid in $(pgrep -f "watcher_supervisor.sh" 2>/dev/null); do
+                [ -r "/proc/$rcheck_pid/cmdline" ] || continue
+                rcheck_argv0=$(tr '\0' '\n' < "/proc/$rcheck_pid/cmdline" 2>/dev/null | sed -n '1p')
+                rcheck_argv1=$(tr '\0' '\n' < "/proc/$rcheck_pid/cmdline" 2>/dev/null | sed -n '2p')
+                if [[ "$rcheck_argv0" == *bash ]] && [[ "$rcheck_argv1" == */watcher_supervisor.sh ]]; then
+                    kill "$rcheck_pid" 2>/dev/null || true
+                fi
+            done
+            sleep 1
+        fi
+        echo "[$(date -Iseconds)] $AGENT_ID session_start_hook: spawning watcher_supervisor (alive=$alive, hb_age=${hb_age}s)" \
+            >> "$sup_log" 2>&1 || true
+        # setsid + nohup + </dev/null = full detach. Process survives parent shell death.
+        setsid nohup bash "${REPO_DIR}/scripts/watcher_supervisor.sh" \
+            >> "$sup_log" 2>&1 < /dev/null &
+        disown 2>/dev/null || true
+    ) 9>"$lockfile" >/dev/null 2>&1
+}
+
+ensure_watcher_supervisor
 
 case "$AGENT_ID" in
     shogun|karo|gunshi)
@@ -40,11 +129,11 @@ case "$AGENT_ID" in
         cat <<EOF
 **CRITICAL: Session Start 手順を最優先で実行せよ**
 
-貴殿は **${AGENT_ID}** である。tmux pane から確定的に読み出した事実であり、推測不要。
+貴殿は **${AGENT_ID}** である。mux identity から確定的に読み出した事実であり、推測不要。
 
 以下を順番に実行せよ (省略禁止、ユーザ応答/inbox 処理はこの後):
 
-1. \`tmux display-message -t "\$TMUX_PANE" -p '#{@agent_id}'\` で自己識別を再確認
+1. \`bash scripts/agent_identity.sh\` で自己識別を再確認
 2. \`mcp__memory__read_graph\` でルール・嗜好・教訓を復元
 3. (shogun のみ) \`memory/MEMORY.md\` を Read
 4. \`instructions/${AGENT_ID}.md\` を最後まで必読 — persona・戦国口調・forbidden_actions 再確立 **(絶対省略禁止)**
@@ -56,7 +145,7 @@ Rationale: 2026-04-18 に家老が「我は将軍」と役職誤認する person
 command-layer agent は persona + 戦国口調 + forbidden_actions の再確立が必須。
 
 なお、本メッセージは SessionStart hook (scripts/session_start_hook.sh) が
-tmux pane の @agent_id を読み出して生成したものであり、推測や混同の余地はない。
+mux identity を読み出して生成したものであり、推測や混同の余地はない。
 EOF
         ;;
     ashigaru*)
@@ -64,7 +153,7 @@ EOF
         cat <<EOF
 **CRITICAL: Session Start 手順を最優先で実行せよ**
 
-貴殿は **${AGENT_ID}** である。tmux pane から確定的に読み出した事実。
+貴殿は **${AGENT_ID}** である。mux identity から確定的に読み出した事実。
 
 足軽用軽量手順 (CLAUDE.md「/clear Recovery (ashigaru only)」準拠):
 
@@ -80,7 +169,7 @@ EOF
 初回起動時は CLAUDE.md 自動ロード済み、instructions/ashigaru.md の再読は不要 (コスト節約)。
 
 本メッセージは SessionStart hook (scripts/session_start_hook.sh) が
-tmux pane の @agent_id を読み出して生成したものであり、推測や混同の余地はない。
+mux identity を読み出して生成したものであり、推測や混同の余地はない。
 EOF
         ;;
     *)

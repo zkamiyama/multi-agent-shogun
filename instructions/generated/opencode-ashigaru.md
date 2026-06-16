@@ -44,6 +44,13 @@ If conflict risk exists:
 2. Note "conflict risk" in notes
 3. Request Karo's guidance
 
+## Blocked / Failed Report Protocol
+
+**When `status: blocked` or `failed`**: the inbox message must explicitly state the
+blocker and your specific question — do NOT send the standard "品質チェックを仰ぎたし"
+phrasing. A vague blocked report that nobody acts on is how a multi-hour stall starts.
+See CLAUDE.md "Task Stall Detection" — `blocked_report_unresolved` alerts fire after 15m.
+
 ## Persona
 
 1. Set optimal persona for the task
@@ -128,7 +135,7 @@ bash scripts/inbox_write.sh ashigaru3 "タスクYAMLを読んで作業開始せ�
 ```
 
 Delivery is handled by `inbox_watcher.sh` (infrastructure layer).
-**Agents NEVER call tmux send-keys directly.**
+**Agents NEVER call backend input commands directly** (`tmux send-keys`, `zellij action write`, `zellij action paste`, etc.). Use `inbox_write.sh`; infrastructure routes wakeups through the mux adapter.
 
 ## Delivery Mechanism
 
@@ -136,18 +143,18 @@ Two layers:
 1. **Message persistence**: `inbox_write.sh` writes to `queue/inbox/{agent}.yaml` with flock. Guaranteed.
 2. **Wake-up signal**: `inbox_watcher.sh` detects file change via `inotifywait` → wakes agent:
    - **Priority 1**: Agent self-watch (agent's own `inotifywait` on its inbox) → no nudge needed
-   - **Priority 2**: `tmux send-keys` — short nudge only (text and Enter sent separately, 0.3s gap)
+   - **Priority 2**: mux adapter input — short nudge only (text and Enter sent separately, 0.3s gap)
 
 The nudge is minimal: `inboxN` (e.g. `inbox3` = 3 unread). That's it.
-**Agent reads the inbox file itself.** Message content never travels through tmux — only a short wake-up signal.
+**Agent reads the inbox file itself.** Message content never travels through the terminal mux — only a short wake-up signal.
 
 Safety note (shogun):
-- If the Shogun pane is active (the Lord is typing), `inbox_watcher.sh` must not inject keystrokes. It should use tmux `display-message` only.
+- If the Shogun pane is active (the Lord is typing), `inbox_watcher.sh` must not inject keystrokes. It should use mux metadata/status APIs only.
 - Escalation keystrokes (`Escape×2`, context reset, `C-u`) must be suppressed for shogun to avoid clobbering human input.
 
-Special cases (CLI commands sent via `tmux send-keys`):
-- `type: clear_command` → sends context reset command via send-keys (Claude/Copilot/Kimi: `/clear`, Codex/OpenCode: `/new`)
-- `type: model_switch` → sends the /model command via send-keys
+Special cases (CLI commands sent through the mux adapter / compatibility layer):
+- `type: clear_command` → sends context reset command (Claude/Copilot/Kimi: `/clear`, Codex/OpenCode: `/new`)
+- `type: model_switch` → sends the /model command
 
 ## Agent Self-Watch Phase Policy (cmd_107)
 
@@ -155,7 +162,7 @@ Phase migration is controlled by watcher flags:
 
 - **Phase 1 (baseline)**: `process_unread_once` at startup + `inotifywait` event-driven loop + timeout fallback.
 - **Phase 2 (normal nudge off)**: `disable_normal_nudge` behavior enabled (`ASW_DISABLE_NORMAL_NUDGE=1` or `ASW_PHASE>=2`).
-- **Phase 3 (final escalation only)**: `FINAL_ESCALATION_ONLY=1` (or `ASW_PHASE>=3`) so normal `send-keys inboxN` is suppressed; escalation lane remains for recovery.
+- **Phase 3 (final escalation only)**: `FINAL_ESCALATION_ONLY=1` (or `ASW_PHASE>=3`) so normal mux nudge `inboxN` is suppressed; escalation lane remains for recovery.
 
 Read-cost controls:
 
@@ -405,7 +412,7 @@ Cross-reference with dashboard.md — process any reports not yet reflected.
 | Read / Write / Edit | Foreground | Completes instantly |
 | inbox_write.sh | Foreground | Completes instantly |
 | `sleep N` | **FORBIDDEN** | Use inbox event-driven instead |
-| tmux capture-pane | **FORBIDDEN** | Read report YAML instead |
+| backend-specific capture (`tmux capture-pane`, `zellij action dump-screen`) | **FORBIDDEN** | Read report YAML instead |
 
 ### Dispatch-then-Stop Pattern
 
@@ -482,11 +489,11 @@ git diff --exit-code instructions/generated/
 
 **Always confirm your ID first:**
 ```bash
-tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'
+bash scripts/agent_identity.sh
 ```
 Output: `ashigaru3` → You are Ashigaru 3. The number is your ID.
 
-Why `@agent_id` not `pane_index`: pane_index shifts on pane reorganization. @agent_id is set by shutsujin_departure.sh at startup and never changes.
+Why agent identity not `pane_index`: pane_index shifts on pane reorganization. Identity is set by shutsujin_departure.sh at startup and resolved through the mux adapter, so it works with both Zellij and tmux.
 
 **Your files ONLY:**
 ```

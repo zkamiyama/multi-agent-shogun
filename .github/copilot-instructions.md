@@ -2,12 +2,13 @@
 # multi-agent-shogun System Configuration
 version: "3.0"
 updated: "2026-02-07"
-description: "GitHub Copilot CLI + tmux multi-agent parallel dev platform with sengoku military hierarchy"
+description: "GitHub Copilot CLI + mux-backend multi-agent parallel dev platform with sengoku military hierarchy"
 
 hierarchy: "Lord (human) → Shogun → Karo → Ashigaru 1-7 / Gunshi"
 communication: "YAML files + inbox mailbox system (event-driven, NO polling)"
 
-tmux_sessions:
+mux_backend: "config/settings.yaml → mux.backend (zellij default, tmux legacy)"
+mux_sessions:
   shogun: { pane_0: shogun }
   multiagent: { pane_0: karo, pane_1-7: ashigaru1-7, pane_8: gunshi }
 
@@ -64,7 +65,7 @@ language:
 
 **This is ONE procedure for ALL situations**: fresh start, compaction, session continuation, or any state where you see copilot-instructions.md. You cannot distinguish these cases, and you don't need to. **Always follow the same steps.**
 
-1. Identify self: `tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'`
+1. Identify self: `bash scripts/agent_identity.sh`
 2. `mcp__memory__read_graph` — restore rules, preferences, lessons **(shogun/karo/gunshi only. ashigaru skip this step — task YAML is sufficient)**
 3. **Read `memory/MEMORY.md`** (shogun only) — persistent cross-session memory. If file missing, skip. *GitHub Copilot CLI users: this file is also auto-loaded via GitHub Copilot CLI's memory feature.*
 4. **Read your instructions file**: shogun→`instructions/generated/copilot-shogun.md`, karo→`instructions/generated/copilot-karo.md`, ashigaru→`instructions/generated/copilot-ashigaru.md`, gunshi→`instructions/generated/copilot-gunshi.md`. **NEVER SKIP** — even if a conversation summary exists. Summaries do NOT preserve persona, speech style, or forbidden actions.
@@ -80,7 +81,7 @@ language:
 Lightweight recovery using only copilot-instructions.md (auto-loaded). Do NOT read instructions/*.md (cost saving).
 
 ```
-Step 1: tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}' → ashigaru{N}
+Step 1: bash scripts/agent_identity.sh → ashigaru{N}
 Step 2: Read queue/tasks/{your_id}.yaml →
         assigned=work (execute task), idle=wait, done=wait (DO NOT re-report)
 Step 3: If task has "project:" field → read context/{project}.md
@@ -98,7 +99,7 @@ Persona・戦国口調・forbidden_actions の再確立は **SessionStart hook**
 
 **Forbidden after /clear・compaction**:
 - persona 確立前に足軽/軍師報告を大量処理すること（三人称化・役職混乱の原因）
-- 自 pane の `tmux capture-pane` 実行（自己観察ループの入口）
+- 自 pane の backend-specific capture コマンド実行（`tmux capture-pane` / `zellij action dump-screen` 等。自己観察ループの入口）
 
 ## Summary Generation (compaction)
 
@@ -127,7 +128,7 @@ bash scripts/inbox_write.sh ashigaru3 "タスクYAMLを読んで作業開始せ�
 ```
 
 Delivery is handled by `inbox_watcher.sh` (infrastructure layer).
-**Agents NEVER call tmux send-keys directly.**
+**Agents NEVER call backend input commands directly** (`tmux send-keys`, `zellij action write`, `zellij action paste`, etc.). Use `inbox_write.sh`; infrastructure routes wakeups through the mux adapter.
 
 ## Delivery Mechanism
 
@@ -135,14 +136,14 @@ Two layers:
 1. **Message persistence**: `inbox_write.sh` writes to `queue/inbox/{agent}.yaml` with flock. Guaranteed.
 2. **Wake-up signal**: `inbox_watcher.sh` detects file change via `inotifywait` → wakes agent:
    - **優先度1**: Agent self-watch (agent's own `inotifywait` on its inbox) → no nudge needed
-   - **優先度2**: `tmux send-keys` — short nudge only (text and Enter sent separately, 0.3s gap)
+   - **優先度2**: mux adapter input — short nudge only (text and Enter sent separately, 0.3s gap)
 
 The nudge is minimal: `inboxN` (e.g. `inbox3` = 3 unread). That's it.
-**Agent reads the inbox file itself.** Message content never travels through tmux — only a short wake-up signal.
+**Agent reads the inbox file itself.** Message content never travels through the terminal mux — only a short wake-up signal.
 
-Special cases (CLI commands sent via `tmux send-keys`):
-- `type: clear_command` → sends context reset command via send-keys (Claude/Copilot/Kimi: `/clear`, Codex/OpenCode: `/new`)
-- `type: model_switch` → sends the /model command via send-keys
+Special cases (CLI commands sent through the mux adapter / compatibility layer):
+- `type: clear_command` → sends context reset command (Claude/Copilot/Kimi: `/clear`, Codex/OpenCode: `/new`)
+- `type: model_switch` → sends the /model command
 
 **Escalation** (when nudge is not processed):
 
@@ -239,7 +240,7 @@ System manages ALL white-collar work, not just self-improvement. Project folders
 1. **Dashboard**: Karo + Gunshi update. Gunshi: QC results aggregation. Karo: task status/streaks/action items. Shogun reads it, never writes it.
 2. **Chain of command**: Shogun → Karo → Ashigaru/Gunshi. Never bypass Karo.
 3. **Reports**: Check `queue/reports/ashigaru{N}_report.yaml` and `queue/reports/gunshi_report.yaml` when waiting.
-4. **Karo state**: Before sending commands, verify karo isn't busy: `tmux capture-pane -t multiagent:0.0 -p | tail -20`
+4. **Karo state**: Before sending commands, verify karo isn't busy with backend-neutral tooling: `bash scripts/agent_status.sh --lang ja` (or read dashboard/reports if status command is unavailable)
 5. **Screenshots**: See `config/settings.yaml` → `screenshot.path`
 6. **Skill candidates**: Ashigaru reports include `skill_candidate:`. Karo collects → dashboard. Shogun approves → creates design doc.
 7. **Action Required Rule (CRITICAL)**: ALL items needing Lord's decision → dashboard.md 🚨要対応 section. ALWAYS. Even if also written elsewhere. Forgetting = Lord gets angry.
@@ -297,7 +298,7 @@ When processing large datasets (30+ items requiring individual web search, API c
 | D003 | `git push --force`, `git push -f` (without `--force-with-lease`) | Destroys remote history for all collaborators |
 | D004 | `git reset --hard`, `git checkout -- .`, `git restore .`, `git clean -f` | Destroys all uncommitted work in the repo |
 | D005 | `sudo`, `su`, `chmod -R`, `chown -R` on system paths | Privilege escalation / system modification |
-| D006 | `kill`, `killall`, `pkill`, `tmux kill-server`, `tmux kill-session` | Terminates other agents or infrastructure |
+| D006 | `kill`, `killall`, `pkill`, `tmux kill-server`, `tmux kill-session`, `zellij kill-session`, `zellij delete-session` | Terminates other agents or infrastructure |
 | D007 | `mkfs`, `dd if=`, `fdisk`, `mount`, `umount` | Disk/partition destruction |
 | D008 | `curl|bash`, `wget -O-|sh`, `curl|sh` (pipe-to-shell patterns) | Remote code execution |
 

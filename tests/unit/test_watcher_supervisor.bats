@@ -11,6 +11,7 @@
 
 PROJECT_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 SUPERVISOR_SCRIPT="$PROJECT_ROOT/scripts/watcher_supervisor.sh"
+export MUX_BACKEND=tmux
 
 setup() {
     TEST_TMP="$(mktemp -d)"

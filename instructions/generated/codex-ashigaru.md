@@ -135,7 +135,7 @@ bash scripts/inbox_write.sh ashigaru3 "タスクYAMLを読んで作業開始せ�
 ```
 
 Delivery is handled by `inbox_watcher.sh` (infrastructure layer).
-**Agents NEVER call tmux send-keys directly.**
+**Agents NEVER call backend input commands directly** (`tmux send-keys`, `zellij action write`, `zellij action paste`, etc.). Use `inbox_write.sh`; infrastructure routes wakeups through the mux adapter.
 
 ## Delivery Mechanism
 
@@ -143,18 +143,18 @@ Two layers:
 1. **Message persistence**: `inbox_write.sh` writes to `queue/inbox/{agent}.yaml` with flock. Guaranteed.
 2. **Wake-up signal**: `inbox_watcher.sh` detects file change via `inotifywait` → wakes agent:
    - **Priority 1**: Agent self-watch (agent's own `inotifywait` on its inbox) → no nudge needed
-   - **Priority 2**: `tmux send-keys` — short nudge only (text and Enter sent separately, 0.3s gap)
+   - **Priority 2**: mux adapter input — short nudge only (text and Enter sent separately, 0.3s gap)
 
 The nudge is minimal: `inboxN` (e.g. `inbox3` = 3 unread). That's it.
-**Agent reads the inbox file itself.** Message content never travels through tmux — only a short wake-up signal.
+**Agent reads the inbox file itself.** Message content never travels through the terminal mux — only a short wake-up signal.
 
 Safety note (shogun):
-- If the Shogun pane is active (the Lord is typing), `inbox_watcher.sh` must not inject keystrokes. It should use tmux `display-message` only.
+- If the Shogun pane is active (the Lord is typing), `inbox_watcher.sh` must not inject keystrokes. It should use mux metadata/status APIs only.
 - Escalation keystrokes (`Escape×2`, context reset, `C-u`) must be suppressed for shogun to avoid clobbering human input.
 
-Special cases (CLI commands sent via `tmux send-keys`):
-- `type: clear_command` → sends context reset command via send-keys (Claude/Copilot/Kimi: `/clear`, Codex/OpenCode: `/new`)
-- `type: model_switch` → sends the /model command via send-keys
+Special cases (CLI commands sent through the mux adapter / compatibility layer):
+- `type: clear_command` → sends context reset command (Claude/Copilot/Kimi: `/clear`, Codex/OpenCode: `/new`)
+- `type: model_switch` → sends the /model command
 
 ## Agent Self-Watch Phase Policy (cmd_107)
 
@@ -162,7 +162,7 @@ Phase migration is controlled by watcher flags:
 
 - **Phase 1 (baseline)**: `process_unread_once` at startup + `inotifywait` event-driven loop + timeout fallback.
 - **Phase 2 (normal nudge off)**: `disable_normal_nudge` behavior enabled (`ASW_DISABLE_NORMAL_NUDGE=1` or `ASW_PHASE>=2`).
-- **Phase 3 (final escalation only)**: `FINAL_ESCALATION_ONLY=1` (or `ASW_PHASE>=3`) so normal `send-keys inboxN` is suppressed; escalation lane remains for recovery.
+- **Phase 3 (final escalation only)**: `FINAL_ESCALATION_ONLY=1` (or `ASW_PHASE>=3`) so normal mux nudge `inboxN` is suppressed; escalation lane remains for recovery.
 
 Read-cost controls:
 
@@ -412,7 +412,7 @@ Cross-reference with dashboard.md — process any reports not yet reflected.
 | Read / Write / Edit | Foreground | Completes instantly |
 | inbox_write.sh | Foreground | Completes instantly |
 | `sleep N` | **FORBIDDEN** | Use inbox event-driven instead |
-| tmux capture-pane | **FORBIDDEN** | Read report YAML instead |
+| backend-specific capture (`tmux capture-pane`, `zellij action dump-screen`) | **FORBIDDEN** | Read report YAML instead |
 
 ### Dispatch-then-Stop Pattern
 
@@ -489,11 +489,11 @@ git diff --exit-code instructions/generated/
 
 **Always confirm your ID first:**
 ```bash
-tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'
+bash scripts/agent_identity.sh
 ```
 Output: `ashigaru3` → You are Ashigaru 3. The number is your ID.
 
-Why `@agent_id` not `pane_index`: pane_index shifts on pane reorganization. @agent_id is set by shutsujin_departure.sh at startup and never changes.
+Why agent identity not `pane_index`: pane_index shifts on pane reorganization. Identity is set by shutsujin_departure.sh at startup and resolved through the mux adapter, so it works with both Zellij and tmux.
 
 **Your files ONLY:**
 ```
@@ -642,36 +642,36 @@ Step 4: Resume work based on task status
 
 **Note**: Unlike Claude Code, Codex has no `mcp__memory__read_graph` equivalent. Recovery relies entirely on AGENTS.md + YAML files.
 
-## tmux Interaction
+## Mux Interaction
 
 ### TUI Mode (default `codex`)
 
 - Codex runs a fullscreen TUI using alt-screen
-- `--no-alt-screen` flag disables alternate screen mode (critical for tmux integration)
-- With `--no-alt-screen`, send-keys and capture-pane should work similarly to Claude Code
+- `--no-alt-screen` flag disables alternate screen mode (critical for terminal mux integration)
+- With `--no-alt-screen`, mux adapter send/capture paths are more reliable
 - Prompt detection: TUI prompt format differs from Claude Code's `❯` — pattern TBD after testing
 
 ### Non-Interactive Mode (`codex exec`)
 
 - Runs headless, outputs to stdout (text or JSONL with `--json`)
-- No alt-screen issues — ideal for tmux pane integration
+- No alt-screen issues — ideal for backend-managed automation
 - `codex exec --full-auto --json "task description"` for automated execution
 - Can resume sessions: `codex exec resume`
 - Output file support: `--output-last-message, -o` writes final message to file
 
-### send-keys Compatibility
+### Mux Input/Capture Compatibility
 
-| Mode | send-keys | capture-pane | Notes |
+| Mode | mux input | mux capture | Notes |
 |------|-----------|-------------|-------|
 | TUI (default) | Risky (alt-screen) | Risky | Use `--no-alt-screen` |
-| TUI + `--no-alt-screen` | Should work | Should work | Preferred for tmux |
+| TUI + `--no-alt-screen` | Should work | Should work | Preferred for managed panes |
 | `codex exec` | N/A (non-interactive) | stdout capture | Best for automation |
 
 ### Nudge Mechanism
 
 For TUI mode with `--no-alt-screen`:
-- inbox_watcher.sh sends nudge text (e.g., `inbox3`) via tmux send-keys
-- Safety (shogun): if the Shogun pane is active (the Lord is typing), watcher avoids send-keys and uses tmux `display-message` only
+- inbox_watcher.sh sends nudge text (e.g., `inbox3`) via the mux adapter / compatibility layer
+- Safety (shogun): if the Shogun pane is active (the Lord is typing), watcher suppresses direct input and uses mux metadata/status checks
 - After receiving a nudge, the agent reads `queue/inbox/<agent>.yaml` and processes unread messages
 
 For `codex exec` mode:
@@ -734,7 +734,7 @@ Model is set by `build_cli_command()` in cli_adapter.sh based on settings.yaml. 
 | `/clear` context reset | Yes | `/new` (TUI only) | Exec mode: new invocation |
 | Prompt caching | 90% discount | 75% discount | Higher cost per token |
 | Subscription limits | API-based (no limit) | msg/5h limits (Plus/Pro) | Bottleneck for parallel ops |
-| Alt-screen | No (terminal-native) | Yes (TUI, unless `--no-alt-screen`) | tmux integration risk |
+| Alt-screen | No (terminal-native) | Yes (TUI, unless `--no-alt-screen`) | terminal mux integration risk |
 | Sandbox | None built-in | OS-level (landlock/seatbelt) | Safer automated execution |
 | Structured output | Text only | JSONL (`--json`) | Better for parsing |
 | Local/OSS models | No | Yes (`--oss` via Ollama) | Offline/cost-free option |

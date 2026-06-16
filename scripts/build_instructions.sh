@@ -534,8 +534,8 @@ FRONTMATTER
 This generated file belongs to exactly one agent.
 
 - Canonical agent_id: \`${agent_id}\`
-- Canonical tmux check: \`tmux display-message -t "\$TMUX_PANE" -p '#{@agent_id}'\`
-- Proceed only if the tmux value matches the canonical agent_id.
+- Canonical identity check: \`bash scripts/agent_identity.sh\`
+- Proceed only if the resolved agent_id matches the canonical agent_id.
 - If you have not confirmed this yet, confirm it before reading inbox/task files.
 
 EOF

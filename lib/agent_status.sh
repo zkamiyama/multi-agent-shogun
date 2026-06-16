@@ -10,6 +10,12 @@
 #   agent_is_busy_check "multiagent:agents.0"
 #   state=$(get_pane_state_label "multiagent:agents.3")
 
+AGENT_STATUS_PROJECT_ROOT="${AGENT_STATUS_PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+if ! type mux_capture >/dev/null 2>&1 && [ -f "$AGENT_STATUS_PROJECT_ROOT/lib/mux_adapter.sh" ]; then
+    # shellcheck source=/dev/null
+    source "$AGENT_STATUS_PROJECT_ROOT/lib/mux_adapter.sh"
+fi
+
 # agent_is_busy_check <pane_target> [cli_type]
 # tmux paneの末尾5行からCLI固有のidle/busyパターンを検出する。
 # Returns: 0=busy, 1=idle, 2=pane不在
@@ -39,7 +45,7 @@ agent_is_busy_check() {
     # capture-pane on a TUI app (e.g. Claude Code) often returns only trailing
     # blank lines when pane height > visible content, making pane_tail empty
     # even when the pane exists and is healthy. Use display-message instead.
-    if ! tmux display-message -t "$pane_target" -p '#{pane_id}' &>/dev/null; then
+    if ! mux_pane_exists "$pane_target" &>/dev/null; then
         return 2  # pane truly absent
     fi
 
@@ -48,11 +54,11 @@ agent_is_busy_check() {
     # Fix: store in a variable first so command-substitution strips trailing newlines,
     # then pipe to tail.
     if [[ -z "$cli_type" ]]; then
-        cli_type=$(timeout 2 tmux show-options -v -p -t "$pane_target" @agent_cli 2>/dev/null || true)
+        cli_type=$(timeout 2 mux_get_meta "$pane_target" agent_cli 2>/dev/null || true)
     fi
 
     local full_capture
-    full_capture=$(timeout 2 tmux capture-pane -t "$pane_target" -p 2>/dev/null)
+    full_capture=$(timeout 2 mux_capture "$pane_target" 2>/dev/null)
     # Only check the bottom 5 lines by default. Old busy markers linger in
     # scroll-back and cause false-busy if we scan too many lines.
     pane_tail=$(echo "$full_capture" | tail -5)

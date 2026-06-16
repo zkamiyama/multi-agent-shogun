@@ -62,6 +62,13 @@ else
     CLI_ADAPTER_LOADED=false
 fi
 
+if [ -f "$SCRIPT_DIR/lib/mux_adapter.sh" ]; then
+    source "$SCRIPT_DIR/lib/mux_adapter.sh"
+else
+    echo -e "\033[1;31m【ERROR】\033[0m lib/mux_adapter.sh が見つかりません。"
+    exit 1
+fi
+
 # 足軽IDリストと人数を動的に取得（settings.yaml から）
 if [ "$CLI_ADAPTER_LOADED" = true ]; then
     _ASHIGARU_IDS_STR=$(get_ashigaru_ids)
@@ -83,6 +90,30 @@ log_war() {
     echo -e "\033[1;31m【戦】\033[0m $1"
 }
 
+start_webui_if_missing() {
+    local host="${SHOGUN_WEB_HOST:-127.0.0.1}"
+    local port="${SHOGUN_WEB_PORT:-1192}"
+    local url="http://${host}:${port}/"
+    local log_file="$SCRIPT_DIR/logs/shogun_webui.log"
+
+    if curl -fsS "${url}api/meta" >/dev/null 2>&1; then
+        log_info "🖥️ Web UI 稼働中: $url"
+        return 0
+    fi
+
+    mkdir -p "$SCRIPT_DIR/logs"
+    nohup python3 "$SCRIPT_DIR/scripts/shogun-webui.py" --host "$host" --port "$port" \
+        >> "$log_file" 2>&1 &
+    disown
+    sleep 0.5
+
+    if curl -fsS "${url}api/meta" >/dev/null 2>&1; then
+        log_success "  └─ Web UI 起動完了: $url"
+    else
+        log_info "⚠️ Web UI 起動確認未完了。ログ確認: $log_file"
+    fi
+}
+
 # OpenCode は複数プロセスを短時間に連続起動すると WSL2 上で SIGILL に
 # なることがあるため、OpenCode のときだけ起動間隔を少し空ける。
 opencode_startup_delay() {
@@ -101,6 +132,213 @@ cli_ready_pattern() {
         antigravity) echo "Antigravity|agy|type a message|Type a message|message" ;;
         *)           echo "." ;;
     esac
+}
+
+shell_quote() {
+    printf '%q' "$1"
+}
+
+zellij_blank_shell_command() {
+    printf 'cd %s && exec %s -i' \
+        "$(shell_quote "$SCRIPT_DIR")" \
+        "$(shell_quote "$SHELL_SETTING")"
+}
+
+zellij_agent_shell_command() {
+    local agent_id="$1"
+    local label="$2"
+    local color="$3"
+    local prompt
+    prompt=$(generate_prompt "$label" "$color" "$SHELL_SETTING")
+    printf 'cd %s && export SHOGUN_AGENT_ID=%s && export PS1=%s && clear && exec %s -i' \
+        "$(shell_quote "$SCRIPT_DIR")" \
+        "$(shell_quote "$agent_id")" \
+        "$(shell_quote "$prompt")" \
+        "$(shell_quote "$SHELL_SETTING")"
+}
+
+zellij_set_agent_meta() {
+    local target="$1"
+    local agent_id="$2"
+    local model_name="$3"
+    local cli_type="${4:-}"
+    mux_set_meta "$target" agent_id "$agent_id"
+    mux_set_meta "$target" model_name "$model_name"
+    mux_set_meta "$target" current_task ""
+    if [ -n "$cli_type" ]; then
+        mux_set_meta "$target" agent_cli "$cli_type"
+    fi
+}
+
+zellij_start_watcher_if_missing() {
+    local agent="$1"
+    local target="$2"
+    local cli="$3"
+    local log_file="$SCRIPT_DIR/logs/inbox_watcher_${agent}.log"
+    if pgrep -Ef "scripts/inbox_watcher.sh ${agent} ${target}( |$)" >/dev/null 2>&1; then
+        return 0
+    fi
+    nohup bash "$SCRIPT_DIR/scripts/inbox_watcher.sh" "$agent" "$target" "$cli" >> "$log_file" 2>&1 &
+    disown
+}
+
+start_zellij_deployment() {
+    log_war "🧩 Zellij backend で布陣を構築中..."
+    mux_preflight || exit $?
+
+    mkdir -p "$SCRIPT_DIR/logs" "$SCRIPT_DIR/queue/inbox"
+    : > "$SCRIPT_DIR/queue/mux_state.yaml"
+
+    # Exact-session cleanup only. This is scoped to shogun-managed sessions.
+    mux_delete_session multiagent >/dev/null 2>&1 || true
+    mux_delete_session shogun >/dev/null 2>&1 || true
+
+    mux_create_session shogun main
+    mux_create_session multiagent agents
+
+    declare -A Z_TARGETS=()
+
+    local shogun_cmd shogun_target
+    shogun_cmd=$(zellij_blank_shell_command)
+    shogun_target=$(mux_first_pane shogun)
+    shogun_target=$(mux_adopt_pane "$shogun_target" shogun "$SCRIPT_DIR" "$shogun_cmd")
+    Z_TARGETS[shogun]="$shogun_target"
+    zellij_set_agent_meta "$shogun_target" shogun "$(get_model_display_name shogun 2>/dev/null || echo Codex)"
+
+    local multi_agents=("karo")
+    local labels=("karo")
+    local colors=("red")
+    local a
+    for a in $_ASHIGARU_IDS_STR; do
+        multi_agents+=("$a")
+        labels+=("$a")
+        colors+=("blue")
+    done
+    multi_agents+=("gunshi")
+    labels+=("gunshi")
+    colors+=("yellow")
+
+    local idx agent target cmd model
+    for idx in "${!multi_agents[@]}"; do
+        agent="${multi_agents[$idx]}"
+        cmd=$(zellij_blank_shell_command)
+        if [ "$idx" -eq 0 ]; then
+            target=$(mux_first_pane multiagent)
+            target=$(mux_adopt_pane "$target" "$agent" "$SCRIPT_DIR" "$cmd")
+        else
+            # Preserve the legacy tmux 3x3 visual order:
+            # karo/a1/a2, a3/a4/a5, a6/a7/gunshi.
+            case "$agent" in
+                ashigaru1) target=$(mux_create_pane multiagent "$agent" "$SCRIPT_DIR" "$cmd" right "${Z_TARGETS[karo]}") ;;
+                ashigaru2) target=$(mux_create_pane multiagent "$agent" "$SCRIPT_DIR" "$cmd" right "${Z_TARGETS[ashigaru1]}") ;;
+                ashigaru3) target=$(mux_create_pane multiagent "$agent" "$SCRIPT_DIR" "$cmd" down "${Z_TARGETS[karo]}") ;;
+                ashigaru4) target=$(mux_create_pane multiagent "$agent" "$SCRIPT_DIR" "$cmd" down "${Z_TARGETS[ashigaru1]}") ;;
+                ashigaru5) target=$(mux_create_pane multiagent "$agent" "$SCRIPT_DIR" "$cmd" down "${Z_TARGETS[ashigaru2]}") ;;
+                ashigaru6) target=$(mux_create_pane multiagent "$agent" "$SCRIPT_DIR" "$cmd" down "${Z_TARGETS[ashigaru3]}") ;;
+                ashigaru7) target=$(mux_create_pane multiagent "$agent" "$SCRIPT_DIR" "$cmd" down "${Z_TARGETS[ashigaru4]}") ;;
+                gunshi)    target=$(mux_create_pane multiagent "$agent" "$SCRIPT_DIR" "$cmd" down "${Z_TARGETS[ashigaru5]}") ;;
+                *)         target=$(mux_create_pane multiagent "$agent" "$SCRIPT_DIR" "$cmd") ;;
+            esac
+        fi
+        Z_TARGETS[$agent]="$target"
+        model=$(get_model_display_name "$agent" 2>/dev/null || echo Codex)
+        zellij_set_agent_meta "$target" "$agent" "$model"
+    done
+
+    local agent setup_cmd
+    setup_cmd=$(zellij_agent_shell_command shogun "将軍" "magenta")
+    mux_send_line "${Z_TARGETS[shogun]}" "$setup_cmd"
+    for idx in "${!multi_agents[@]}"; do
+        agent="${multi_agents[$idx]}"
+        setup_cmd=$(zellij_agent_shell_command "$agent" "${labels[$idx]}" "${colors[$idx]}")
+        mux_send_line "${Z_TARGETS[$agent]}" "$setup_cmd"
+    done
+    sleep 0.5
+
+    if [ "$SILENT_MODE" = true ]; then
+        printf 'DISPLAY_MODE: silent\n' > "$SCRIPT_DIR/queue/runtime_env.yaml"
+        echo "  📢 表示モード: サイレント（echo表示なし）"
+    else
+        printf 'DISPLAY_MODE: shout\n' > "$SCRIPT_DIR/queue/runtime_env.yaml"
+    fi
+
+    if [ "$SETUP_ONLY" = false ]; then
+        if [ "$CLI_ADAPTER_LOADED" = true ]; then
+            declare -A _validated_clis=()
+            for agent in shogun "${multi_agents[@]}"; do
+                local cli_to_validate
+                cli_to_validate=$(get_cli_type "$agent")
+                if [[ -z "${_validated_clis[$cli_to_validate]:-}" ]]; then
+                    validate_cli_availability "$cli_to_validate" || exit 1
+                    _validated_clis[$cli_to_validate]=1
+                fi
+            done
+        fi
+
+        rm -f /tmp/shogun_idle_*
+
+        local cli_type launch_cmd display
+        for agent in shogun "${multi_agents[@]}"; do
+            cli_type="claude"
+            launch_cmd="claude --model sonnet --effort max $PERMISSION_FLAG"
+            if [ "$agent" = "shogun" ] || [ "$agent" = "gunshi" ] || { [ "$KESSEN_MODE" = true ] && [[ "$agent" == ashigaru* ]]; }; then
+                launch_cmd="claude --model opus --effort max $PERMISSION_FLAG"
+            fi
+            if [ "$CLI_ADAPTER_LOADED" = true ]; then
+                cli_type=$(get_cli_type "$agent")
+                if [ "$KESSEN_MODE" = true ] && [[ "$agent" == ashigaru* ]] && [ "$cli_type" = "claude" ]; then
+                    launch_cmd="claude --model opus --effort max $PERMISSION_FLAG"
+                else
+                    launch_cmd=$(build_cli_command "$agent")
+                fi
+            fi
+            display=$(get_model_display_name "$agent" 2>/dev/null || echo Codex)
+            mux_set_meta "${Z_TARGETS[$agent]}" agent_cli "$cli_type"
+            mux_set_meta "${Z_TARGETS[$agent]}" model_name "$display"
+            mux_send_line "${Z_TARGETS[$agent]}" "$launch_cmd"
+            opencode_startup_delay "$cli_type"
+            log_info "  └─ ${agent}（${cli_type} / ${display}）、召喚完了"
+        done
+
+        sleep 2
+        log_info "📬 メールボックス監視を起動中..."
+        for agent in shogun "${multi_agents[@]}"; do
+            [ -f "$SCRIPT_DIR/queue/inbox/${agent}.yaml" ] || echo "messages:" > "$SCRIPT_DIR/queue/inbox/${agent}.yaml"
+            zellij_start_watcher_if_missing "$agent" "${Z_TARGETS[$agent]}" "$(mux_get_meta "${Z_TARGETS[$agent]}" agent_cli || echo codex)"
+        done
+        log_success "  └─ $((${#multi_agents[@]} + 1))エージェント分のinbox_watcher起動完了（Zellij）"
+    fi
+
+    log_info "📱 ntfy入力リスナー確認..."
+    NTFY_TOPIC=$(grep 'ntfy_topic:' ./config/settings.yaml 2>/dev/null | awk '{print $2}' | tr -d '"')
+    if [ -n "$NTFY_TOPIC" ]; then
+        [ ! -f ./queue/ntfy_inbox.yaml ] && echo "inbox:" > ./queue/ntfy_inbox.yaml
+        if ! pgrep -f "ntfy_listener.sh" >/dev/null 2>&1; then
+            nohup bash "$SCRIPT_DIR/scripts/ntfy_listener.sh" &>/dev/null &
+            disown
+        fi
+        log_info "📱 ntfy入力リスナー起動/確認 (topic: $NTFY_TOPIC)"
+    else
+        log_info "📱 ntfy未設定のためリスナーはスキップ"
+    fi
+
+    log_success "  └─ Zellij 布陣、構築完了"
+    echo ""
+    echo "  次のステップ:"
+    echo "  ┌──────────────────────────────────────────────────────────┐"
+    echo "  │  将軍の本陣にアタッチ:                                  │"
+    echo "  │     zellij attach shogun                                 │"
+    echo "  │                                                          │"
+    echo "  │  家老・足軽の陣を確認:                                  │"
+    echo "  │     zellij attach multiagent                             │"
+    echo "  │                                                          │"
+    echo "  │  tmux legacy backend を使う場合:                         │"
+    echo "  │     MUX_BACKEND=tmux ./shutsujin_departure.sh            │"
+    echo "  └──────────────────────────────────────────────────────────┘"
+
+    if [ "$OPEN_TERMINAL" = true ] && command -v wt.exe &>/dev/null; then
+        wt.exe -w 0 new-tab wsl.exe -e bash -lc "zellij attach shogun" \; new-tab wsl.exe -e bash -lc "zellij attach multiagent"
+    fi
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -203,8 +441,8 @@ while [[ $# -gt 0 ]]; do
             echo "オプション:"
             echo "  -c, --clean         キューとダッシュボードをリセットして起動（クリーンスタート）"
             echo "                      未指定時は前回の状態を維持して起動"
-            echo "  -k, --kessen        決戦の陣（全足軽をOpusで起動）"
-            echo "                      未指定時は平時の陣（足軽1-7=Sonnet, 軍師=Opus）"
+            echo "  -k, --kessen        決戦の陣（Claude足軽はOpus強制、他CLIはsettings.yamlに従う）"
+            echo "                      未指定時は平時の陣（settings.yamlのCLI/モデル設定に従う）"
             echo "  -s, --setup-only    tmuxセッションのセットアップのみ（Claude起動なし）"
             echo "  -t, --terminal      Windows Terminal で新しいタブを開く"
             echo "  -shell, --shell SH  シェルを指定（bash または zsh）"
@@ -221,7 +459,7 @@ while [[ $# -gt 0 ]]; do
             echo "  ./shutsujin_departure.sh -s           # セットアップのみ（手動でClaude起動）"
             echo "  ./shutsujin_departure.sh -t           # 全エージェント起動 + ターミナルタブ展開"
             echo "  ./shutsujin_departure.sh -shell bash  # bash用プロンプトで起動"
-            echo "  ./shutsujin_departure.sh -k           # 決戦の陣（全足軽Opus）"
+            echo "  ./shutsujin_departure.sh -k           # 決戦の陣"
             echo "  ./shutsujin_departure.sh -c -k         # クリーンスタート＋決戦の陣"
             echo "  ./shutsujin_departure.sh -shell zsh   # zsh用プロンプトで起動"
             echo "  ./shutsujin_departure.sh --shogun-no-thinking  # 将軍のthinkingを無効化（中継特化）"
@@ -230,14 +468,11 @@ while [[ $# -gt 0 ]]; do
             echo "  ./shutsujin_departure.sh -S           # サイレントモード（echo表示なし）"
             echo ""
             echo "モデル構成:"
-            echo "  将軍:      Opus（デフォルト。--shogun-no-thinkingで無効化）"
-            echo "  家老:      Sonnet（高速タスク管理）"
-            echo "  軍師:      Opus（戦略立案・設計判断）"
-            echo "  足軽1-7:   Sonnet（実働部隊）"
+            echo "  config/settings.yaml の cli.agents.<agent>.type/model/effort に従う"
             echo ""
             echo "陣形:"
-            echo "  平時の陣（デフォルト）: 足軽1-7=Sonnet, 軍師=Opus"
-            echo "  決戦の陣（--kessen）:   全足軽=Opus, 軍師=Opus"
+            echo "  平時の陣（デフォルト）: settings.yaml のCLI/モデル設定"
+            echo "  決戦の陣（--kessen）:   Claude足軽のみOpus強制、他CLIはsettings.yaml"
             echo ""
             echo "表示モード:"
             echo "  shout（デフォルト）:  タスク完了時に戦国風echo表示"
@@ -245,8 +480,8 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "エイリアス:"
             echo "  csst  → cd $HOME/multi-agent-shogun && ./shutsujin_departure.sh"
-            echo "  css   → tmux attach-session -t shogun"
-            echo "  csm   → tmux attach-session -t multiagent"
+            echo "  css   → 現在の mux backend で shogun に attach"
+            echo "  csm   → 現在の mux backend で multiagent に attach"
             echo ""
             exit 0
             ;;
@@ -336,8 +571,13 @@ echo ""
 # STEP 1: 既存セッションクリーンアップ
 # ═══════════════════════════════════════════════════════════════════════════════
 log_info "🧹 既存の陣を撤収中..."
-tmux kill-session -t multiagent 2>/dev/null && log_info "  └─ multiagent陣、撤収完了" || log_info "  └─ multiagent陣は存在せず"
-tmux kill-session -t shogun 2>/dev/null && log_info "  └─ shogun本陣、撤収完了" || log_info "  └─ shogun本陣は存在せず"
+if [ "$(mux_backend_name)" = "zellij" ]; then
+    mux_delete_session multiagent >/dev/null 2>&1 && log_info "  └─ multiagent陣、撤収完了 (Zellij)" || log_info "  └─ multiagent陣は存在せず (Zellij)"
+    mux_delete_session shogun >/dev/null 2>&1 && log_info "  └─ shogun本陣、撤収完了 (Zellij)" || log_info "  └─ shogun本陣は存在せず (Zellij)"
+else
+    tmux kill-session -t multiagent 2>/dev/null && log_info "  └─ multiagent陣、撤収完了" || log_info "  └─ multiagent陣は存在せず"
+    tmux kill-session -t shogun 2>/dev/null && log_info "  └─ shogun本陣、撤収完了" || log_info "  └─ shogun本陣は存在せず"
+fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # STEP 1.5: 前回記録のバックアップ（--clean時のみ、内容がある場合）
@@ -376,6 +616,7 @@ fi
 # queue ディレクトリが存在しない場合は作成（初回起動時に必要）
 [ -d ./queue/reports ] || mkdir -p ./queue/reports
 [ -d ./queue/tasks ] || mkdir -p ./queue/tasks
+mkdir -p ./queue
 # inbox はLinux FSにシンボリックリンク（WSL2の/mnt/c/ではinotifywaitが動かないため）
 # macOSではfswatch使用のためシンボリックリンク不要
 if [ "$(uname -s)" != "Darwin" ]; then
@@ -523,6 +764,11 @@ else
     log_info "📊 前回のダッシュボードを維持"
 fi
 echo ""
+
+if [ "$(mux_backend_name)" = "zellij" ]; then
+    start_zellij_deployment
+    exit 0
+fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # STEP 4: tmux の存在確認
@@ -680,10 +926,20 @@ echo ""
 if [ "$SETUP_ONLY" = false ]; then
     # CLI の存在チェック（Multi-CLI対応）
     if [ "$CLI_ADAPTER_LOADED" = true ]; then
-        _default_cli=$(get_cli_type "")
-        if ! validate_cli_availability "$_default_cli"; then
-            exit 1
-        fi
+        declare -A _validated_clis=()
+        _agents_to_validate=(shogun karo gunshi)
+        for i in $(seq 1 "$_ASHIGARU_COUNT"); do
+            _agents_to_validate+=("ashigaru${i}")
+        done
+        for _agent_to_validate in "${_agents_to_validate[@]}"; do
+            _cli_to_validate=$(get_cli_type "$_agent_to_validate")
+            if [[ -z "${_validated_clis[$_cli_to_validate]:-}" ]]; then
+                if ! validate_cli_availability "$_cli_to_validate"; then
+                    exit 1
+                fi
+                _validated_clis[$_cli_to_validate]=1
+            fi
+        done
     else
         if ! command -v claude &> /dev/null; then
             log_info "⚠️  claude コマンドが見つかりません"
@@ -800,9 +1056,9 @@ with open(f,'w') as fh: yaml.safe_dump(d, fh, default_flow_style=False, allow_un
     log_info "  └─ 軍師（${_gunshi_display}）、召喚完了"
 
     if [ "$KESSEN_MODE" = true ]; then
-        log_success "✅ 決戦の陣で出陣！全軍Opus！"
+        log_success "✅ 決戦の陣で出陣（settings.yaml のCLI構成を反映）"
     else
-        log_success "✅ 平時の陣で出陣（家老=Sonnet, 足軽=Sonnet, 軍師=Opus）"
+        log_success "✅ 平時の陣で出陣（settings.yaml のCLI構成を反映）"
     fi
     echo ""
 
@@ -1032,6 +1288,13 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# STEP 6.10: Web UI 起動
+# ═══════════════════════════════════════════════════════════════════════════════
+log_info ""
+log_info "STEP 6.10: Web UI 起動..."
+start_webui_if_missing
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # STEP 7: 環境確認・完了メッセージ
 # ═══════════════════════════════════════════════════════════════════════════════
 log_info "🔍 陣容を確認中..."
@@ -1090,10 +1353,21 @@ fi
 echo "  次のステップ:"
 echo "  ┌──────────────────────────────────────────────────────────┐"
 echo "  │  将軍の本陣にアタッチして命令を開始:                      │"
+if [ "$(mux_backend_name)" = "zellij" ]; then
+echo "  │     zellij attach shogun   (または: css)                 │"
+else
 echo "  │     tmux attach-session -t shogun   (または: css)        │"
+fi
 echo "  │                                                          │"
 echo "  │  家老・足軽の陣を確認する:                                │"
+if [ "$(mux_backend_name)" = "zellij" ]; then
+echo "  │     zellij attach multiagent   (または: csm)             │"
+else
 echo "  │     tmux attach-session -t multiagent   (または: csm)    │"
+fi
+echo "  │                                                          │"
+echo "  │  Web UI で全paneを監視・直接操作する:                     │"
+echo "  │     http://${SHOGUN_WEB_HOST:-127.0.0.1}:${SHOGUN_WEB_PORT:-1192}/              │"
 echo "  │                                                          │"
 echo "  │  ※ 各エージェントは指示書を読み込み済み。                 │"
 echo "  │    すぐに命令を開始できます。                             │"
@@ -1112,7 +1386,11 @@ if [ "$OPEN_TERMINAL" = true ]; then
 
     # Windows Terminal が利用可能か確認
     if command -v wt.exe &> /dev/null; then
-        wt.exe -w 0 new-tab wsl.exe -e bash -c "tmux attach-session -t shogun" \; new-tab wsl.exe -e bash -c "tmux attach-session -t multiagent"
+        if [ "$(mux_backend_name)" = "zellij" ]; then
+            wt.exe -w 0 new-tab wsl.exe -e bash -lc "zellij attach shogun" \; new-tab wsl.exe -e bash -lc "zellij attach multiagent"
+        else
+            wt.exe -w 0 new-tab wsl.exe -e bash -lc "tmux attach-session -t shogun" \; new-tab wsl.exe -e bash -lc "tmux attach-session -t multiagent"
+        fi
         log_success "  └─ ターミナルタブ展開完了"
     else
         log_info "  └─ wt.exe が見つかりません。手動でアタッチしてください。"

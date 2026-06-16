@@ -120,6 +120,14 @@ load_resolve_pane() {
     [ "$result" = "multiagent:agents.10" ]
 }
 
+@test "switch_cli.sh: non-tmux backend resolves panes from mux runtime state" {
+    run rg -n 'mux_backend_name|mux_find_pane_by_agent|Run shutsujin_departure.sh first' "${PROJECT_ROOT}/scripts/switch_cli.sh"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"mux_backend_name"* ]]
+    [[ "$output" == *"mux_find_pane_by_agent"* ]]
+    [[ "$output" == *"Run shutsujin_departure.sh first"* ]]
+}
+
 # =============================================================================
 # settings.yaml 更新テスト（Python部分）
 # =============================================================================

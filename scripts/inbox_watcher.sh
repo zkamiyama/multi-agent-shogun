@@ -72,6 +72,11 @@ if [ "${__INBOX_WATCHER_TESTING__:-}" != "1" ]; then
         source "$_agent_status_lib"
     fi
 
+    _tmux_compat_lib="${SCRIPT_DIR}/lib/tmux_compat.sh"
+    if [ -f "$_tmux_compat_lib" ]; then
+        source "$_tmux_compat_lib"
+    fi
+
     # Detect OS and select file-watching backend
     INBOX_WATCHER_OS="$(uname -s)"
     if [ "$INBOX_WATCHER_OS" = "Darwin" ]; then
@@ -415,6 +420,85 @@ PY
     ) 200>"$LOCKFILE" 2>/dev/null
 }
 
+# Post-/clear watchdog: 30s 後に agent pane が idle + unread あれば 強制 re-nudge。
+# SessionStart hook 失敗 race condition の safety net (W11/W12a/W12b で 3 連続発生、
+# 2026-05-18 殿 mandate Option A 採用)。
+# - 通常の nudge path で 99% 動くが、CLI 起動完了前に send-keys が race すると
+#   入力欄に "inboxN" が queued のまま Enter 未処理で agent idle 化することがある
+# - この watchdog は failure mode を catch する defense-in-depth
+spawn_clear_watchdog() {
+    (
+        sleep 30
+        # Check 1: pane idle (no Working/Thinking/Bash spinner indicator)
+        local pane_text
+        pane_text=$(tmux capture-pane -t "$PANE_TARGET" -p 2>/dev/null | tail -10) || exit 0
+        if echo "$pane_text" | grep -qE 'ing[…\.]|Working|Bash\(|Running|esc to int' 2>/dev/null; then
+            echo "[$(date)] [CLEAR-WATCHDOG] $AGENT_ID busy 30s post-/clear — no re-nudge" >&2
+            exit 0
+        fi
+        # Check 2a: unread count
+        local unread_count
+        unread_count=$(INBOX_PATH="$INBOX" "$SCRIPT_DIR/.venv/bin/python3" -c "
+import yaml, os, sys
+try:
+    with open(os.environ['INBOX_PATH']) as f:
+        data = yaml.safe_load(f) or {}
+    msgs = data.get('messages', []) or []
+    print(sum(1 for m in msgs if m.get('read') is False))
+except Exception:
+    print(0)
+" 2>/dev/null || echo 0)
+        # Check 2b: worktree dirty (task YAML の worktree field から tracked dirty 検出)
+        # 2026-05-18 殿 mandate Option A 拡張 (W11/W12a/W12b/W13 a1-a5 task 着手後 stop 連発対策)
+        local worktree_dirty=0
+        local worktree_path
+        worktree_path=$(TASK_AGENT="$AGENT_ID" "$SCRIPT_DIR/.venv/bin/python3" -c "
+import yaml, os, sys
+try:
+    agent = os.environ['TASK_AGENT']
+    task_path = f'/home/dev/tools/multi-agent-shogun/queue/tasks/{agent}.yaml'
+    with open(task_path) as f:
+        data = yaml.safe_load(f) or {}
+    task = data.get('task', {}) or {}
+    wt = task.get('worktree', '') or ''
+    print(wt.strip().strip(\"'\\\"\"))
+except Exception:
+    print('')
+" 2>/dev/null || echo '')
+        if [ -n "$worktree_path" ] && [ -d "$worktree_path" ]; then
+            local dirty_n
+            dirty_n=$(cd "$worktree_path" 2>/dev/null && git status --porcelain 2>/dev/null | grep -cvE '^\?\?' || echo 0)
+            [ "${dirty_n:-0}" -gt 0 ] 2>/dev/null && worktree_dirty=1
+        fi
+        # Skip if both signals are quiet
+        if [ "${unread_count:-0}" = "0" ] && [ "$worktree_dirty" = "0" ]; then
+            echo "[$(date)] [CLEAR-WATCHDOG] $AGENT_ID quiet (unread=0, worktree clean) 30s post-/clear — no re-nudge" >&2
+            exit 0
+        fi
+        # If unread=0 but worktree dirty, enqueue an auto-recovery hint so the
+        # agent has a concrete prompt to act on (and so the resulting "inbox1"
+        # nudge has something to read).
+        if [ "${unread_count:-0}" = "0" ] && [ "$worktree_dirty" = "1" ]; then
+            local rec_id
+            rec_id=$(enqueue_recovery_task_assigned)
+            if [ -n "$rec_id" ] && [ "$rec_id" != "SKIP_DUPLICATE" ] && [ "$rec_id" != "ERROR" ] && [[ "$rec_id" != SKIP_CANCELLED:* ]]; then
+                echo "[$(date)] [CLEAR-WATCHDOG] $AGENT_ID dirty-worktree auto-recovery enqueued ($rec_id)" >&2
+                unread_count=1
+            else
+                echo "[$(date)] [CLEAR-WATCHDOG] $AGENT_ID dirty-worktree auto-recovery skipped ($rec_id)" >&2
+                # Fall back to nudge with assumed unread=1 (Watchdog still re-prompts)
+                unread_count=1
+            fi
+        fi
+        # Force re-nudge: send "inboxN" + Enter directly
+        echo "[$(date)] [CLEAR-WATCHDOG] $AGENT_ID idle (unread=${unread_count}, worktree_dirty=${worktree_dirty}) 30s post-/clear — force re-nudge" >&2
+        tmux send-keys -t "$PANE_TARGET" "inbox${unread_count}" 2>/dev/null || true
+        sleep 0.3
+        tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+    ) &
+    disown 2>/dev/null || true
+}
+
 no_idle_full_read() {
     local trigger="${1:-timeout}"
     [ "${ASW_NO_IDLE_FULL_READ:-1}" = "1" ] || return 1
@@ -694,7 +778,7 @@ send_startup_prompt() {
         startup_prompt=$(get_startup_prompt "$AGENT_ID" 2>/dev/null || true)
     fi
     if [[ -z "$startup_prompt" ]]; then
-        startup_prompt="Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message to identify yourself. 2) Read queue/tasks/${AGENT_ID}.yaml. 3) Read queue/inbox/${AGENT_ID}.yaml, mark read:true. 4) Read context_files. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until done."
+        startup_prompt="Session Start — do ALL of this in one turn, do NOT stop early: 1) bash scripts/agent_identity.sh to identify yourself. 2) Read queue/tasks/${AGENT_ID}.yaml. 3) Read queue/inbox/${AGENT_ID}.yaml, mark read:true. 4) Read context_files. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until done."
     fi
     local effective_cli
     effective_cli=$(get_effective_cli_type)
@@ -1138,6 +1222,9 @@ for s in data.get('specials', []):
         elif [ -n "$recovery_id" ] && [ "$recovery_id" != "SKIP_DUPLICATE" ] && [ "$recovery_id" != "ERROR" ]; then
             echo "[$(date)] [AUTO-RECOVERY] queued task_assigned for $AGENT_ID ($recovery_id)" >&2
         fi
+        # 30s watchdog: SessionStart hook 失敗で nudge が race condition で乗らなかった場合の
+        # 再 nudge safety net (W11/W12a/W12b 3 連続発生対策、2026-05-18 殿 mandate Option A)
+        spawn_clear_watchdog
         info=$(get_unread_info)
     fi
 

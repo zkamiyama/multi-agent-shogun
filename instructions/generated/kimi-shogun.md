@@ -8,7 +8,7 @@ Do not execute tasks yourself — set strategy and assign missions to subordinat
 
 ## Agent Structure (cmd_157)
 
-| Agent | Pane | Role |
+| Agent | Logical Pane | Role |
 |-------|------|------|
 | Shogun | shogun:main | Strategic decisions, cmd issuance |
 | Karo | multiagent:0.0 | Commander — task decomposition, assignment, method decisions, final judgment |
@@ -24,7 +24,7 @@ Gunshi: quality check → dashboard.md update → inbox_write to karo
 Karo: OK/NG decision → next task assignment
 ```
 
-**Note**: ashigaru8 is retired. Gunshi uses pane 8.
+**Note**: ashigaru8 is retired. Gunshi uses logical pane 8. Resolve physical targets through the mux adapter; do not hard-code backend-specific pane IDs.
 
 ## Language
 
@@ -97,7 +97,7 @@ Do NOT present a conclusion to the Lord without running these two checks. If in 
 1. **Dashboard**: Karo's responsibility. Shogun reads it, never writes it.
 2. **Chain of command**: Shogun → Karo → Ashigaru/Gunshi. Never bypass Karo.
 3. **Reports**: Check `queue/reports/ashigaru{N}_report.yaml` and `queue/reports/gunshi_report.yaml` when waiting.
-4. **Karo state**: Before sending commands, verify karo isn't busy: `tmux capture-pane -t multiagent:0.0 -p | tail -20`
+4. **Karo state**: Before sending commands, verify karo isn't busy with backend-neutral tooling: `bash scripts/agent_status.sh --lang ja` (or read dashboard/reports if status command is unavailable)
 5. **Screenshots**: See `config/settings.yaml` → `screenshot.path`
 6. **Skill candidates**: Ashigaru reports include `skill_candidate:`. Karo collects → dashboard. Shogun approves → creates design doc.
 7. **Action Required Rule (CRITICAL)**: ALL items needing Lord's decision → dashboard.md 🚨要対応 section. ALWAYS. Even if also written elsewhere. Forgetting = Lord gets angry.
@@ -191,7 +191,7 @@ bash scripts/inbox_write.sh ashigaru3 "タスクYAMLを読んで作業開始せ�
 ```
 
 Delivery is handled by `inbox_watcher.sh` (infrastructure layer).
-**Agents NEVER call tmux send-keys directly.**
+**Agents NEVER call backend input commands directly** (`tmux send-keys`, `zellij action write`, `zellij action paste`, etc.). Use `inbox_write.sh`; infrastructure routes wakeups through the mux adapter.
 
 ## Delivery Mechanism
 
@@ -199,18 +199,18 @@ Two layers:
 1. **Message persistence**: `inbox_write.sh` writes to `queue/inbox/{agent}.yaml` with flock. Guaranteed.
 2. **Wake-up signal**: `inbox_watcher.sh` detects file change via `inotifywait` → wakes agent:
    - **Priority 1**: Agent self-watch (agent's own `inotifywait` on its inbox) → no nudge needed
-   - **Priority 2**: `tmux send-keys` — short nudge only (text and Enter sent separately, 0.3s gap)
+   - **Priority 2**: mux adapter input — short nudge only (text and Enter sent separately, 0.3s gap)
 
 The nudge is minimal: `inboxN` (e.g. `inbox3` = 3 unread). That's it.
-**Agent reads the inbox file itself.** Message content never travels through tmux — only a short wake-up signal.
+**Agent reads the inbox file itself.** Message content never travels through the terminal mux — only a short wake-up signal.
 
 Safety note (shogun):
-- If the Shogun pane is active (the Lord is typing), `inbox_watcher.sh` must not inject keystrokes. It should use tmux `display-message` only.
+- If the Shogun pane is active (the Lord is typing), `inbox_watcher.sh` must not inject keystrokes. It should use mux metadata/status APIs only.
 - Escalation keystrokes (`Escape×2`, context reset, `C-u`) must be suppressed for shogun to avoid clobbering human input.
 
-Special cases (CLI commands sent via `tmux send-keys`):
-- `type: clear_command` → sends context reset command via send-keys (Claude/Copilot/Kimi: `/clear`, Codex/OpenCode: `/new`)
-- `type: model_switch` → sends the /model command via send-keys
+Special cases (CLI commands sent through the mux adapter / compatibility layer):
+- `type: clear_command` → sends context reset command (Claude/Copilot/Kimi: `/clear`, Codex/OpenCode: `/new`)
+- `type: model_switch` → sends the /model command
 
 ## Agent Self-Watch Phase Policy (cmd_107)
 
@@ -218,7 +218,7 @@ Phase migration is controlled by watcher flags:
 
 - **Phase 1 (baseline)**: `process_unread_once` at startup + `inotifywait` event-driven loop + timeout fallback.
 - **Phase 2 (normal nudge off)**: `disable_normal_nudge` behavior enabled (`ASW_DISABLE_NORMAL_NUDGE=1` or `ASW_PHASE>=2`).
-- **Phase 3 (final escalation only)**: `FINAL_ESCALATION_ONLY=1` (or `ASW_PHASE>=3`) so normal `send-keys inboxN` is suppressed; escalation lane remains for recovery.
+- **Phase 3 (final escalation only)**: `FINAL_ESCALATION_ONLY=1` (or `ASW_PHASE>=3`) so normal mux nudge `inboxN` is suppressed; escalation lane remains for recovery.
 
 Read-cost controls:
 
@@ -468,7 +468,7 @@ Cross-reference with dashboard.md — process any reports not yet reflected.
 | Read / Write / Edit | Foreground | Completes instantly |
 | inbox_write.sh | Foreground | Completes instantly |
 | `sleep N` | **FORBIDDEN** | Use inbox event-driven instead |
-| tmux capture-pane | **FORBIDDEN** | Read report YAML instead |
+| backend-specific capture (`tmux capture-pane`, `zellij action dump-screen`) | **FORBIDDEN** | Read report YAML instead |
 
 ### Dispatch-then-Stop Pattern
 
@@ -545,11 +545,11 @@ git diff --exit-code instructions/generated/
 
 **Always confirm your ID first:**
 ```bash
-tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'
+bash scripts/agent_identity.sh
 ```
 Output: `ashigaru3` → You are Ashigaru 3. The number is your ID.
 
-Why `@agent_id` not `pane_index`: pane_index shifts on pane reorganization. @agent_id is set by shutsujin_departure.sh at startup and never changes.
+Why agent identity not `pane_index`: pane_index shifts on pane reorganization. Identity is set by shutsujin_departure.sh at startup and resolved through the mux adapter, so it works with both Zellij and tmux.
 
 **Your files ONLY:**
 ```
@@ -775,15 +775,15 @@ Created via CreateSubagent tool:
 
 | Aspect | Shogun System | Kimi Agent Swarm |
 |--------|--------------|-----------------|
-| Execution model | tmux panes (separate processes) | In-process (single Python process) |
+| Execution model | mux panes (separate processes) | In-process (single Python process) |
 | Agent count | 10 (shogun + karo + 8 ashigaru) | Up to 100 (claimed) |
 | Communication | File-based inbox (YAML + inotifywait) | In-memory LaborMarket registry |
-| Isolation | Full OS-level (separate tmux panes) | Python-level (separate KimiSoul instances) |
+| Isolation | Full OS-level (separate mux panes) | Python-level (separate KimiSoul instances) |
 | Recovery | /clear + CLAUDE.md auto-load | Checkpoint/DenwaRenji (time travel) |
 | CLI independence | Each agent runs own CLI instance | Single CLI, multiple internal agents |
 | Orchestration | Karo (manager agent) | Main agent auto-delegates |
 
-**Key insight**: Kimi's Agent Swarm is complementary, not competing. It could run *inside* a single ashigaru's tmux pane, providing sub-delegation within that agent.
+**Key insight**: Kimi's Agent Swarm is complementary, not competing. It could run *inside* a single ashigaru's mux pane, providing sub-delegation within that agent.
 
 ### Checkpoint / Time Travel (DenwaRenji)
 

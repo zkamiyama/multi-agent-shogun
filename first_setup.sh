@@ -95,9 +95,73 @@ fi
 RESULTS+=("システム環境: OK")
 
 # ============================================================
-# STEP 2: tmux チェック・インストール
+# STEP 2: Zellij チェック・インストール
 # ============================================================
-log_step "STEP 2: tmux チェック"
+log_step "STEP 2: Zellij チェック"
+
+install_zellij_user() {
+    local install_dir="$HOME/.local/bin"
+    local tmp_dir
+    tmp_dir="$(mktemp -d)"
+    mkdir -p "$install_dir"
+    (
+        cd "$tmp_dir" || exit 1
+        curl -fsSL "https://api.github.com/repos/zellij-org/zellij/releases/latest" -o release.json
+        local url
+        url=$(python3 - <<'PY'
+import json
+rel=json.load(open("release.json"))
+assets=rel.get("assets", [])
+for pred in [
+    lambda n: "x86_64-unknown-linux-musl" in n and n.endswith((".tar.gz", ".tgz")),
+    lambda n: "x86_64-unknown-linux" in n and n.endswith((".tar.gz", ".tgz")),
+    lambda n: "linux" in n and "x86_64" in n and n.endswith((".tar.gz", ".tgz")),
+]:
+    for a in assets:
+        if pred(a.get("name", "")):
+            print(a["browser_download_url"])
+            raise SystemExit
+raise SystemExit(1)
+PY
+)
+        [ -n "$url" ] || exit 1
+        curl -fL "$url" -o zellij.tar.gz
+        tar -xzf zellij.tar.gz
+        local bin
+        bin=$(find . -type f -name zellij | head -1)
+        [ -n "$bin" ] || exit 1
+        install -m 0755 "$bin" "$install_dir/zellij"
+    )
+    local rc=$?
+    rm -rf "$tmp_dir"
+    return "$rc"
+}
+
+if command -v zellij &> /dev/null; then
+    ZELLIJ_VERSION=$(zellij --version | awk '{print $2}')
+    log_success "Zellij がインストール済みです (v$ZELLIJ_VERSION)"
+    RESULTS+=("zellij: OK (v$ZELLIJ_VERSION)")
+elif [ -x "$HOME/.local/bin/zellij" ]; then
+    ZELLIJ_VERSION=$("$HOME/.local/bin/zellij" --version | awk '{print $2}')
+    log_success "Zellij が ~/.local/bin にインストール済みです (v$ZELLIJ_VERSION)"
+    RESULTS+=("zellij: OK (v$ZELLIJ_VERSION)")
+else
+    log_warn "Zellij がインストールされていません。~/.local/bin にインストールします"
+    if install_zellij_user; then
+        ZELLIJ_VERSION=$("$HOME/.local/bin/zellij" --version | awk '{print $2}')
+        log_success "Zellij インストール完了 (v$ZELLIJ_VERSION)"
+        RESULTS+=("zellij: インストール完了 (v$ZELLIJ_VERSION)")
+    else
+        log_error "Zellij のインストールに失敗しました"
+        RESULTS+=("zellij: インストール失敗")
+        HAS_ERROR=true
+    fi
+fi
+
+# ============================================================
+# STEP 2.5: tmux チェック（legacy backend）
+# ============================================================
+log_step "STEP 2.5: tmux チェック（legacy backend）"
 
 if command -v tmux &> /dev/null; then
     TMUX_VERSION=$(tmux -V | awk '{print $2}')
@@ -800,12 +864,11 @@ log_step "STEP 10: alias設定"
 # alias追加対象ファイル
 BASHRC_FILE="$HOME/.bashrc"
 
-# css/csm を関数として定義（destroy-unattached で自動掃除）
-# - 複数端末から接続しても画面サイズが干渉しない
-# - SSH切断・アプリ終了時に一時セッションが自動消滅
-# - 本体セッション (shogun/multiagent) は絶対に消えない
-CSS_FUNC='css() { local s="shogun-$$"; local cols=$(tput cols 2>/dev/null || echo 80); tmux new-session -d -t shogun -s "$s" 2>/dev/null && tmux set-option -t "$s" destroy-unattached on 2>/dev/null; if [ "$cols" -lt 80 ]; then tmux new-window -t "$s" -n mobile 2>/dev/null; tmux attach-session -t "$s:mobile" 2>/dev/null || tmux attach-session -t shogun; else tmux attach-session -t "$s" 2>/dev/null || tmux attach-session -t shogun; fi; }'
-CSM_FUNC='csm() { local s="multi-$$"; local cols=$(tput cols 2>/dev/null || echo 80); tmux new-session -d -t multiagent -s "$s" 2>/dev/null && tmux set-option -t "$s" destroy-unattached on 2>/dev/null; if [ "$cols" -lt 80 ]; then tmux new-window -t "$s" -n mobile 2>/dev/null; tmux attach-session -t "$s:mobile" 2>/dev/null || tmux attach-session -t multiagent; else tmux attach-session -t "$s" 2>/dev/null || tmux attach-session -t multiagent; fi; }'
+# css/csm を関数として定義（mux backend に追従）
+# - 既定 Zellij: zellij attach shogun/multiagent
+# - legacy tmux: tmux attach-session -t shogun/multiagent
+CSS_FUNC="css() { local root=\"$SCRIPT_DIR\"; ( cd \"\$root\" && . \"\$root/lib/mux_adapter.sh\" && mux_attach shogun ); }"
+CSM_FUNC="csm() { local root=\"$SCRIPT_DIR\"; ( cd \"\$root\" && . \"\$root/lib/mux_adapter.sh\" && mux_attach multiagent ); }"
 DASH_FUNC="dash() { python3 \"$SCRIPT_DIR/scripts/dashboard-viewer.py\" \"\$@\"; }"
 
 ALIAS_ADDED=false
