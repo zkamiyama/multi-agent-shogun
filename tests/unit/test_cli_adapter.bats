@@ -104,6 +104,7 @@ cli:
     ashigaru5:
       type: codex
       model: gpt-5
+      effort: xhigh
 models:
   karo: sonnet
 YAML
@@ -414,6 +415,13 @@ YAML
     expected_prompt_arg=$(get_startup_prompt_arg "ashigaru5")
     result=$(build_cli_command "ashigaru5")
     [ "$result" = "codex --model sonnet --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen $expected_prompt_arg" ]
+}
+
+@test "build_cli_command: codex + effort → model_reasoning_effort override" {
+    load_adapter_with "${TEST_TMP}/settings_with_models.yaml"
+    expected_prompt_arg=$(get_startup_prompt_arg "ashigaru5")
+    result=$(build_cli_command "ashigaru5")
+    [ "$result" = "codex --model gpt-5 -c model_reasoning_effort=xhigh --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen $expected_prompt_arg" ]
 }
 
 @test "build_cli_command: copilot → copilot --yolo" {
