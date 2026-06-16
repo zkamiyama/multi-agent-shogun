@@ -239,10 +239,10 @@ build_cli_command() {
     cli_type=$(get_cli_type "$agent_id")
     local model
     model=$(get_agent_model "$agent_id")
-    local thinking
-    thinking=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.thinking" "")
     local effort
     effort=$(get_agent_effort "$agent_id")
+    local thinking
+    thinking=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.thinking" "")
     local permission_flag="${PERMISSION_FLAG:---dangerously-skip-permissions}"
 
     # thinking prefix: Claude CLI でのみ有効
@@ -269,6 +269,11 @@ build_cli_command() {
             cmd="codex"
             if [[ -n "$model" ]]; then
                 cmd="$cmd --model $model"
+            fi
+            if [[ -n "$effort" ]]; then
+                local codex_effort="$effort"
+                [[ "$codex_effort" == "max" ]] && codex_effort="xhigh"
+                cmd="$cmd -c model_reasoning_effort=$codex_effort"
             fi
             cmd="$cmd --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen"
             ;;
@@ -495,22 +500,26 @@ get_agent_model() {
 }
 
 # get_agent_effort(agent_id)
-# Claude CLI の --effort に渡す推論強度を返す。
-# 未指定・不正値は空文字にして後方互換を維持する。
+# Claude/Codex CLI reasoning effort を返す。settings.yaml では読みやすい `effort` を優先し、
+# Codex 自身の設定名 `model_reasoning_effort` も後方互換のため受け付ける。
 get_agent_effort() {
     local agent_id="$1"
-    local effort
-    effort=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.effort" "")
 
-    case "$effort" in
+    local effort_from_yaml
+    effort_from_yaml=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.effort" "")
+    if [[ -z "$effort_from_yaml" ]]; then
+        effort_from_yaml=$(_cli_adapter_read_yaml "cli.agents.${agent_id}.model_reasoning_effort" "")
+    fi
+
+    case "$effort_from_yaml" in
         low|medium|high|xhigh|max)
-            echo "$effort"
+            echo "$effort_from_yaml"
             ;;
         "")
             echo ""
             ;;
         *)
-            echo "[WARN] Invalid effort '$effort' for agent '$agent_id'. Ignoring." >&2
+            echo "[WARN] Invalid effort '$effort_from_yaml' for agent '$agent_id'. Ignoring." >&2
             echo ""
             ;;
     esac
