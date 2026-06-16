@@ -66,6 +66,11 @@ if [ "${__INBOX_WATCHER_TESTING__:-}" != "1" ]; then
         echo "[$(date)] cli_adapter.sh loaded (get_startup_prompt available)" >&2
     fi
 
+    _mux_adapter="${SCRIPT_DIR}/lib/mux_adapter.sh"
+    if [ -f "$_mux_adapter" ]; then
+        source "$_mux_adapter"
+    fi
+
     # Source shared agent status library (busy/idle detection)
     _agent_status_lib="${SCRIPT_DIR}/lib/agent_status.sh"
     if [ -f "$_agent_status_lib" ]; then
@@ -226,11 +231,10 @@ disable_normal_nudge() {
     if [ "${ASW_DISABLE_NORMAL_NUDGE:-0}" != "1" ]; then
         return 1  # Phase 1: never suppress
     fi
-    # Phase 2+: check if agent is idle via flag file
-    if [ -f "${IDLE_FLAG_DIR:-/tmp}/shogun_idle_${AGENT_ID}" ]; then
-        return 1  # Agent is IDLE → don't suppress, send nudge
+    if agent_is_busy; then
+        return 0  # Agent is BUSY → suppress, stop hook or timeout retry will deliver
     fi
-    return 0  # Agent is BUSY → suppress, stop hook will deliver
+    return 1  # Agent is IDLE → don't suppress, send nudge
 }
 
 should_throttle_nudge() {
@@ -282,7 +286,7 @@ get_effective_cli_type() {
     local pane_cli_raw=""
     local pane_cli=""
 
-    pane_cli_raw=$(timeout 2 tmux show-options -p -t "$PANE_TARGET" -v @agent_cli 2>/dev/null || true)
+    pane_cli_raw=$(mux_get_meta "$PANE_TARGET" agent_cli 2>/dev/null || true)
     pane_cli=$(echo "$pane_cli_raw" | tr -d '\r' | head -n1 | tr -d '[:space:]')
 
     if is_valid_cli_type "$pane_cli"; then
@@ -431,7 +435,7 @@ spawn_clear_watchdog() {
         sleep 30
         # Check 1: pane idle (no Working/Thinking/Bash spinner indicator)
         local pane_text
-        pane_text=$(tmux capture-pane -t "$PANE_TARGET" -p 2>/dev/null | tail -10) || exit 0
+        pane_text=$(mux_capture "$PANE_TARGET" --tail 10 2>/dev/null || true)
         if echo "$pane_text" | grep -qE 'ing[…\.]|Working|Bash\(|Running|esc to int' 2>/dev/null; then
             echo "[$(date)] [CLEAR-WATCHDOG] $AGENT_ID busy 30s post-/clear — no re-nudge" >&2
             exit 0
@@ -492,9 +496,7 @@ except Exception:
         fi
         # Force re-nudge: send "inboxN" + Enter directly
         echo "[$(date)] [CLEAR-WATCHDOG] $AGENT_ID idle (unread=${unread_count}, worktree_dirty=${worktree_dirty}) 30s post-/clear — force re-nudge" >&2
-        tmux send-keys -t "$PANE_TARGET" "inbox${unread_count}" 2>/dev/null || true
-        sleep 0.3
-        tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+        mux_send_line "$PANE_TARGET" "inbox${unread_count}" 2>/dev/null || true
     ) &
     disown 2>/dev/null || true
 }
@@ -602,7 +604,7 @@ send_cli_command() {
             echo "[$(date)] [switch_cli] $line" >&2
         done
         # Update effective CLI type after restart
-        CLI_TYPE=$(tmux show-options -p -t "$PANE_TARGET" -v @agent_cli 2>/dev/null || echo "$CLI_TYPE")
+        CLI_TYPE=$(mux_get_meta "$PANE_TARGET" agent_cli 2>/dev/null || echo "$CLI_TYPE")
         return 0
     fi
 
@@ -620,7 +622,7 @@ send_cli_command() {
     # so only apply this guard after we can actually observe pane text.
     local pane_snapshot=""
     if [[ "$cmd" == "/clear" ]]; then
-        pane_snapshot=$(timeout 2 tmux capture-pane -t "$PANE_TARGET" -p 2>/dev/null || true)
+        pane_snapshot=$(mux_capture "$PANE_TARGET" 2>/dev/null || true)
     fi
     if [[ "$cmd" == "/clear" ]] && ! [[ "$effective_cli" == "opencode" && -z "${pane_snapshot//[[:space:]]/}" ]] && agent_is_busy; then
         echo "[$(date)] [SKIP] Agent is busy — /clear deferred to next cycle (agent=$AGENT_ID)" >&2
@@ -641,13 +643,11 @@ send_cli_command() {
                 fi
                 echo "[$(date)] [SEND-KEYS] Codex /clear→/new: starting new conversation for $AGENT_ID" >&2
                 # Dismiss suggestion UI first (typing "x" clears autocomplete prompt)
-                timeout 5 tmux send-keys -t "$PANE_TARGET" "x" 2>/dev/null || true
+                mux_send_keys "$PANE_TARGET" "x" 2>/dev/null || true
                 sleep 0.3
-                timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
+                mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
                 sleep 0.3
-                timeout 5 tmux send-keys -t "$PANE_TARGET" "/new" 2>/dev/null || true
-                sleep 0.3
-                timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+                mux_send_line "$PANE_TARGET" "/new" 2>/dev/null || true
                 sleep 3
                 # Send startup prompt immediately (don't defer to context-reset cycle)
                 send_startup_prompt
@@ -667,11 +667,9 @@ send_cli_command() {
                     return 0
                 fi
                 echo "[$(date)] [SEND-KEYS] OpenCode /new for clear_command: starting new conversation for $AGENT_ID" >&2
-                timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
+                mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
                 sleep 0.3
-                timeout 5 tmux send-keys -t "$PANE_TARGET" "/new" 2>/dev/null || true
-                sleep 0.3
-                timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+                mux_send_line "$PANE_TARGET" "/new" 2>/dev/null || true
                 sleep 3
                 NEW_CONTEXT_SENT=1
                 return 0
@@ -685,11 +683,9 @@ send_cli_command() {
             # Copilot: /clearはCtrl-C+再起動, /model非対応→スキップ
             if [[ "$cmd" == "/clear" ]]; then
                 echo "[$(date)] [SEND-KEYS] Copilot /clear: sending Ctrl-C + restart for $AGENT_ID" >&2
-                timeout 5 tmux send-keys -t "$PANE_TARGET" C-c 2>/dev/null || true
+                mux_send_keys "$PANE_TARGET" C-c 2>/dev/null || true
                 sleep 2
-                timeout 5 tmux send-keys -t "$PANE_TARGET" "copilot --yolo" 2>/dev/null || true
-                sleep 0.3
-                timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+                mux_send_line "$PANE_TARGET" "copilot --yolo" 2>/dev/null || true
                 sleep 3
                 return 0
             fi
@@ -706,9 +702,7 @@ send_cli_command() {
                     return 0
                 fi
                 echo "[$(date)] [SEND-KEYS] Cursor /clear→/new-chat: starting new conversation for $AGENT_ID" >&2
-                timeout 5 tmux send-keys -t "$PANE_TARGET" "/new-chat" 2>/dev/null || true
-                sleep 0.3
-                timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+                mux_send_line "$PANE_TARGET" "/new-chat" 2>/dev/null || true
                 sleep 3
                 NEW_CONTEXT_SENT=1
                 return 0
@@ -727,17 +721,18 @@ send_cli_command() {
     # Clear stale input first, then send command (text and Enter separated for Codex TUI)
     # Codex CLI: C-c when idle causes CLI to exit — skip it
     if [[ "$effective_cli" != "codex" ]]; then
-        timeout 5 tmux send-keys -t "$PANE_TARGET" C-c 2>/dev/null || true
+        mux_send_keys "$PANE_TARGET" C-c 2>/dev/null || true
         sleep 0.5
     fi
-    timeout 5 tmux send-keys -t "$PANE_TARGET" "$actual_cmd" 2>/dev/null || true
     # /clear needs longer gap before Enter — CLI prompt may not be ready at 0.3s
     if [[ "$actual_cmd" == "/clear" || "$actual_cmd" == "/new" ]]; then
+        mux_send_literal "$PANE_TARGET" "$actual_cmd" 2>/dev/null || true
         sleep 1.0
     else
+        mux_send_literal "$PANE_TARGET" "$actual_cmd" 2>/dev/null || true
         sleep 0.3
     fi
-    timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+    mux_send_keys "$PANE_TARGET" Enter 2>/dev/null || true
 
     # /clear needs extra wait time before follow-up
     if [[ "$actual_cmd" == "/clear" ]]; then
@@ -785,14 +780,14 @@ send_startup_prompt() {
     echo "[$(date)] [STARTUP] Sending startup prompt to $AGENT_ID (${effective_cli}): ${startup_prompt:0:80}..." >&2
     # Dismiss suggestion UI, then send startup prompt
     if [[ "$effective_cli" != "opencode" ]]; then
-        timeout 5 tmux send-keys -t "$PANE_TARGET" "x" 2>/dev/null || true
+        mux_send_keys "$PANE_TARGET" "x" 2>/dev/null || true
         sleep 0.3
-        timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
+        mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
         sleep 0.3
     fi
-    timeout 5 tmux send-keys -l -t "$PANE_TARGET" "$startup_prompt" 2>/dev/null || true
+    mux_send_literal "$PANE_TARGET" "$startup_prompt" 2>/dev/null || true
     sleep 0.3
-    timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+    mux_send_keys "$PANE_TARGET" Enter 2>/dev/null || true
     STARTUP_PROMPT_SENT=1
 }
 
@@ -836,16 +831,14 @@ send_context_reset() {
     if [[ "$effective_cli" == "codex" || "$effective_cli" == "opencode" || "$effective_cli" == "cursor" ]]; then
         # Dismiss suggestion UI (Codex only) + send reset command
         if [[ "$effective_cli" == "codex" ]]; then
-            timeout 5 tmux send-keys -t "$PANE_TARGET" "x" 2>/dev/null || true
+            mux_send_keys "$PANE_TARGET" "x" 2>/dev/null || true
             sleep 0.3
         fi
         if [[ "$effective_cli" != "cursor" ]]; then
-            timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
+            mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
             sleep 0.3
         fi
-        timeout 5 tmux send-keys -t "$PANE_TARGET" "$reset_cmd" 2>/dev/null || true
-        sleep 0.3
-        timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+        mux_send_line "$PANE_TARGET" "$reset_cmd" 2>/dev/null || true
         sleep 3
         # Codex: send startup prompt (agent has no auto-loaded instructions).
         # OpenCode: skip — agent definition is auto-loaded via --agent flag.
@@ -857,10 +850,10 @@ send_context_reset() {
 
     # Non-Codex CLIs: send /clear and wait for idle
     # Send the command (text and Enter separated for TUI compatibility)
-    timeout 5 tmux send-keys -t "$PANE_TARGET" "$reset_cmd" 2>/dev/null || true
+    mux_send_literal "$PANE_TARGET" "$reset_cmd" 2>/dev/null || true
     # Longer gap for /clear — CLI prompt rendering needs time
     sleep 1.0
-    timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+    mux_send_keys "$PANE_TARGET" Enter 2>/dev/null || true
     # Mark /clear timestamp so agent_is_busy() treats it as busy during processing
     if [[ "$reset_cmd" == "/clear" ]]; then
         LAST_CLEAR_TS=$(date +%s)
@@ -939,8 +932,7 @@ agent_is_busy() {
 # If the target pane is currently active, avoid injecting keystrokes.
 pane_is_active() {
     local active=""
-    active=$(timeout 2 tmux display-message -p -t "$PANE_TARGET" '#{pane_active}' 2>/dev/null || true)
-    [ "$active" = "1" ]
+    mux_pane_is_active "$PANE_TARGET" 2>/dev/null
 }
 
 # ─── Session attach detection ───
@@ -952,8 +944,7 @@ pane_is_active() {
 # Returns: 0 if at least one client is attached, 1 otherwise
 session_has_client() {
     local session_name
-    session_name=$(timeout 2 tmux display-message -p -t "$PANE_TARGET" '#{session_name}' 2>/dev/null || true)
-    [ -n "$session_name" ] && [ "$(tmux list-clients -t "$session_name" 2>/dev/null | wc -l)" -gt 0 ]
+    mux_session_has_client "$PANE_TARGET" 2>/dev/null
 }
 
 # ─── Send wake-up nudge ───
@@ -1006,9 +997,9 @@ send_wakeup() {
     local effective_cli_for_nudge
     effective_cli_for_nudge=$(get_effective_cli_type)
     if [[ "$effective_cli_for_nudge" == "codex" ]]; then
-        timeout 5 tmux send-keys -t "$PANE_TARGET" "x" 2>/dev/null || true
+        mux_send_keys "$PANE_TARGET" "x" 2>/dev/null || true
         sleep 0.3
-        timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
+        mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
         sleep 0.3
     fi
 
@@ -1017,16 +1008,16 @@ send_wakeup() {
     local attempt=0
     while [ $attempt -le $max_retries ]; do
         # C-u で行をクリア
-        timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
+        mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
         sleep 0.3
         # nudge 送信
-        if ! timeout 5 tmux send-keys -t "$PANE_TARGET" "$nudge" 2>/dev/null; then
+        if ! mux_send_literal "$PANE_TARGET" "$nudge" 2>/dev/null; then
             echo "[$(date)] WARNING: send-keys nudge failed for $AGENT_ID (attempt $((attempt+1)))" >&2
             attempt=$((attempt+1))
             continue
         fi
         sleep 0.3
-        timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+        mux_send_keys "$PANE_TARGET" Enter 2>/dev/null || true
         sleep 0.5
         if [[ "$effective_cli_for_nudge" == "codex" ]]; then
             # Codex echoes submitted text in the transcript; seeing inboxN after
@@ -1036,11 +1027,11 @@ send_wakeup() {
         fi
         # 送信確認: capture-pane でプロンプトにnudgeテキストが残っていないか確認
         local pane_content
-        pane_content=$(timeout 3 tmux capture-pane -t "$PANE_TARGET" -p 2>/dev/null | tail -5 || echo "")
+        pane_content=$(mux_capture "$PANE_TARGET" --tail 5 2>/dev/null || echo "")
         if echo "$pane_content" | grep -qF "$nudge"; then
             # nudgeテキストが残存 → 送信失敗 → C-u クリアしてリトライ
             echo "[$(date)] WARNING: nudge text still visible in pane, retrying (attempt $((attempt+1)))" >&2
-            timeout 5 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
+            mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
             sleep 0.3
             attempt=$((attempt+1))
             continue
@@ -1113,15 +1104,15 @@ send_wakeup_with_escape() {
 
     echo "[$(date)] [SEND-KEYS] ESCALATION Phase 2: Escape×2 + nudge for $AGENT_ID (cli=$effective_cli)" >&2
     # Escape×2 to exit any mode
-    timeout 5 tmux send-keys -t "$PANE_TARGET" Escape Escape 2>/dev/null || true
+    mux_send_keys "$PANE_TARGET" Escape Escape 2>/dev/null || true
     sleep 0.5
     if [[ "$effective_cli" == "copilot" || "$effective_cli" == "kimi" ]]; then
-        timeout 5 tmux send-keys -t "$PANE_TARGET" C-c 2>/dev/null || true
+        mux_send_keys "$PANE_TARGET" C-c 2>/dev/null || true
         sleep 0.5
     fi
-    if timeout 5 tmux send-keys -t "$PANE_TARGET" "$nudge" 2>/dev/null; then
+    if mux_send_literal "$PANE_TARGET" "$nudge" 2>/dev/null; then
         sleep 0.3
-        timeout 5 tmux send-keys -t "$PANE_TARGET" Enter 2>/dev/null || true
+        mux_send_keys "$PANE_TARGET" Enter 2>/dev/null || true
         echo "[$(date)] Escape+nudge sent to $AGENT_ID (${unread_count} unread, cli=$effective_cli)" >&2
         return 0
     fi
@@ -1156,7 +1147,7 @@ process_unread() {
             if [ "$AGENT_ID" = "shogun" ] && pane_is_active; then
                 : # Lord may be typing — skip C-u
             else
-                timeout 2 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
+                mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
             fi
         fi
         return 0
@@ -1370,7 +1361,7 @@ for s in data.get('specials', []):
             if [ "$AGENT_ID" = "shogun" ] && pane_is_active; then
                 : # Lord may be typing — skip C-u
             else
-                timeout 2 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null || true
+                mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
             fi
         fi
     fi
@@ -1423,7 +1414,9 @@ while true; do
         fi
     else
         # Linux: inotifywait (original behavior)
-        inotifywait -q -t "$INOTIFY_TIMEOUT" -e modify -e close_write "$INBOX" 2>/dev/null
+        inotifywait -q -t "$INOTIFY_TIMEOUT" \
+            -e modify -e close_write -e delete_self -e move_self -e attrib \
+            "$INBOX" 2>/dev/null
         rc=$?
     fi
     set -e

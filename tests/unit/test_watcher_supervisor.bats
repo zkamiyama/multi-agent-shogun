@@ -124,6 +124,7 @@ source_supervisor_functions() {
             awk '/^start_watcher_if_missing\(\)/{p=1} p{print} /^\}$/{if(p){p=0}}' \
                 "$SUPERVISOR_SCRIPT"
         )"
+        has_current_watcher() { return 0; }
 
         start_watcher_if_missing "ashigaru1" "multiagent:agents.1" "/tmp/test_ws_002.log"
 
@@ -176,6 +177,7 @@ source_supervisor_functions() {
             awk '/^start_watcher_if_missing\(\)/{p=1} p{print} /^\}$/{if(p){p=0}}' \
                 "$SUPERVISOR_SCRIPT"
         )"
+        has_current_watcher() { return 1; }
 
         # Use a test-specific lockfile to avoid collision with real supervisors
         # We re-define the lockfile variable inside the function scope by
