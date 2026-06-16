@@ -32,7 +32,7 @@ Run 10 AI coding agents in parallel — **Claude Code, OpenAI Codex, GitHub Copi
 
 ## Quick Start
 
-**Requirements:** tmux, bash 4+, at least one of: [Claude Code](https://claude.ai/code) / Codex / Copilot / Kimi / OpenCode / Antigravity
+**Requirements:** Zellij, bash 4+, at least one of: [Claude Code](https://claude.ai/code) / Codex / Copilot / Kimi / OpenCode / Antigravity
 
 ```bash
 git clone https://github.com/yohey-w/multi-agent-shogun
@@ -282,6 +282,32 @@ cd /mnt/c/tools/multi-agent-shogun
 ./shutsujin_departure.sh
 ```
 
+### 🖥️ Browser Access — Web UI
+
+For desktop micromanagement, `shutsujin_departure.sh` starts the local browser UI automatically:
+
+```bash
+# Open http://127.0.0.1:1192/
+```
+
+Manual startup is also available:
+
+```bash
+python3 scripts/shogun-webui.py
+```
+
+It mirrors the Android companion's tmux workflow without SSH setup:
+
+| Feature | Description |
+|---------|-------------|
+| **Live panes** | Shogun separately, plus Karo + 7 Ashigaru + Gunshi in the Agents tab, stream through SSE backed by `tmux pipe-pane` |
+| **Direct control** | Send text from each pane's own input field; Shogun also has special-key controls |
+| **Dashboard** | Renders `dashboard.md` in a dense, selectable browser view |
+| **Screenshots** | Paste or drop an image into Settings to save it directly under `config/settings.yaml` → `screenshot.path` |
+| **Rate Limit** | Runs `scripts/ratelimit_check.sh` from the Agents toolbar |
+
+By default it binds to `127.0.0.1`. If you use `--host 0.0.0.0`, put it behind SSH tunneling, VPN, or reverse-proxy authentication because it can send tmux keys.
+
 ### 📱 Mobile Access — Dedicated Android App (Recommended)
 
 <p align="center">
@@ -386,7 +412,7 @@ SSH via Termux also works. More limited than the dedicated app, but requires no 
    csm    # See all 9 panes
    ```
 
-**Disconnect:** Just swipe the Termux window closed. tmux sessions survive — agents keep working.
+**Disconnect:** Just swipe the Termux window closed. Zellij/tmux sessions survive — agents keep working.
 
 </details>
 
@@ -451,8 +477,8 @@ Then restart your computer and run `install.bat` again.
 | Script | Purpose | When to run |
 |--------|---------|-------------|
 | `install.bat` | Windows: WSL2 + Ubuntu setup | First time only |
-| `first_setup.sh` | Install tmux, Node.js, Claude Code CLI + Memory MCP config | First time only |
-| `shutsujin_departure.sh` | Create tmux sessions + launch the configured CLI for each agent + load instructions + start ntfy listener | Daily |
+| `first_setup.sh` | Install Zellij, legacy tmux, Node.js, Claude Code CLI + Memory MCP config | First time only |
+| `shutsujin_departure.sh` | Create Zellij sessions + launch the configured CLI for each agent + load instructions + start ntfy listener | Daily |
 | `scripts/switch_cli.sh` | Live switch agent CLI/model (settings.yaml → /exit → relaunch) | As needed |
 
 ### What `install.bat` does automatically:
@@ -461,7 +487,7 @@ Then restart your computer and run `install.bat` again.
 - ✅ Shows next steps (how to run `first_setup.sh`)
 
 ### What `shutsujin_departure.sh` does:
-- ✅ Creates tmux sessions (shogun + multiagent)
+- ✅ Creates Zellij sessions (shogun + multiagent)
 - ✅ Launches each agent with the CLI configured in `config/settings.yaml` (Claude/Codex/Copilot/Kimi/OpenCode)
 - ✅ Auto-loads instruction files or generated agent definitions for each CLI
 - ✅ Resets queue files for a fresh state
@@ -482,7 +508,8 @@ If you prefer to install dependencies manually:
 |-------------|-------------|-------|
 | WSL2 + Ubuntu | `wsl --install` in PowerShell | Windows only |
 | Set Ubuntu as default | `wsl --set-default Ubuntu` | Required for scripts to work |
-| tmux | `sudo apt install tmux` | Terminal multiplexer |
+| Zellij | Installed by `first_setup.sh` into `~/.local/bin/zellij` | Default terminal workspace backend |
+| tmux | `sudo apt install tmux` | Legacy backend. Use `MUX_BACKEND=tmux ./shutsujin_departure.sh` |
 | Node.js v20+ | `nvm install 20` | Required for MCP servers |
 | Claude Code CLI | `curl -fsSL https://claude.ai/install.sh \| bash` | Official Anthropic CLI (native version recommended; npm version deprecated) |
 | OpenAI Codex CLI | Install from the official OpenAI Codex distribution | Required only for agents with `type: codex` |
@@ -599,6 +626,7 @@ cli:
     ashigaru1:
       type: codex          # codex / claude / copilot / kimi / opencode / antigravity
       model: gpt-5.5
+      effort: medium       # Codex reasoning effort: low / medium / high / xhigh
     ashigaru2:
       type: claude
       model: claude-sonnet-4-6
@@ -916,7 +944,7 @@ As agents work, their session context (Layer 4) grows, increasing API costs. `/c
 Recovery cost after `/clear`: **~6,800 tokens** (42% improved from v1 — CLAUDE.md YAML conversion + English-only instructions reduced token cost by 70%)
 
 1. CLAUDE.md (auto-loaded) → recognizes itself as part of the Shogun System
-2. `tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'` → identifies its own number
+2. `bash scripts/agent_identity.sh` → identifies its own number
 3. Memory MCP read → restores the Lord's preferences (~700 tokens)
 4. Task YAML read → picks up the next assignment (~800 tokens)
 
@@ -1216,6 +1244,8 @@ SayTask handles personal productivity (capture → schedule → remind). The cmd
 
 **Thinking control**: Set `thinking: true/false` per agent in `config/settings.yaml`. When `thinking: false`, the agent starts with `MAX_THINKING_TOKENS=0` to disable Extended Thinking. Pane borders show `+T` suffix when Thinking is enabled (e.g., `Sonnet+T`, `Opus+T`).
 
+**Codex effort control**: For `type: codex`, set `effort: low|medium|high|xhigh` per agent in `config/settings.yaml`. `lib/cli_adapter.sh` passes this to Codex as `model_reasoning_effort`.
+
 **Live model switching**: Use `/shogun-model-switch` to change any agent's CLI type, model, or Thinking setting without restarting the entire system. See the Skills section for details.
 
 The system routes work by **cognitive complexity** at two levels: **Agent routing** (Ashigaru for L1–L3, Gunshi for L4–L6) and **Model routing within Ashigaru** via `capability_tiers` (see Dynamic Model Routing below).
@@ -1326,15 +1356,15 @@ Why use files instead of direct messaging between agents?
 
 ### Agent Identification (@agent_id)
 
-Each pane has a `@agent_id` tmux user option (e.g., `karo`, `ashigaru1`). While `pane_index` can shift when panes are rearranged, `@agent_id` is set at startup by `shutsujin_departure.sh` and never changes.
+Each pane has stable agent metadata (e.g., `karo`, `ashigaru1`). With the default Zellij backend this is stored in `queue/mux_state.yaml` and injected as `SHOGUN_AGENT_ID`; with the legacy tmux backend it is stored as pane user options.
 
 Agent self-identification:
 ```bash
-tmux display-message -t "$TMUX_PANE" -p '#{@agent_id}'
+bash scripts/agent_identity.sh
 ```
-The `-t "$TMUX_PANE"` is required. Omitting it returns the active pane's value (whichever pane you're focused on), causing misidentification.
+This works with both the default Zellij backend and the legacy tmux backend. Do not hard-code pane numbers for identity.
 
-Model names are stored as `@model_name` and current task summaries as `@current_task` — both displayed in the `pane-border-format`. Even if Claude Code overwrites the pane title, these user options persist.
+Model names and current task summaries are exposed through the mux adapter, so callers should use `lib/mux_adapter.sh` rather than reading backend-specific storage directly.
 
 ### Why only the Karo updates dashboard.md
 
@@ -1571,8 +1601,11 @@ Priority: Token > Basic > None. If neither is set, no auth headers are sent (bac
 <summary><b>shutsujin_departure.sh Options</b> (click to expand)</summary>
 
 ```bash
-# Default: Full startup (tmux sessions + configured CLI launch)
+# Default: Full startup (Zellij sessions + configured CLI launch)
 ./shutsujin_departure.sh
+
+# Legacy tmux backend
+MUX_BACKEND=tmux ./shutsujin_departure.sh
 
 # Session setup only (no CLI launch)
 ./shutsujin_departure.sh -s
@@ -1610,7 +1643,7 @@ Priority: Token > Basic > None. If neither is set, no auth headers are sent (bac
 **Normal daily use:**
 ```bash
 ./shutsujin_departure.sh          # Launch everything
-tmux attach-session -t shogun     # Connect and give commands
+zellij attach shogun              # Connect and give commands
 ```
 
 **Debug mode (manual control):**
@@ -1637,12 +1670,12 @@ tmux kill-session -t multiagent
 <details>
 <summary><b>Convenient Aliases</b> (click to expand)</summary>
 
-Running `first_setup.sh` automatically adds these aliases to `~/.bashrc`:
+Running `first_setup.sh` automatically adds these functions to `~/.bashrc`. They follow `config/settings.yaml` `mux.backend`; by default they attach to Zellij:
 
 ```bash
 alias csst='cd /mnt/c/tools/multi-agent-shogun && ./shutsujin_departure.sh'
-alias css='tmux attach-session -t shogun'      # Connect to Shogun
-alias csm='tmux attach-session -t multiagent'  # Connect to Karo + Ashigaru
+css    # Attach to Shogun
+csm    # Attach to Karo + Ashigaru
 ```
 
 To apply aliases: run `source ~/.bashrc` or restart your terminal (PowerShell: `wsl --shutdown` then reopen).
@@ -1849,10 +1882,12 @@ tmux respawn-pane -t shogun:0.0 -k 'claude --model opus --dangerously-skip-permi
 
 ---
 
-## tmux Quick Reference
+## Zellij / tmux Quick Reference
 
 | Command | Description |
 |---------|-------------|
+| `zellij attach shogun` | Connect to the Shogun |
+| `zellij attach multiagent` | Connect to workers |
 | `tmux attach -t shogun` | Connect to the Shogun |
 | `tmux attach -t multiagent` | Connect to workers |
 | `Ctrl+B` then `0`–`8` | Switch panes |

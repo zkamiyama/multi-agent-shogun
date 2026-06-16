@@ -3,8 +3,7 @@
 # Multi-CLI統合設計書 (reports/design_multi_cli_support.md) §2.2 準拠
 #
 # 提供関数:
-#   get_cli_type(agent_id)                  → "claude" | "codex" | "copilot" | "kimi" | "opencode" | "cursor"
-#   get_cli_type(agent_id)                  → "claude" | "codex" | "copilot" | "kimi" | "opencode" | "antigravity"
+#   get_cli_type(agent_id)                  → "claude" | "codex" | "copilot" | "kimi" | "opencode" | "cursor" | "antigravity"
 #   build_cli_command(agent_id)             → 完全なコマンド文字列
 #   get_instruction_file(agent_id [,cli_type]) → 指示書パス
 #   validate_cli_availability(cli_type)     → 0=OK, 1=NG
@@ -19,8 +18,7 @@ CLI_ADAPTER_PROJECT_ROOT="$(cd "${CLI_ADAPTER_DIR}/.." && pwd)"
 CLI_ADAPTER_SETTINGS="${CLI_ADAPTER_SETTINGS:-${CLI_ADAPTER_PROJECT_ROOT}/config/settings.yaml}"
 
 # 許可されたCLI種別
-CLI_ADAPTER_ALLOWED_CLIS="claude codex copilot kimi opencode cursor"
-CLI_ADAPTER_ALLOWED_CLIS="claude codex copilot kimi opencode antigravity"
+CLI_ADAPTER_ALLOWED_CLIS="claude codex copilot kimi opencode cursor antigravity"
 
 # _cli_adapter_normalize_cli_type cli_type
 # CLI種別の互換aliasを正規名へ正規化する。
@@ -613,7 +611,7 @@ get_startup_prompt() {
 
     case "$cli_type" in
         codex)
-            echo "Session Start — do ALL of this in one turn, do NOT stop early: 1) tmux display-message -t \"\$TMUX_PANE\" -p '#{@agent_id}' to identify yourself. 2) Read queue/tasks/${agent_id}.yaml. 3) Read queue/inbox/${agent_id}.yaml, mark read:true. 4) Read files listed in context_files. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until the task is done."
+            echo "Session Start — do ALL of this in one turn, do NOT stop early: 1) bash scripts/agent_identity.sh to identify yourself. 2) Read queue/tasks/${agent_id}.yaml. 3) Read queue/inbox/${agent_id}.yaml, mark read:true. 4) Read files listed in context_files. 5) Execute the assigned task to completion — edit files, run commands, write reports. Keep working until the task is done."
             ;;
         *)
             echo ""
