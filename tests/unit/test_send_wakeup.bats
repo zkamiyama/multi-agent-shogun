@@ -204,7 +204,7 @@ MOCK
     [ "$status" -eq 0 ]
 
     # Text and Enter are sent as separate send-keys calls (Codex TUI compatibility)
-    grep -q "send-keys -t test:0.0 inbox3" "$MOCK_LOG"
+    grep -q "send-keys .*test:0.0 inbox3" "$MOCK_LOG"
     grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
 }
 
@@ -1293,7 +1293,7 @@ YAML
 
     echo "$output" | grep -q "cli=codex"
     ! echo "$output" | grep -q "nudge text still visible"
-    [ "$(grep -c "send-keys -t test:0.0 inbox1" "$MOCK_LOG")" -eq 1 ]
+    [ "$(grep -c "send-keys .*test:0.0 inbox1" "$MOCK_LOG")" -eq 1 ]
 }
 
 # --- T-CRESET-001: send_context_reset suppresses /clear for karo ---

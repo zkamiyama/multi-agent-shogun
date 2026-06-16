@@ -39,6 +39,35 @@ pane_exists() {
     mux_list_panes 2>/dev/null | grep -qx "$pane"
 }
 
+watcher_is_current() {
+    local pid="$1"
+    local script_path="${SCRIPT_DIR}/scripts/inbox_watcher.sh"
+    local script_age proc_age
+
+    # If the watcher script was edited after a daemon started, the daemon keeps
+    # running old code. Treat it as stale and start a fresh watcher alongside it;
+    # the old process is left untouched by design.
+    script_age=$(( $(date +%s) - $(stat -c %Y "$script_path" 2>/dev/null || date +%s) ))
+    proc_age=$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)
+    [ -n "$proc_age" ] || return 1
+    [ "$proc_age" -le "$script_age" ]
+}
+
+has_current_watcher() {
+    local agent="$1"
+    local pane="$2"
+    local pid
+
+    while IFS= read -r pid; do
+        [ -n "$pid" ] || continue
+        if watcher_is_current "$pid"; then
+            return 0
+        fi
+    done < <(pgrep -f "scripts/inbox_watcher.sh ${agent} ${pane}( |$)" 2>/dev/null || true)
+
+    return 1
+}
+
 start_watcher_if_missing() {
     local agent="$1"
     local pane="$2"
@@ -53,7 +82,7 @@ start_watcher_if_missing() {
 
     (
         flock -n 9 || return 0
-        if pgrep -Ef "scripts/inbox_watcher.sh ${agent} ${pane}( |$)" >/dev/null 2>&1; then
+        if has_current_watcher "$agent" "$pane"; then
             return 0
         fi
 
