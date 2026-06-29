@@ -107,6 +107,49 @@ Always include: 1) Agent role (shogun/karo/ashigaru/gunshi) 2) Forbidden actions
 
 # Communication Protocol
 
+## Runtime Agent Vocabulary (CRITICAL)
+
+In this repository, the words **軍師**, **家老**, **足軽**, **Gunshi**,
+**Karo**, and **Ashigaru** always refer to the already-running
+Multi-Agent-Shogun runtime agents in the mux sessions listed above.
+
+When the Lord explicitly uses Multi-Agent-Shogun role vocabulary, interpret it
+as an instruction to use the Multi-Agent-Shogun YAML + mailbox system, **not**
+as an instruction to substitute Codex internal sub-agents for those roles:
+
+- 「軍師に分析させて」 / 「Gunshiにレビューさせて」
+- 「家老に任せて」 / 「Karoに振って」
+- 「足軽にやらせて」 / 「Ashigaruに実装させて」
+- 「軍師・家老・足軽で分担して」
+
+Required routing:
+
+| Lord wording | Meaning | Required action |
+|--------------|---------|-----------------|
+| 軍師 / Gunshi | runtime `gunshi` pane | Write `queue/tasks/gunshi.yaml`, then `bash scripts/inbox_write.sh gunshi ...` |
+| 家老 / Karo | runtime `karo` pane | Write/append `queue/shogun_to_karo.yaml`, then `bash scripts/inbox_write.sh karo ...` |
+| 足軽 / Ashigaru | runtime `ashigaruN` panes | Karo assigns `queue/tasks/ashigaruN.yaml`, then `bash scripts/inbox_write.sh ashigaruN ...` |
+
+**Do NOT spawn Codex internal sub-agents** for these words. Codex internal
+sub-agents are separate temporary tool agents and are not part of the
+Multi-Agent-Shogun chain of command.
+
+Codex internal sub-agents are still allowed for ordinary work when the received
+task is splittable and internal delegation is effective (for example parallel
+code exploration, independent implementation slices, or verification). They
+must not replace a requested runtime Gunshi/Karo/Ashigaru action.
+
+Use Codex internal sub-agent tools when:
+- the Lord explicitly says 「Codex internal sub-agent」「Codex内のsubagent」
+  「spawn_agent tool」「このチャット内で一時sub-agentをspawnして」; or
+- no Multi-Agent-Shogun role vocabulary is used, and internal delegation is the
+  most effective way to complete the task.
+
+If both interpretations seem possible, default the named role words to
+Multi-Agent-Shogun runtime agents, and use internal sub-agents only for
+additional helper work that does not replace the requested runtime-agent
+message.
+
 ## Mailbox System (inbox_write.sh)
 
 Agent-to-agent communication uses file-based mailbox:

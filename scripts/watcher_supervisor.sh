@@ -57,13 +57,24 @@ has_current_watcher() {
     local agent="$1"
     local pane="$2"
     local pid
+    local found_for_pane=0
 
     while IFS= read -r pid; do
         [ -n "$pid" ] || continue
+        found_for_pane=1
         if watcher_is_current "$pid"; then
             return 0
         fi
     done < <(pgrep -f "scripts/inbox_watcher.sh ${agent} ${pane}( |$)" 2>/dev/null || true)
+
+    # A stale-but-correct watcher still owns the lifetime lock. Starting a fresh
+    # one would either duplicate keystroke delivery on older code or immediately
+    # exit on the lock with newer code. Log and wait for an operator/runtime
+    # restart instead of creating parallel watchers.
+    if [ "$found_for_pane" -eq 1 ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] stale watcher still running for ${agent} pane=${pane}; not starting duplicate" >&2
+        return 0
+    fi
 
     return 1
 }

@@ -52,6 +52,13 @@ if [ "${__INBOX_WATCHER_TESTING__:-}" != "1" ]; then
 
     echo "[$(date)] inbox_watcher started — agent: $AGENT_ID, pane: $PANE_TARGET, cli: $CLI_TYPE" >&2
 
+    WATCHER_INSTANCE_LOCK="/tmp/shogun_inbox_watcher_${AGENT_ID}_$(printf '%s' "$PANE_TARGET" | tr -c 'A-Za-z0-9_.-' '_').lock"
+    exec 201>"$WATCHER_INSTANCE_LOCK"
+    if ! flock -n 201; then
+        echo "[$(date)] [EXIT] inbox_watcher already running — agent: $AGENT_ID, pane: $PANE_TARGET" >&2
+        exit 0
+    fi
+
     # Fix: CLI starts at welcome screen = idle. Create idle flag so watcher
     # doesn't false-busy deadlock waiting for a stop_hook that never fires.
     if [[ "$CLI_TYPE" == "claude" ]]; then
@@ -987,29 +994,28 @@ send_wakeup() {
 
     # Shogun: deliver nudge via send-keys like other agents.
     # ntfy messages must reach Claude Code directly.
+    local effective_cli_for_nudge
+    effective_cli_for_nudge=$(get_effective_cli_type)
+    if pane_is_active && session_has_client; then
+        case "$effective_cli_for_nudge:$AGENT_ID" in
+            codex:*|*:shogun)
+                echo "[$(date)] [SKIP] $AGENT_ID pane is active with attached client (cli=$effective_cli_for_nudge); deferring non-destructive nudge" >&2
+                return 0
+                ;;
+        esac
+    fi
 
     # 優先度3: tmux send-keys（テキストとEnterを分離 — Codex TUI対策）
     echo "[$(date)] [SEND-KEYS] Sending nudge to $PANE_TARGET for $AGENT_ID" >&2
 
-    # Codex suggestion UI dismissal: typing any character dismisses the autocomplete
-    # suggestion prompt (› Implement {feature} etc.) that traps idle agents.
-    # Sequence: "x" (dismiss suggestion) → C-u (clear input) → nudge → Enter
-    local effective_cli_for_nudge
-    effective_cli_for_nudge=$(get_effective_cli_type)
-    if [[ "$effective_cli_for_nudge" == "codex" ]]; then
-        mux_send_keys "$PANE_TARGET" "x" 2>/dev/null || true
-        sleep 0.3
-        mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
-        sleep 0.3
-    fi
+    # Normal wake-up must be non-destructive. Do not send C-u here:
+    # C-u deletes everything before the cursor in Codex/readline-style inputs
+    # and can clobber a human draft in an active multi-pane session.
 
-    # 行クリア（残存テキスト除去）→ nudge送信 → Enter → 確認 → 最大2回リトライ
+    # nudge送信 → Enter → 確認 → 最大2回リトライ
     local max_retries=2
     local attempt=0
     while [ $attempt -le $max_retries ]; do
-        # C-u で行をクリア
-        mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
-        sleep 0.3
         # nudge 送信
         if ! mux_send_literal "$PANE_TARGET" "$nudge" 2>/dev/null; then
             echo "[$(date)] WARNING: send-keys nudge failed for $AGENT_ID (attempt $((attempt+1)))" >&2
@@ -1029,9 +1035,10 @@ send_wakeup() {
         local pane_content
         pane_content=$(mux_capture "$PANE_TARGET" --tail 5 2>/dev/null || echo "")
         if echo "$pane_content" | grep -qF "$nudge"; then
-            # nudgeテキストが残存 → 送信失敗 → C-u クリアしてリトライ
-            echo "[$(date)] WARNING: nudge text still visible in pane, retrying (attempt $((attempt+1)))" >&2
-            mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
+            # nudgeテキストが残存 → Enter が取りこぼされた可能性。
+            # C-u cleanup is intentionally forbidden in normal wake-up paths.
+            echo "[$(date)] WARNING: nudge text still visible in pane, retrying Enter only (attempt $((attempt+1)))" >&2
+            mux_send_keys "$PANE_TARGET" Enter 2>/dev/null || true
             sleep 0.3
             attempt=$((attempt+1))
             continue
@@ -1140,16 +1147,10 @@ process_unread() {
         FIRST_UNREAD_SEEN=0
         NEW_CONTEXT_SENT=0
         reset_nudge_throttle
-        # Ensure idle flag exists (fast-path recovery)
+        # Ensure idle flag exists (fast-path recovery).
+        # Do not send C-u here: this timeout path can run while a human is
+        # drafting in the pane, and C-u deletes everything before the cursor.
         touch "${IDLE_FLAG_DIR:-/tmp}/shogun_idle_${AGENT_ID}" 2>/dev/null || true
-        if ! agent_is_busy; then
-            # Shogun: only clear input when pane is not active (Lord is away)
-            if [ "$AGENT_ID" = "shogun" ] && pane_is_active; then
-                : # Lord may be typing — skip C-u
-            else
-                mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
-            fi
-        fi
         return 0
     fi
 
@@ -1354,16 +1355,9 @@ for s in data.get('specials', []):
         # Ensure idle flag exists when all messages are read.
         # Recovers from stop_hook_inbox.sh flag loss during block cycles.
         touch "${IDLE_FLAG_DIR:-/tmp}/shogun_idle_${AGENT_ID}" 2>/dev/null || true
-        # Clear stale nudge text from input field (Codex CLI prefills last input on idle).
-        # Only send C-u when agent is idle — during Working it would be disruptive.
-        if ! agent_is_busy; then
-            # Shogun: only clear input when pane is not active (Lord is away)
-            if [ "$AGENT_ID" = "shogun" ] && pane_is_active; then
-                : # Lord may be typing — skip C-u
-            else
-                mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
-            fi
-        fi
+        # Do not clear the input line on all-read. This path can run from a
+        # timeout while a human is typing in the pane; normal cleanup must not
+        # mutate the prompt buffer.
     fi
 }
 

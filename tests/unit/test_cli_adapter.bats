@@ -412,16 +412,16 @@ YAML
 
 @test "build_cli_command: codex + default model → codex --model sonnet ..." {
     load_adapter_with "${TEST_TMP}/settings_mixed.yaml"
-    expected_prompt_arg=$(get_startup_prompt_arg "ashigaru5")
     result=$(build_cli_command "ashigaru5")
-    [ "$result" = "codex --model sonnet --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen $expected_prompt_arg" ]
+    [ "$result" = "codex --model sonnet --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen" ]
+    [[ "$result" != *"Session Start"* ]]
 }
 
 @test "build_cli_command: codex + effort → model_reasoning_effort override" {
     load_adapter_with "${TEST_TMP}/settings_with_models.yaml"
-    expected_prompt_arg=$(get_startup_prompt_arg "ashigaru5")
     result=$(build_cli_command "ashigaru5")
-    [ "$result" = "codex --model gpt-5 -c model_reasoning_effort=xhigh --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen $expected_prompt_arg" ]
+    [ "$result" = "codex --model gpt-5 -c model_reasoning_effort=xhigh --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen" ]
+    [[ "$result" != *"Session Start"* ]]
 }
 
 @test "build_cli_command: copilot → copilot --yolo" {
@@ -671,11 +671,10 @@ YAML
 # get_startup_prompt_arg テスト
 # =============================================================================
 
-@test "get_startup_prompt_arg: codex → positional prompt" {
+@test "get_startup_prompt_arg: codex → empty at CLI launch" {
     load_adapter_with "${TEST_TMP}/settings_mixed.yaml"
     result=$(get_startup_prompt_arg "ashigaru5")
-    [[ "$result" != --prompt* ]]
-    [[ "$result" == *"Session Start"* ]]
+    [[ "$result" == "" ]]
 }
 
 @test "get_startup_prompt_arg: opencode → empty (uses --agent instead)" {
