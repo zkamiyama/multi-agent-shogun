@@ -22,6 +22,8 @@ mux_zellij_session_from_target() {
     if [[ "$target" == zellij:*:* ]]; then
         local rest="${target#zellij:}"
         printf '%s\n' "${rest%%:*}"
+    elif [ "$target" = "shogun" ] || [ "$target" = "multiagent" ]; then
+        printf '%s\n' "$target"
     else
         printf '%s\n' "${ZELLIJ_SESSION_NAME:-multiagent}"
     fi
@@ -436,13 +438,42 @@ mux_backend_send_line() {
 
 mux_backend_find_pane_by_agent() {
     local agent="$1"
-    mux_zellij_state_py '
+    local target
+    target=$(mux_zellij_state_py '
 agent = sys.argv[1]
 for target, pane in (data.get("panes", {}) or {}).items():
     if (pane or {}).get("agent_id") == agent:
         print(target)
         raise SystemExit
-' "$agent"
+' "$agent")
+    if [ -n "$target" ] && mux_backend_pane_exists "$target" 2>/dev/null; then
+        printf '%s\n' "$target"
+        return 0
+    fi
+
+    mux_backend_preflight || return $?
+    local session
+    for session in shogun multiagent; do
+        mux_zellij_cmd --session "$session" action list-panes --json --state 2>/dev/null \
+            | python3 -c 'import json,sys
+session, wanted = sys.argv[1], sys.argv[2]
+try:
+    panes = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+for pane in panes:
+    if pane.get("is_plugin") or pane.get("title") != wanted:
+        continue
+    pid = pane.get("id")
+    if pid is None or str(pid) == "":
+        continue
+    pid = str(pid)
+    pane_id = pid if pid.startswith(("terminal_", "plugin_")) else "terminal_" + pid
+    print(f"zellij:{session}:{pane_id}")
+    raise SystemExit(0)
+raise SystemExit(1)' "$session" "$agent" && return 0
+    done
+    return 1
 }
 
 mux_backend_show_global_option() {

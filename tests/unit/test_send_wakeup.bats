@@ -30,6 +30,9 @@
 #   T-OPENCODE-002: send_cli_command — opencode /model → skip
 #   T-CODEX-003: no-unread cleanup never sends C-u
 #   T-CODEX-004: send_wakeup codex is non-destructive
+#   T-CODEX-004b: send_wakeup codex skips active pane with attached client
+#   T-CODEX-004c: active Codex pane suppresses nudge before abc|def draft can be modified
+#   T-CODEX-004d: active Codex pane suppresses Phase2 escalation nudge
 #   T-CODEX-005: send_cli_command — claude /clear passes through as-is
 #   T-CODEX-006: inbox_watcher.sh has agent_is_busy and Codex/Copilot handlers
 #   T-CODEX-007: pane @agent_cli=codex overrides stale CLI_TYPE (Phase2 C-c抑止)
@@ -65,6 +68,8 @@
 #   T-CRESET-004: send_context_reset — sends /new for opencode
 #   T-COPILOT-001: send_cli_command — copilot /clear → Ctrl-C + restart
 #   T-COPILOT-002: send_cli_command — copilot /model → skip
+#   T-SPECIAL-001: codex active pane model_switch is skipped without keystrokes
+#   T-SPECIAL-002: clear_command is deferred when pane is busy, preserving active input
 
 # --- セットアップ ---
 
@@ -604,6 +609,102 @@ YAML
     ! grep -q "send-keys" "$MOCK_LOG"
 }
 
+@test "T-CODEX-004c: active Codex pane suppresses nudge before abc|def draft can be modified" {
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        MOCK_CAPTURE_PANE="› abcdef"
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="codex"
+        send_wakeup 1
+    '
+    [ "$status" -eq 0 ]
+
+    echo "$output" | grep -q "active with attached client"
+    ! grep -q "send-keys.*inbox1" "$MOCK_LOG"
+    ! grep -q "send-keys.*Enter" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-u" "$MOCK_LOG"
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
+}
+
+@test "T-CODEX-004d: active Codex pane suppresses Phase2 escalation nudge" {
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        MOCK_CAPTURE_PANE="› abcdef"
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="codex"
+        send_wakeup_with_escape 1
+    '
+    [ "$status" -eq 0 ]
+
+    echo "$output" | grep -q "suppressing Escape escalation"
+    echo "$output" | grep -q "active with attached client"
+    ! grep -q "send-keys.*inbox1" "$MOCK_LOG"
+    ! grep -q "send-keys.*Enter" "$MOCK_LOG"
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-c" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-001: send_wakeup skips active pane with attached client for claude" {
+    run bash -c '
+        MOCK_PANE_CLI="claude"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="claude"
+        send_wakeup 2
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "active with attached client"
+    ! grep -q "send-keys" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-002: send_wakeup_with_escape skips active pane with attached client for copilot" {
+    run bash -c '
+        MOCK_PANE_CLI="copilot"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="copilot"
+        send_wakeup_with_escape 2
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "active with attached client"
+    ! grep -q "send-keys" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-003: send_cli_command skips active pane with attached client" {
+    run bash -c '
+        MOCK_PANE_CLI="claude"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="claude"
+        send_cli_command "/clear"
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "active with attached client"
+    ! grep -q "send-keys" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-004: send_context_reset skips active pane with attached client" {
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="codex"
+        AGENT_ID="ashigaru1"
+        send_context_reset
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "active with attached client"
+    ! grep -q "send-keys" "$MOCK_LOG"
+}
+
 # --- T-CODEX-005: claude /clear passes through as-is ---
 
 @test "T-CODEX-005: send_cli_command sends /clear as-is for claude" {
@@ -945,6 +1046,40 @@ YAML
 
     ! grep -q "send-keys.*/model" "$MOCK_LOG"
     echo "$output" | grep -q "not supported on copilot"
+}
+
+@test "T-SPECIAL-001: codex active pane model_switch is skipped without keystrokes" {
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="codex"
+        cmd=$(normalize_special_command "model_switch" "/model gpt-5")
+        send_cli_command "$cmd"
+    '
+    [ "$status" -eq 0 ]
+
+    ! grep -q "send-keys" "$MOCK_LOG"
+}
+
+@test "T-SPECIAL-002: clear_command is deferred while busy and sends no destructive keys" {
+    rm -f "$TEST_TMPDIR/shogun_idle_test_agent"
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_CAPTURE_PANE="◦ Thinking (5s • esc to interrupt)"
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="codex"
+        cmd=$(normalize_special_command "clear_command" "redo")
+        send_cli_command "$cmd"
+    '
+    [ "$status" -eq 0 ]
+
+    echo "$output" | grep -q "/clear deferred"
+    ! grep -q "send-keys.*C-u" "$MOCK_LOG"
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
+    ! grep -q "send-keys.*/new" "$MOCK_LOG"
+    ! grep -q "send-keys.*/clear" "$MOCK_LOG"
 }
 
 # --- T-SHOGUN-001: session_has_client — client attached ---

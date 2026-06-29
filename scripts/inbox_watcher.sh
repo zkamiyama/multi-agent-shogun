@@ -603,6 +603,17 @@ send_cli_command() {
     local effective_cli
     effective_cli=$(get_effective_cli_type)
 
+    # Safety: never inject CLI commands into the shogun pane.
+    # Shogun is controlled by the Lord; keystroke injection can clobber human input.
+    if [ "$AGENT_ID" = "shogun" ]; then
+        echo "[$(date)] [SKIP] shogun: suppressing CLI command injection ($cmd)" >&2
+        return 1
+    fi
+
+    if skip_if_active_pane_has_client "CLI command injection ($cmd, cli=$effective_cli)"; then
+        return 0
+    fi
+
     # cli_restart: delegate to switch_cli.sh (full /exit → relaunch cycle)
     if [[ "$cmd" == __CLI_RESTART__:* ]]; then
         local restart_args="${cmd#__CLI_RESTART__:}"
@@ -613,13 +624,6 @@ send_cli_command() {
         # Update effective CLI type after restart
         CLI_TYPE=$(mux_get_meta "$PANE_TARGET" agent_cli 2>/dev/null || echo "$CLI_TYPE")
         return 0
-    fi
-
-    # Safety: never inject CLI commands into the shogun pane.
-    # Shogun is controlled by the Lord; keystroke injection can clobber human input.
-    if [ "$AGENT_ID" = "shogun" ]; then
-        echo "[$(date)] [SKIP] shogun: suppressing CLI command injection ($cmd)" >&2
-        return 1
     fi
 
     # Busy guard: never send /clear when agent is actively processing.
@@ -818,6 +822,10 @@ send_context_reset() {
         return 0
     fi
 
+    if skip_if_active_pane_has_client "context reset (cli=$effective_cli)"; then
+        return 0
+    fi
+
     local reset_cmd
     case "$effective_cli" in
         codex)    reset_cmd="/new" ;;
@@ -954,6 +962,19 @@ session_has_client() {
     mux_session_has_client "$PANE_TARGET" 2>/dev/null
 }
 
+active_pane_has_attached_client() {
+    pane_is_active && session_has_client
+}
+
+skip_if_active_pane_has_client() {
+    local action="${1:-keystroke injection}"
+    if active_pane_has_attached_client; then
+        echo "[$(date)] [SKIP] $AGENT_ID pane is active with attached client; deferring $action" >&2
+        return 0
+    fi
+    return 1
+}
+
 # ─── Send wake-up nudge ───
 # Layered approach:
 #   1. If agent has active inotifywait self-watch → skip (agent wakes itself)
@@ -992,17 +1013,10 @@ send_wakeup() {
         return 0
     fi
 
-    # Shogun: deliver nudge via send-keys like other agents.
-    # ntfy messages must reach Claude Code directly.
     local effective_cli_for_nudge
     effective_cli_for_nudge=$(get_effective_cli_type)
-    if pane_is_active && session_has_client; then
-        case "$effective_cli_for_nudge:$AGENT_ID" in
-            codex:*|*:shogun)
-                echo "[$(date)] [SKIP] $AGENT_ID pane is active with attached client (cli=$effective_cli_for_nudge); deferring non-destructive nudge" >&2
-                return 0
-                ;;
-        esac
+    if skip_if_active_pane_has_client "non-destructive nudge (cli=$effective_cli_for_nudge)"; then
+        return 0
     fi
 
     # 優先度3: tmux send-keys（テキストとEnterを分離 — Codex TUI対策）
@@ -1106,6 +1120,10 @@ send_wakeup_with_escape() {
     # Phase 2 still skips if agent is busy — Escape during Working would interrupt
     if agent_is_busy; then
         echo "[$(date)] [SKIP] Agent $AGENT_ID is busy (Working), deferring Phase 2 nudge" >&2
+        return 0
+    fi
+
+    if skip_if_active_pane_has_client "Phase 2 Escape escalation (cli=$effective_cli)"; then
         return 0
     fi
 

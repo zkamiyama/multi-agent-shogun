@@ -126,6 +126,72 @@ PY
     [ "$output" = "40" ]
 }
 
+@test "zellij session_has_client accepts explicit shogun and multiagent session names" {
+    fake_zellij="$TEST_TMPDIR/zellij"
+    printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'session=""' \
+        'while [ "$#" -gt 0 ]; do' \
+        '  case "$1" in --session) session="$2"; shift 2 ;; *) shift ;; esac' \
+        'done' \
+        'printf "%s\n" "$session" >> "$ZELLIJ_SESSION_LOG"' \
+        'printf "CLIENT_ID ZELLIJ_PANE_ID RUNNING_COMMAND\n1 terminal_0 codex\n"' \
+        > "$fake_zellij"
+    chmod +x "$fake_zellij"
+
+    run bash -c "
+        export MUX_BACKEND=zellij
+        export ZELLIJ_BIN='$fake_zellij'
+        export ZELLIJ_SESSION_LOG='$TEST_TMPDIR/zellij_sessions.log'
+        source '$PROJECT_ROOT/lib/mux_adapter.sh'
+        mux_session_has_client shogun
+        mux_session_has_client multiagent
+    "
+    [ "$status" -eq 0 ]
+    run bash -c "tr '\n' ' ' < '$TEST_TMPDIR/zellij_sessions.log'"
+    [ "$status" -eq 0 ]
+    [ "$output" = "shogun multiagent " ]
+}
+
+@test "zellij find_pane_by_agent ignores stale state and falls back to live pane titles" {
+    fake_zellij="$TEST_TMPDIR/zellij"
+    printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'session=""' \
+        'while [ "$#" -gt 0 ]; do' \
+        '  case "$1" in --session) session="$2"; shift 2 ;; action) shift ;; list-panes)' \
+        '    if [ "$session" = "shogun" ]; then' \
+        '      printf "%s\n" "[{\"id\":0,\"is_plugin\":false,\"title\":\"shogun\",\"is_focused\":true}]"' \
+        '    else' \
+        '      printf "%s\n" "[{\"id\":0,\"is_plugin\":false,\"title\":\"karo\",\"is_focused\":true},{\"id\":2,\"is_plugin\":false,\"title\":\"ashigaru2\",\"is_focused\":false},{\"id\":8,\"is_plugin\":false,\"title\":\"gunshi\",\"is_focused\":false}]"' \
+        '    fi' \
+        '    exit 0 ;; *) shift ;; esac' \
+        'done' \
+        'exit 0' \
+        > "$fake_zellij"
+    chmod +x "$fake_zellij"
+
+    state_file="$TEST_TMPDIR/mux_state.yaml"
+    printf '%s\n' \
+        'backend: zellij' \
+        'panes:' \
+        '  zellij:multiagent:terminal_99:' \
+        '    agent_id: ashigaru2' \
+        > "$state_file"
+
+    run bash -c "
+        export MUX_BACKEND=zellij
+        export ZELLIJ_BIN='$fake_zellij'
+        export MUX_STATE_FILE='$state_file'
+        source '$PROJECT_ROOT/lib/mux_adapter.sh'
+        mux_find_pane_by_agent shogun
+        mux_find_pane_by_agent ashigaru2
+        mux_find_pane_by_agent gunshi
+    "
+    [ "$status" -eq 0 ]
+    [ "$output" = $'zellij:shogun:terminal_0\nzellij:multiagent:terminal_2\nzellij:multiagent:terminal_8' ]
+}
+
 @test "agent_identity prefers SHOGUN_AGENT_ID" {
     run env SHOGUN_AGENT_ID=gunshi bash "$PROJECT_ROOT/scripts/agent_identity.sh"
     [ "$status" -eq 0 ]
