@@ -98,11 +98,27 @@ result:
     - "ashigaru3のコンテキスト消費が早い"
   files_modified: []
   notes: "追加情報"
+root_instruction_gate:
+  status: read  # read | none_found | blocked | failed | shogun_root_already_loaded
+  resolved_root: "/absolute/path"
+  files_read: []
+  files_missing: []
+  truncated: false
+  external_imports_detected: []
+  notes: ""
 skill_candidate:
   found: false
 ```
 
-**Required fields**: worker_id, task_id, parent_cmd, status, timestamp, result, skill_candidate.
+**Required fields**: worker_id, task_id, parent_cmd, status, timestamp, result, root_instruction_gate, skill_candidate.
+
+## Project Root Instruction Gate
+
+After reading the task YAML and all `context_files`, run the mandatory project
+root instruction gate from `instructions/common/task_flow.md` before reviewing
+target files or judging an external project. If no root instructions exist,
+record `root_instruction_gate.status: none_found`. If an instruction file exists
+but is unreadable, block before analysis and report the unreadable path.
 
 ## Analysis Depth Guidelines
 

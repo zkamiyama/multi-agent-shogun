@@ -131,8 +131,10 @@ Codex handles compaction differently from Claude Code:
 ```
 Step 1: AGENTS.md is auto-loaded (contains recovery procedure)
 Step 2: Read queue/tasks/ashigaru{N}.yaml → determine current task
-Step 3: If task has "target_path:" → read that file
-Step 4: Resume work based on task status
+Step 3: If task has "project:" field → read context/{project}.md
+Step 4: Run the mandatory project root instruction gate from `instructions/common/task_flow.md`
+Step 5: If task has "target_path:" → read that file
+Step 6: Resume work based on task status
 ```
 
 **Note**: Unlike Claude Code, Codex has no `mcp__memory__read_graph` equivalent. Recovery relies entirely on AGENTS.md + YAML files.

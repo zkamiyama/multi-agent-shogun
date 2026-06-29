@@ -393,10 +393,10 @@ start_zellij_deployment() {
     echo "  次のステップ:"
     echo "  ┌──────────────────────────────────────────────────────────┐"
     echo "  │  将軍の本陣にアタッチ:                                  │"
-    echo "  │     zellij attach shogun                                 │"
+    echo "  │     css   (zellij attach shogun)                         │"
     echo "  │                                                          │"
     echo "  │  家老・足軽の陣を確認:                                  │"
-    echo "  │     zellij attach multiagent                             │"
+    echo "  │     csm   (zellij attach multiagent)                     │"
     echo "  │                                                          │"
     echo "  │  tmux legacy backend を使う場合:                         │"
     echo "  │     MUX_BACKEND=tmux ./shutsujin_departure.sh            │"
@@ -1420,20 +1420,20 @@ echo "  次のステップ:"
 echo "  ┌──────────────────────────────────────────────────────────┐"
 echo "  │  将軍の本陣にアタッチして命令を開始:                      │"
 if [ "$(mux_backend_name)" = "zellij" ]; then
-echo "  │     zellij attach shogun   (または: css)                 │"
+echo "  │     css   (zellij attach shogun)                         │"
 else
-echo "  │     tmux attach-session -t shogun   (または: css)        │"
+echo "  │     css   (tmux attach-session -t shogun)                │"
 fi
 echo "  │                                                          │"
 echo "  │  家老・足軽の陣を確認する:                                │"
 if [ "$(mux_backend_name)" = "zellij" ]; then
-echo "  │     zellij attach multiagent   (または: csm)             │"
+echo "  │     csm   (zellij attach multiagent)                     │"
 else
-echo "  │     tmux attach-session -t multiagent   (または: csm)    │"
+echo "  │     csm   (tmux attach-session -t multiagent)            │"
 fi
 echo "  │                                                          │"
 echo "  │  Web UI で全paneを監視・直接操作する:                     │"
-echo "  │     http://${SHOGUN_WEB_HOST:-127.0.0.1}:${SHOGUN_WEB_PORT:-1192}/              │"
+echo "  │     http://${SHOGUN_WEB_HOST:-127.0.0.1}:${SHOGUN_WEB_PORT:-8082}/              │"
 echo "  │                                                          │"
 echo "  │  ※ 各エージェントは指示書を読み込み済み。                 │"
 echo "  │    すぐに命令を開始できます。                             │"

@@ -85,8 +85,14 @@ Step 1: bash scripts/agent_identity.sh → ashigaru{N}
 Step 2: Read queue/tasks/{your_id}.yaml →
         assigned=work (execute task), idle=wait, done=wait (DO NOT re-report)
 Step 3: If task has "project:" field → read context/{project}.md
-        If task has "target_path:" → read that file
-Step 4: Start work (only if assigned=work)
+Step 4: Run the mandatory project root instruction gate:
+        resolve the target root from project/target_path, read only root-local
+        instruction candidates (AGENTS.override.md, AGENTS.md, CLAUDE.md,
+        .claude/CLAUDE.md, .github/copilot-instructions.md) with bounded reads,
+        record none_found if absent, and block before target work if present but
+        unreadable. Do not rely on CLI autoload and do not search outside root.
+Step 5: If task has "target_path:" → read that file
+Step 6: Start work (only if assigned=work)
 ```
 
 **CRITICAL**: Steps 1-2を完了するまでinbox処理するな。`inboxN` nudgeが先に届いても無視し、自己識別を必ず先に終わらせよ。
