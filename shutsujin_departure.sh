@@ -90,6 +90,34 @@ log_war() {
     echo -e "\033[1;31m【戦】\033[0m $1"
 }
 
+show_zellij_web_login_token() {
+    if [ "${SHOGUN_WEB_TOKEN_ON_START:-1}" = "0" ]; then
+        log_info "     Zellij Web login token 表示は SHOGUN_WEB_TOKEN_ON_START=0 によりスキップ"
+        return 0
+    fi
+
+    if [ "${SHOGUN_WEB_REVOKE_OLD_TOKENS:-1}" != "0" ]; then
+        if zellij web --revoke-all-tokens >/dev/null 2>&1; then
+            log_info "     既存の Zellij Web login token を無効化"
+        else
+            log_info "⚠️ 既存 Zellij Web login token の無効化に失敗。手動確認: zellij web --list-tokens"
+        fi
+    fi
+
+    local token_output
+    if token_output=$(zellij web --create-token 2>&1); then
+        log_info "     Zellij Web login token（今回のみ表示）:"
+        while IFS= read -r line; do
+            [ -n "$line" ] && echo "       $line"
+        done <<< "$token_output"
+        log_info "     token管理: zellij web --list-tokens / zellij web --revoke-all-tokens"
+        log_info "     古いtokenを残す場合: SHOGUN_WEB_REVOKE_OLD_TOKENS=0 ./shutsujin_departure.sh"
+    else
+        log_info "⚠️ Zellij Web login token 作成に失敗: $token_output"
+        log_info "     手動作成: zellij web --create-token"
+    fi
+}
+
 start_webui_if_missing() {
     local host="${SHOGUN_WEB_HOST:-127.0.0.1}"
     local port="${SHOGUN_WEB_PORT:-8082}"
@@ -102,12 +130,13 @@ start_webui_if_missing() {
 
     if zellij web --status --timeout 2 >/dev/null 2>&1; then
         log_info "🖥️ Zellij Browser Access 稼働中: $url"
+        show_zellij_web_login_token
         return 0
     fi
 
     if zellij web --daemonize --ip "$host" --port "$port" >/dev/null 2>&1; then
         log_success "  └─ Zellij Browser Access 起動完了: $url"
-        log_info "     初回またはtoken再発行: zellij web --create-token"
+        show_zellij_web_login_token
     else
         log_info "⚠️ Zellij Browser Access 起動未完了。手動確認: zellij web --status"
     fi

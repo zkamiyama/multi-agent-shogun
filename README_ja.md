@@ -280,31 +280,38 @@ cd /mnt/c/tools/multi-agent-shogun
 ./shutsujin_departure.sh
 ```
 
-### 🖥️ ブラウザからアクセス — Web UI
+### 🖥️ ブラウザからアクセス — Zellij Web
 
-デスクトップで細かく介入したい場合は、`shutsujin_departure.sh` がローカル Web UI を自動起動する：
-
-```bash
-# http://127.0.0.1:1192/ を開く
-```
-
-手動起動も可能：
+デスクトップで細かく介入したい場合は、`shutsujin_departure.sh` が Zellij 組み込みWebサーバを自動起動する：
 
 ```bash
-python3 scripts/shogun-webui.py
+# http://127.0.0.1:8082/ を開く
 ```
 
-Androidアプリと同じ tmux 操作を、SSH設定なしでブラウザから行える。
+`shutsujin_departure.sh` は起動時に古い Zellij Web login token を無効化し、新しいtokenを表示する。Zellijのtoken値は作成時に一度しか表示されないため、出力されたtokenでログインする。
 
-| 機能 | 説明 |
-|------|------|
-| **ライブペイン** | 将軍は専用タブ、Agentsタブは家老 + 足軽7体 + 軍師を `tmux pipe-pane` 由来の SSE でストリーミング |
-| **直接操作** | 各pane専用の入力欄から送信。将軍タブは特殊キー操作にも対応 |
-| **ダッシュボード** | `dashboard.md` を高密度・選択可能なブラウザ表示で確認 |
-| **スクリーンショット** | Settings に画像をペースト/ドロップすると `config/settings.yaml` の `screenshot.path` へ直接保存 |
-| **レートリミット** | Agents ツールバーから `scripts/ratelimit_check.sh` を実行 |
+古いtokenを残したい場合：
 
-デフォルトでは `127.0.0.1` のみで待ち受ける。`--host 0.0.0.0` で外部公開する場合は tmux にキー送信できるUIになるため、SSH tunnel / VPN / reverse proxy 認証を必ず挟む。
+```bash
+SHOGUN_WEB_REVOKE_OLD_TOKENS=0 ./shutsujin_departure.sh
+```
+
+起動時token作成を止めたい場合：
+
+```bash
+SHOGUN_WEB_TOKEN_ON_START=0 ./shutsujin_departure.sh
+```
+
+手動操作：
+
+```bash
+zellij web --status
+zellij web --daemonize --ip 127.0.0.1 --port 8082
+zellij web --list-tokens
+zellij web --revoke-all-tokens
+```
+
+ログイン後、`shogun` または `multiagent` セッションにattachできる。
 
 ### 📱 スマホからアクセス — 専用Androidアプリ（推奨）
 

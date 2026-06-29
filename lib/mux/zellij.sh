@@ -139,7 +139,14 @@ mux_backend_has_session() {
 mux_backend_create_session() {
     local session="$1"
     mux_backend_preflight || return $?
-    mux_zellij_cmd attach --create-background "$session" >/dev/null
+    local web_sharing="${SHOGUN_ZELLIJ_WEB_SHARING:-on}"
+    if [ "$web_sharing" = "off" ] || [ "$web_sharing" = "disabled" ]; then
+        mux_zellij_cmd attach --create-background "$session" options --web-sharing "$web_sharing" >/dev/null
+        return $?
+    fi
+    if ! mux_zellij_cmd attach --create-background "$session" options --web-sharing "$web_sharing" >/dev/null; then
+        mux_zellij_cmd attach --create-background "$session" >/dev/null
+    fi
 }
 
 mux_backend_delete_session() {
