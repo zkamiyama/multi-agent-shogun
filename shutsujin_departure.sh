@@ -170,21 +170,59 @@ zellij_set_agent_meta() {
     fi
 }
 
+zellij_watcher_cmd_is_current() {
+    local cmd="$1"
+    local agent="$2"
+    local target="$3"
+    local cli="$4"
+    local deployment_id="$5"
+
+    [[ "$cmd" == *"SHOGUN_DEPLOYMENT_ID=${deployment_id}"* ]] || return 1
+    [[ "$cmd" == *"scripts/inbox_watcher.sh ${agent} ${target} ${cli}"* ]]
+}
+
+zellij_stop_stale_watchers() {
+    local agent="$1"
+    local target="$2"
+    local cli="$3"
+    local deployment_id="$4"
+    local current_found=1
+    local line pid cmd
+
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        pid="${line%% *}"
+        cmd="${line#* }"
+        if zellij_watcher_cmd_is_current "$cmd" "$agent" "$target" "$cli" "$deployment_id"; then
+            current_found=0
+            continue
+        fi
+        log_info "  └─ ${agent} の古い inbox_watcher を停止: pid=${pid}"
+        kill "$pid" 2>/dev/null || true
+    done < <(pgrep -af "scripts/inbox_watcher.sh ${agent} " 2>/dev/null || true)
+
+    return "$current_found"
+}
+
 zellij_start_watcher_if_missing() {
     local agent="$1"
     local target="$2"
     local cli="$3"
+    local deployment_id="${ZELLIJ_DEPLOYMENT_ID:-manual-$$}"
     local log_file="$SCRIPT_DIR/logs/inbox_watcher_${agent}.log"
-    if pgrep -Ef "scripts/inbox_watcher.sh ${agent} ${target}( |$)" >/dev/null 2>&1; then
+
+    if zellij_stop_stale_watchers "$agent" "$target" "$cli" "$deployment_id"; then
         return 0
     fi
-    nohup bash "$SCRIPT_DIR/scripts/inbox_watcher.sh" "$agent" "$target" "$cli" >> "$log_file" 2>&1 &
+    nohup env SHOGUN_DEPLOYMENT_ID="$deployment_id" \
+        bash "$SCRIPT_DIR/scripts/inbox_watcher.sh" "$agent" "$target" "$cli" >> "$log_file" 2>&1 &
     disown
 }
 
 start_zellij_deployment() {
     log_war "🧩 Zellij backend で布陣を構築中..."
     mux_preflight || exit $?
+    ZELLIJ_DEPLOYMENT_ID="zellij-$(date '+%Y%m%d%H%M%S')-$$"
 
     mkdir -p "$SCRIPT_DIR/logs" "$SCRIPT_DIR/queue/inbox"
     : > "$SCRIPT_DIR/queue/mux_state.yaml"
