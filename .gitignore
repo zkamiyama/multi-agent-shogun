@@ -120,6 +120,7 @@ scripts/seo_qc.sh
 !scripts/dashboard-viewer.py
 !scripts/stall_detector.sh
 !scripts/mcp_health_check.sh
+!scripts/project_instruction_gate.sh
 
 
 # SayTask (sample template only, not actual data)

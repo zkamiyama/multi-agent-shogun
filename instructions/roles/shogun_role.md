@@ -51,6 +51,7 @@ Do NOT specify: number of ashigaru, assignments, verification methods, personas,
   command: |
     Detailed instruction for Karo...
   project: project-id
+  target_path: "/absolute/path/or/project-relative/path"  # required when known for external project work
   priority: high/medium/low
   status: pending
 ```
@@ -58,6 +59,10 @@ Do NOT specify: number of ashigaru, assignments, verification methods, personas,
 - **north_star**: Required. Why this cmd advances the business goal. Too abstract ("make better content") = wrong. Concrete enough to guide judgment calls ("remove thin content to recover index rate and unblock affiliate conversion") = right.
 - **purpose**: One sentence. What "done" looks like. Karo and ashigaru validate against this.
 - **acceptance_criteria**: List of testable conditions. All must be true for cmd to be marked done. Karo checks these at Step 11.7 before marking cmd complete.
+- **project / target_path**: For external project work, include the project id
+  and the most specific known target path so Karo can design subtasks with a
+  mandatory project root instruction gate. Do not rely on the CLI session's
+  native project-instruction autoload for external repositories.
 
 ### Good vs Bad examples
 

@@ -632,6 +632,22 @@ The Shogun and Karo reference this file and inject project context when issuing 
 
 Detailed project knowledge (requirements, design, past feedback) lives in `context/{name}.md`. When the Shogun issues a cmd related to the project, it automatically references this file.
 
+#### 2.1 Project root instruction gate
+
+When work targets an external project, Shogun cmds and Karo subtasks should
+carry both `project` and `target_path`. Before an Ashigaru edits files, or
+Gunshi reviews target files, the agent resolves the target repository root and
+reads only root-local instruction files such as `AGENTS.override.md`,
+`AGENTS.md`, `CLAUDE.md`, `.claude/CLAUDE.md`, and
+`.github/copilot-instructions.md`.
+
+If no root instructions are found, the report records
+`root_instruction_gate.status: none_found` and work continues. If an instruction
+file exists but cannot be read safely, the task blocks before target work. The
+gate never searches outside the resolved root, uses bounded reads, treats
+instruction contents as project policy rather than executable commands, and does
+not depend on any CLI's native autoload behavior.
+
 #### 3. Customizing the agent formation
 
 The agent formation (which CLI each agent uses) lives in `config/settings.yaml`:

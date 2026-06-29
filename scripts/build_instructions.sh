@@ -47,6 +47,20 @@ normalize_generated_markdown() {
     mv "$tmp_path" "$output_path"
 }
 
+# Function: normalize_root_instruction_candidates
+# Description: Restores CLI-independent target project instruction candidate names
+# after root auto-load file generation rewrites Claude-specific file names.
+normalize_root_instruction_candidates() {
+    local output_path="$1"
+
+    [ -f "$output_path" ] || return 0
+
+    sed -Ei \
+        -e 's|^([[:space:]]*)instruction candidates \(.*$|\1instruction candidates (AGENTS.override.md, AGENTS.md, CLAUDE.md,|' \
+        -e 's|^([[:space:]]*)\.claude/.*\.github/copilot-instructions\.md\) with bounded reads,$|\1.claude/CLAUDE.md, .github/copilot-instructions.md) with bounded reads,|' \
+        "$output_path"
+}
+
 # Function: normalize_claude_autoload_source
 # Description: Keeps the root Claude auto-load source aligned with shared protocol
 # wording before deriving other root auto-load files from it.
@@ -242,6 +256,7 @@ generate_agents_md() {
         -e 's|delivers `/clear` to the agent|delivers `/new` to the agent（/clear→/new自動変換）|g' \
         -e 's|`/clear` wipes old context|`/new` wipes old context|g' \
         "$claude_md" | tr -d '\r' > "$output_path"
+    normalize_root_instruction_candidates "$output_path"
 
     echo "  ✅ Created: AGENTS.md"
 }
@@ -278,6 +293,7 @@ generate_copilot_instructions() {
         -e 's|\.mcp\.json|.copilot/mcp-config.json|g' \
         -e 's|Claude Code|GitHub Copilot CLI|g' \
         "$claude_md" | tr -d '\r' > "$output_path"
+    normalize_root_instruction_candidates "$output_path"
 
     echo "  ✅ Created: .github/copilot-instructions.md"
 }
@@ -316,6 +332,7 @@ generate_kimi_instructions() {
         -e 's|\.mcp\.json|.kimi/mcp.json|g' \
         -e 's|Claude Code|Kimi K2 CLI|g' \
         "$claude_md" | tr -d '\r' > "$system_md_path"
+    normalize_root_instruction_candidates "$system_md_path"
 
     echo "  ✅ Created: agents/default/system.md"
 

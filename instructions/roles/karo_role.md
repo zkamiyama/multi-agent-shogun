@@ -65,8 +65,10 @@ task:
   task_id: subtask_001
   parent_cmd: cmd_001
   bloom_level: L3        # L1-L3=Ashigaru, L4-L6=Gunshi
+  project: project-id
   description: "Create hello1.md with content 'おはよう1'"
   target_path: "hello1.md"  # relative to project root
+  root_instruction_policy: required  # required | optional | skipped_internal
   echo_message: "🔥 足軽1号、先陣を切って参る！八刃一志！"
   status: assigned
   timestamp: "2026-01-25T12:00:00"
@@ -76,13 +78,29 @@ task:
   task_id: subtask_003
   parent_cmd: cmd_001
   bloom_level: L6
+  project: project-id
   blocked_by: [subtask_001, subtask_002]
   description: "Integrate research results from ashigaru 1 and 2"
   target_path: "reports/integrated_report.md"  # relative to project root
+  root_instruction_policy: required
   echo_message: "⚔️ 足軽3号、統合の刃で斬り込む！"
   status: blocked         # Initial status when blocked_by exists
   timestamp: "2026-01-25T12:00:00"
 ```
+
+### Project / Target Path Requirements
+
+For every task that touches an external project, include both `project` and
+`target_path`. `project` must map to `projects/<id>.yaml` or
+`config/projects.yaml`; `target_path` must identify the file or directory that
+lets the worker resolve the target repository root. If the project is not
+registered, use an absolute `target_path` and register the project in a follow-up
+when work becomes ongoing.
+
+Set `root_instruction_policy: required` for external project work. The assigned
+Ashigaru or Gunshi must record `root_instruction_gate` evidence in the report.
+Use `skipped_internal` only for Shogun-internal maintenance after confirming the
+Shogun root instructions are already loaded.
 
 ## echo_message Rule
 

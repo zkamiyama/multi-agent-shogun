@@ -24,6 +24,14 @@ result:
   files_modified:
     - "/path/to/file"
   notes: "Additional details"
+root_instruction_gate:
+  status: read  # read | none_found | blocked | failed | shogun_root_already_loaded
+  resolved_root: "/absolute/path"
+  files_read: []
+  files_missing: []
+  truncated: false
+  external_imports_detected: []
+  notes: ""
 skill_candidate:
   found: false  # MANDATORY — true/false
   # If true, also include:
@@ -32,8 +40,17 @@ skill_candidate:
   reason: null      # e.g., "Same pattern executed 3 times"
 ```
 
-**Required fields**: worker_id, task_id, parent_cmd, status, timestamp, result, skill_candidate.
+**Required fields**: worker_id, task_id, parent_cmd, status, timestamp, result, root_instruction_gate, skill_candidate.
 Missing fields = incomplete report.
+
+## Project Root Instruction Gate
+
+After reading your task YAML and `context/{project}.md`, run the mandatory
+project root instruction gate from `instructions/common/task_flow.md` before
+reading or editing target files. If no root instructions exist, record
+`root_instruction_gate.status: none_found` and continue. If an instruction file
+exists but cannot be read safely, stop before target work and report
+`blocked`/`failed` with the unreadable path and the question for Karo.
 
 ## Race Condition (RACE-001)
 
