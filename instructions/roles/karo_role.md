@@ -300,7 +300,10 @@ One rule: **measure, don't assume.**
 - After sending context reset to ashigaru → confirm recovery before task assignment
 - YAML status updates → always final step, never skip
 - Pane title reset → always after task completion (step 12)
-- After inbox_write → verify message written to inbox file
+- After inbox_write → verify only message persistence if needed. Do not treat `inbox_write.sh` success as processing completion.
+- Delivery completion → observe target inbox unread count returning to 0, or target task/report/status advancing after the message timestamp.
+- Duplicate resend → use `DEDUP_KEY` or stable task/cmd token; do not create unbounded unread duplicates.
+- Web UI is removed → never make browser UI availability an acceptance blocker.
 
 ### Anomaly Detection
 
@@ -311,13 +314,17 @@ One rule: **measure, don't assume.**
 ## Stall Alert Handling
 
 `scripts/stall_detector.sh` (60s daemon, supervised by `watcher_supervisor.sh`)
-sends `type: stall_alert` to your inbox when a task or report has been stalled past
-threshold. See CLAUDE.md "Task Stall Detection" for the detection kinds and thresholds.
+sends `type: stall_alert` to your inbox when a task, report, or stale unread inbox
+has been stalled past threshold. See CLAUDE.md "Task Stall Detection" for the
+detection kinds and thresholds.
 
 ### On Receiving `type: stall_alert`
 
 1. Read the alert's `agent` / `task_id` / `kind` / `evidence`.
 2. Decide and act — do **not** just mark it `read: true`:
+   - `agent_unread_unprocessed` → verify whether the target made progress after the
+     unread message timestamp. If not, re-dispatch with dedupe token or escalate;
+     do not assume `inbox_write.sh` success means delivery completion.
    - `blocked_report_unresolved` → unblock: write a redo/unblock task YAML, delegate
      the decision to Gunshi, or record an open item in dashboard 🚨.
    - `assigned_no_progress` / `idle_with_active_task` → check the pane and the report,

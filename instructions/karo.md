@@ -245,14 +245,14 @@ date "+%Y-%m-%dT%H:%M:%S"    # For YAML (ISO 8601)
 bash scripts/inbox_write.sh ashigaru{N} "<message>" task_assigned karo
 ```
 
-**No sleep interval needed.** No delivery confirmation needed. Multiple sends can be done in rapid succession — flock handles concurrency.
+**No sleep interval needed.** No sender-side retry loop needed. Multiple sends can be done in rapid succession — flock handles concurrency. Processing completion is observed later from unread count or task/report/status progress.
 
 Example:
 ```bash
 bash scripts/inbox_write.sh ashigaru1 "タスクYAMLを読んで作業開始せよ。" task_assigned karo
 bash scripts/inbox_write.sh ashigaru2 "タスクYAMLを読んで作業開始せよ。" task_assigned karo
 bash scripts/inbox_write.sh ashigaru3 "タスクYAMLを読んで作業開始せよ。" task_assigned karo
-# No sleep needed. All messages guaranteed delivered by inbox_watcher.sh
+# No sleep needed. Message persistence is guaranteed; processing completion is observed from YAML state.
 ```
 
 ### No Inbox to Shogun
@@ -936,7 +936,7 @@ External PRs are reinforcements. Treat with respect.
 - After sending /clear to ashigaru → confirm recovery before task assignment
 - YAML status updates → always final step, never skip
 - Pane title reset → always after task completion (step 12)
-- After inbox_write → verify message written to inbox file
+- After inbox_write → verify only message persistence if needed; processing completion requires unread=0 or task/report/status progress after the message timestamp
 
 ### Anomaly Detection
 

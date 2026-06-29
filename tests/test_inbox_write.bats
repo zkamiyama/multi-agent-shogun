@@ -464,3 +464,220 @@ PYFAIL
 
     [ ! -d "$TEST_INBOX_DIR/test_agent.yaml.lock.d" ]
 }
+
+setup_supervisor_self_heal_mock() {
+    mkdir -p "$TEST_TMPDIR/scripts" "$TEST_TMPDIR/logs" "$TEST_TMPDIR/queue" "$TEST_TMPDIR/mockbin"
+    cat > "$TEST_TMPDIR/scripts/watcher_supervisor.sh" <<'SUPERVISOR'
+#!/usr/bin/env bash
+exit 0
+SUPERVISOR
+    chmod +x "$TEST_TMPDIR/scripts/watcher_supervisor.sh"
+
+    cat > "$TEST_TMPDIR/mockbin/setsid" <<'SETSID'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$TEST_TMPDIR/supervisor_start.log"
+exit 0
+SETSID
+    chmod +x "$TEST_TMPDIR/mockbin/setsid"
+    export PATH="$TEST_TMPDIR/mockbin:$PATH"
+}
+
+wait_for_file_contains() {
+    local file="$1"
+    local pattern="$2"
+    local i
+    for i in {1..50}; do
+        if [ -f "$file" ] && grep -q "$pattern" "$file"; then
+            return 0
+        fi
+        sleep 0.1
+    done
+    return 1
+}
+
+@test "T-015: supervisor self-heal fresh heartbeat is no-op" {
+    setup_supervisor_self_heal_mock
+    date +%s > "$TEST_TMPDIR/queue/supervisor.heartbeat"
+
+    run bash "$TEST_INBOX_WRITE" "test_agent" "fresh heartbeat" "test_type" "other_sender"
+    [ "$status" -eq 0 ]
+
+    [ ! -f "$TEST_TMPDIR/supervisor_start.log" ]
+}
+
+@test "T-016: supervisor self-heal missing heartbeat starts detached supervisor" {
+    setup_supervisor_self_heal_mock
+
+    run bash "$TEST_INBOX_WRITE" "test_agent" "missing heartbeat" "test_type" "other_sender"
+    [ "$status" -eq 0 ]
+
+    wait_for_file_contains "$TEST_TMPDIR/supervisor_start.log" "watcher_supervisor.sh"
+    wait_for_file_contains "$TEST_TMPDIR/logs/watcher_supervisor.log" "missing heartbeat"
+}
+
+@test "T-017: supervisor self-heal stale heartbeat starts detached supervisor" {
+    setup_supervisor_self_heal_mock
+    touch -t 202001010000 "$TEST_TMPDIR/queue/supervisor.heartbeat"
+
+    run bash "$TEST_INBOX_WRITE" "test_agent" "stale heartbeat" "test_type" "other_sender"
+    [ "$status" -eq 0 ]
+
+    wait_for_file_contains "$TEST_TMPDIR/supervisor_start.log" "watcher_supervisor.sh"
+    wait_for_file_contains "$TEST_TMPDIR/logs/watcher_supervisor.log" "stale heartbeat"
+    grep -q "liveness=" "$TEST_TMPDIR/logs/watcher_supervisor.log"
+}
+
+@test "T-018: supervisor self-heal lock contention is a safe no-op" {
+    setup_supervisor_self_heal_mock
+    touch -t 202001010000 "$TEST_TMPDIR/queue/supervisor.heartbeat"
+    : > "$TEST_TMPDIR/queue/supervisor.lock"
+
+    (
+        flock 9
+        sleep 2
+    ) 9>"$TEST_TMPDIR/queue/supervisor.lock" &
+    holder_pid=$!
+    sleep 0.2
+
+    run bash "$TEST_INBOX_WRITE" "test_agent" "lock contention" "test_type" "other_sender"
+    wait "$holder_pid"
+    [ "$status" -eq 0 ]
+
+    [ ! -f "$TEST_TMPDIR/supervisor_start.log" ]
+}
+
+@test "T-019: supervisor self-heal documents alive+stale duplicate boundary" {
+    grep -q "Heartbeat freshness is authoritative here" "$INBOX_WRITE_SCRIPT"
+    grep -q "watcher-level lifetime locks bound duplicate side effects" "$INBOX_WRITE_SCRIPT"
+}
+
+@test "T-020: inbox_write supervisor self-heal uses no destructive process/session commands" {
+    ! grep -Eq '\b(kill|pkill|killall)\b|tmux kill|zellij kill|delete-session' "$INBOX_WRITE_SCRIPT"
+}
+
+@test "T-021: duplicate unread task_assigned for same task updates existing message" {
+    bash "$TEST_INBOX_WRITE" "test_agent" "task_id=subtask_alpha first delivery" "task_assigned" "karo"
+
+    run bash "$TEST_INBOX_WRITE" "test_agent" "task_id=subtask_alpha retry delivery" "task_assigned" "karo"
+    [ "$status" -eq 0 ]
+
+    "$VENV_PYTHON" <<EOF
+import yaml
+
+with open('$TEST_INBOX_DIR/test_agent.yaml') as f:
+    data = yaml.safe_load(f)
+
+messages = data['messages']
+assert len(messages) == 1, f'Expected deduped 1 message, got {len(messages)}'
+msg = messages[0]
+assert msg['content'] == 'task_id=subtask_alpha retry delivery', msg['content']
+assert msg['retry_count'] == 1, msg.get('retry_count')
+assert msg['first_notified_at'] == msg['timestamp'], msg
+assert msg['last_notified_at'] is not None, msg
+assert len(msg['duplicate_message_ids']) == 1, msg.get('duplicate_message_ids')
+assert msg['dedup_key'] == 'task:test_agent:task_assigned:karo:subtask_alpha', msg['dedup_key']
+
+print('T-021: PASS')
+EOF
+}
+
+@test "T-022: read task notification is not deduped" {
+    bash "$TEST_INBOX_WRITE" "test_agent" "task_id=subtask_alpha first delivery" "task_assigned" "karo"
+
+    "$VENV_PYTHON" <<EOF
+import yaml
+
+path = '$TEST_INBOX_DIR/test_agent.yaml'
+with open(path) as f:
+    data = yaml.safe_load(f)
+data['messages'][0]['read'] = True
+with open(path, 'w') as f:
+    yaml.dump(data, f, default_flow_style=False, allow_unicode=True, indent=2)
+EOF
+
+    run bash "$TEST_INBOX_WRITE" "test_agent" "task_id=subtask_alpha retry delivery" "task_assigned" "karo"
+    [ "$status" -eq 0 ]
+
+    "$VENV_PYTHON" <<EOF
+import yaml
+
+with open('$TEST_INBOX_DIR/test_agent.yaml') as f:
+    data = yaml.safe_load(f)
+
+assert len(data['messages']) == 2, f'Expected 2 messages, got {len(data["messages"])}'
+assert data['messages'][0]['read'] is True
+assert data['messages'][1]['read'] is False
+
+print('T-022: PASS')
+EOF
+}
+
+@test "T-023: distinct task ids senders and report_received are preserved" {
+    bash "$TEST_INBOX_WRITE" "test_agent" "task_id=subtask_alpha delivery" "task_assigned" "karo"
+    bash "$TEST_INBOX_WRITE" "test_agent" "task_id=subtask_beta delivery" "task_assigned" "karo"
+    bash "$TEST_INBOX_WRITE" "test_agent" "task_id=subtask_alpha delivery" "task_assigned" "shogun"
+    bash "$TEST_INBOX_WRITE" "test_agent" "task_id=subtask_alpha report 1" "report_received" "ashigaru1"
+
+    run bash "$TEST_INBOX_WRITE" "test_agent" "task_id=subtask_alpha report 2" "report_received" "ashigaru1"
+    [ "$status" -eq 0 ]
+
+    "$VENV_PYTHON" <<EOF
+import yaml
+
+with open('$TEST_INBOX_DIR/test_agent.yaml') as f:
+    data = yaml.safe_load(f)
+
+messages = data['messages']
+assert len(messages) == 5, f'Expected 5 preserved messages, got {len(messages)}'
+assert [m['type'] for m in messages].count('report_received') == 2
+assert sum(1 for m in messages if m['from'] == 'karo' and 'subtask_alpha' in m['content']) == 1
+assert sum(1 for m in messages if m['from'] == 'karo' and 'subtask_beta' in m['content']) == 1
+assert sum(1 for m in messages if m['from'] == 'shogun' and 'subtask_alpha' in m['content']) == 1
+
+print('T-023: PASS')
+EOF
+}
+
+@test "T-024: explicit DEDUP_KEY dedupes task notification without task id" {
+    DEDUP_KEY="cmd009:a4" bash "$TEST_INBOX_WRITE" "test_agent" "first generic task notice" "task_assigned" "karo"
+
+    run env DEDUP_KEY="cmd009:a4" bash "$TEST_INBOX_WRITE" "test_agent" "retry generic task notice" "task_assigned" "karo"
+    [ "$status" -eq 0 ]
+
+    "$VENV_PYTHON" <<EOF
+import yaml
+
+with open('$TEST_INBOX_DIR/test_agent.yaml') as f:
+    data = yaml.safe_load(f)
+
+messages = data['messages']
+assert len(messages) == 1, f'Expected 1 deduped message, got {len(messages)}'
+msg = messages[0]
+assert msg['content'] == 'retry generic task notice'
+assert msg['retry_count'] == 1
+assert msg['dedup_key'] == 'explicit:test_agent:task_assigned:karo:cmd009:a4'
+
+print('T-024: PASS')
+EOF
+}
+
+@test "T-025: explicit DEDUP_KEY does not absorb unrelated keyless unread message" {
+    bash "$TEST_INBOX_WRITE" "test_agent" "generic task notice without key" "task_assigned" "karo"
+
+    run env DEDUP_KEY="cmd009:a4" bash "$TEST_INBOX_WRITE" "test_agent" "generic task notice with key" "task_assigned" "karo"
+    [ "$status" -eq 0 ]
+
+    "$VENV_PYTHON" <<EOF
+import yaml
+
+with open('$TEST_INBOX_DIR/test_agent.yaml') as f:
+    data = yaml.safe_load(f)
+
+messages = data['messages']
+assert len(messages) == 2, f'Expected 2 distinct messages, got {len(messages)}'
+assert 'dedup_key' not in messages[0], messages[0]
+assert messages[1]['dedup_key'] == 'explicit:test_agent:task_assigned:karo:cmd009:a4'
+
+print('T-025: PASS')
+EOF
+}

@@ -44,7 +44,7 @@
 #   T-CODEX-016: Codex transcript echo is not treated as stuck input
 #   T-SHOGUN-001: session_has_client — returns 0 when client attached
 #   T-SHOGUN-002: session_has_client — returns 1 when no client
-#   T-SHOGUN-003: send_wakeup — shogun + active + attached → send-keys (post PR#75)
+#   T-SHOGUN-003: send_wakeup — shogun + active + attached → no key
 #   T-SHOGUN-004: send_wakeup — shogun + active + detached → send-keys fallthrough
 #   T-SHOGUN-005: shogun clear_command does not enqueue auto-recovery
 #   T-BUSY-005: agent_is_busy — returns busy during /clear cooldown (LAST_CLEAR_TS)
@@ -662,6 +662,355 @@ YAML
     ! grep -q "send-keys" "$MOCK_LOG"
 }
 
+@test "T-ACTIVE-005: karo active-attached clean-idle stale unread gets plain nudge only" {
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        MOCK_CAPTURE_PANE="›"
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="karo"
+        CLI_TYPE="codex"
+        FIRST_UNREAD_SEEN=$(($(date +%s) - 90))
+        send_wakeup 4
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "clean-idle stale unread"
+    grep -q "send-keys .*test:0.0 inbox4" "$MOCK_LOG"
+    grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-u" "$MOCK_LOG"
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-c" "$MOCK_LOG"
+    ! grep -q "send-keys.*/new" "$MOCK_LOG"
+    ! grep -q "send-keys.*/clear" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-005b: karo active-attached blank Codex capture stale unread gets plain nudge" {
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        MOCK_CAPTURE_PANE=""
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="karo"
+        CLI_TYPE="codex"
+        FIRST_UNREAD_SEEN=$(($(date +%s) - 90))
+        send_wakeup 1
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "clean-idle stale unread"
+    grep -q "send-keys .*test:0.0 inbox1" "$MOCK_LOG"
+    grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-u" "$MOCK_LOG"
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-c" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-006: gunshi active-attached clean-idle stale unread gets plain nudge only" {
+    run bash -c '
+        MOCK_PANE_CLI="claude"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        MOCK_CAPTURE_PANE="❯"
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="gunshi"
+        CLI_TYPE="claude"
+        touch "$TEST_TMPDIR/shogun_idle_gunshi"
+        FIRST_UNREAD_SEEN=$(($(date +%s) - 90))
+        send_wakeup 2
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "clean-idle stale unread"
+    grep -q "send-keys .*test:0.0 inbox2" "$MOCK_LOG"
+    grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-u" "$MOCK_LOG"
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-c" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-006b: ashigaru active-attached clean-idle stale unread gets plain nudge only" {
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        MOCK_CAPTURE_PANE="›"
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="ashigaru1"
+        CLI_TYPE="codex"
+        FIRST_UNREAD_SEEN=$(($(date +%s) - 90))
+        send_wakeup 3
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "clean-idle stale unread"
+    grep -q "send-keys .*test:0.0 inbox3" "$MOCK_LOG"
+    grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-u" "$MOCK_LOG"
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-c" "$MOCK_LOG"
+    ! grep -q "send-keys.*/new" "$MOCK_LOG"
+    ! grep -q "send-keys.*/clear" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-007: karo active-attached dirty prompt sends no keys" {
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        MOCK_CAPTURE_PANE="› abcdef"
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="karo"
+        CLI_TYPE="codex"
+        FIRST_UNREAD_SEEN=$(($(date +%s) - 90))
+        send_wakeup 1
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "prompt not clean idle"
+    ! grep -q "send-keys" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-007b: ashigaru active-attached dirty prompt sends no keys" {
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        MOCK_CAPTURE_PANE="› abcdef"
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="ashigaru1"
+        CLI_TYPE="codex"
+        FIRST_UNREAD_SEEN=$(($(date +%s) - 90))
+        send_wakeup 1
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "prompt not clean idle"
+    ! grep -q "send-keys" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-008: gunshi active-attached busy prompt sends no keys" {
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        MOCK_CAPTURE_PANE="Working on task\nesc to interrupt"
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="gunshi"
+        CLI_TYPE="codex"
+        FIRST_UNREAD_SEEN=$(($(date +%s) - 90))
+        send_wakeup 1
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "busy"
+    ! grep -q "send-keys" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-008b: ashigaru active-attached busy prompt sends no keys" {
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        MOCK_CAPTURE_PANE="Working on task\nesc to interrupt"
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="ashigaru1"
+        CLI_TYPE="codex"
+        FIRST_UNREAD_SEEN=$(($(date +%s) - 90))
+        send_wakeup 1
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "busy"
+    ! grep -q "send-keys" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-009: karo active-attached clear_command and model_switch send no keys" {
+    run bash -c '
+        MOCK_PANE_CLI="claude"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        MOCK_CAPTURE_PANE="❯"
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="karo"
+        CLI_TYPE="claude"
+        send_cli_command "/clear"
+        send_cli_command "/model opus"
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "active with attached client"
+    ! grep -q "send-keys" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-010: gunshi active-attached clear_command and model_switch send no keys" {
+    run bash -c '
+        MOCK_PANE_CLI="claude"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        MOCK_CAPTURE_PANE="❯"
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="gunshi"
+        CLI_TYPE="claude"
+        send_cli_command "/clear"
+        send_cli_command "/model opus"
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "active with attached client"
+    ! grep -q "send-keys" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-011: shogun active-attached plain nudge clear_command and model_switch send no keys" {
+    run bash -c '
+        MOCK_PANE_CLI="claude"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        MOCK_CAPTURE_PANE="❯"
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="shogun"
+        CLI_TYPE="claude"
+        FIRST_UNREAD_SEEN=$(($(date +%s) - 90))
+        send_wakeup 1
+        send_cli_command "/clear" || true
+        send_cli_command "/model opus" || true
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "shogun"
+    ! grep -q "send-keys" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-012: detached clean-idle plain nudge still works" {
+    run bash -c '
+        MOCK_PANE_CLI="claude"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS=""
+        MOCK_CAPTURE_PANE="❯"
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="karo"
+        CLI_TYPE="claude"
+        touch "$TEST_TMPDIR/shogun_idle_karo"
+        send_wakeup 3
+    '
+    [ "$status" -eq 0 ]
+    grep -q "send-keys .*test:0.0 inbox3" "$MOCK_LOG"
+    grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-013: non-active codex karo phase3 recovery sends /new once" {
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_PANE_ACTIVE="0"
+        MOCK_LIST_CLIENTS="client0"
+        MOCK_CAPTURE_PANE="›"
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="karo"
+        CLI_TYPE="codex"
+        INBOX="'"$TEST_INBOX_DIR"'/karo.yaml"
+        LOCKFILE="${INBOX}.lock"
+        touch "$TEST_TMPDIR/shogun_idle_karo"
+        cat > "$INBOX" << "YAML"
+messages:
+  - id: msg_normal
+    from: shogun
+    timestamp: "2026-06-29T16:00:00+09:00"
+    type: cmd_new
+    content: work
+    read: false
+YAML
+        FIRST_UNREAD_SEEN=$(($(date +%s) - 300))
+        LAST_CLEAR_TS=0
+        process_unread event
+    '
+    [ "$status" -eq 0 ]
+    grep -q "send-keys.*/new" "$MOCK_LOG"
+    grep -q "send-keys.*Session Start" "$MOCK_LOG"
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-c" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-014: same codex karo unread batch does not send phase3 /new twice after cooldown" {
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_PANE_ACTIVE="0"
+        MOCK_LIST_CLIENTS="client0"
+        MOCK_CAPTURE_PANE="›"
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="karo"
+        CLI_TYPE="codex"
+        INBOX="'"$TEST_INBOX_DIR"'/karo.yaml"
+        LOCKFILE="${INBOX}.lock"
+        touch "$TEST_TMPDIR/shogun_idle_karo"
+        cat > "$INBOX" << "YAML"
+messages:
+  - id: msg_normal
+    dedup_key: task:karo:cmd_new:shogun:cmd_009
+    from: shogun
+    timestamp: "2026-06-29T16:00:00+09:00"
+    type: cmd_new
+    content: work
+    read: false
+YAML
+        FIRST_UNREAD_SEEN=$(($(date +%s) - 300))
+        LAST_CLEAR_TS=0
+        process_unread event
+
+        FIRST_UNREAD_SEEN=$(($(date +%s) - 300))
+        LAST_CLEAR_TS=$(($(date +%s) - 400))
+        STARTUP_PROMPT_SENT=0
+        process_unread event
+    '
+    [ "$status" -eq 0 ]
+    [ "$(grep -c "send-keys.*/new" "$MOCK_LOG")" -eq 1 ]
+    [ "$(grep -c "send-keys.*Session Start" "$MOCK_LOG")" -eq 1 ]
+    echo "$output" | grep -q "destructive recovery already sent for unread batch"
+}
+
+@test "T-ACTIVE-015: active-attached skip does not poison throttle before stale clean-idle nudge" {
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        MOCK_CAPTURE_PANE="›"
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="karo"
+        CLI_TYPE="codex"
+        LAST_NUDGE_TS=0
+        LAST_NUDGE_COUNT=""
+
+        # Fresh unread in an active-attached pane must be skipped without
+        # recording a nudge throttle, because no key was actually sent.
+        FIRST_UNREAD_SEEN=$(date +%s)
+        send_wakeup 1
+        first_ts=$LAST_NUDGE_TS
+
+        # Once the same unread batch is stale and still clean-idle, the plain
+        # nudge exception must be allowed immediately, not blocked by cooldown.
+        FIRST_UNREAD_SEEN=$(($(date +%s) - 11))
+        send_wakeup 1
+        echo "first_ts=$first_ts final_ts=$LAST_NUDGE_TS"
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "first_ts=0"
+    echo "$output" | grep -q "clean-idle stale unread"
+    grep -q "send-keys .*test:0.0 inbox1" "$MOCK_LOG"
+    grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
+}
+
+@test "T-SHOOK-005: Codex Code throttle uses 60s cooldown" {
+    run bash -c '
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="codex"
+        LAST_NUDGE_TS=0
+        LAST_NUDGE_COUNT=""
+
+        should_throttle_nudge 1
+        rc1=$?
+
+        LAST_NUDGE_TS=$(($(date +%s) - 60))
+        LAST_NUDGE_COUNT=1
+
+        should_throttle_nudge 1
+        rc2=$?
+
+        echo "rc1=$rc1 rc2=$rc2"
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "rc1=1 rc2=1"
+}
+
 @test "T-ACTIVE-002: send_wakeup_with_escape skips active pane with attached client for copilot" {
     run bash -c '
         MOCK_PANE_CLI="copilot"
@@ -702,7 +1051,43 @@ YAML
     '
     [ "$status" -eq 0 ]
     echo "$output" | grep -q "active with attached client"
+    echo "$output" | grep -q "CONTEXT-RESET-SKIPPED.*delivery only, not fresh context reset"
     ! grep -q "send-keys" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-004b: active-attached ashigaru task_assigned skips reset but allows clean-idle plain nudge" {
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        MOCK_CAPTURE_PANE="›"
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="ashigaru1"
+        CLI_TYPE="codex"
+        INBOX="'"$TEST_INBOX_DIR"'/ashigaru1.yaml"
+        LOCKFILE="${INBOX}.lock"
+        cat > "$INBOX" << "YAML"
+messages:
+  - id: msg_task
+    from: karo
+    timestamp: "2026-06-29T19:04:52+09:00"
+    type: task_assigned
+    content: work
+    read: false
+YAML
+        FIRST_UNREAD_SEEN=$(($(date +%s) - 90))
+        process_unread event
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "CONTEXT-RESET-SKIPPED.*delivery only, not fresh context reset"
+    echo "$output" | grep -q "clean-idle stale unread"
+    grep -q "send-keys .*test:0.0 inbox1" "$MOCK_LOG"
+    grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-u" "$MOCK_LOG"
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-c" "$MOCK_LOG"
+    ! grep -q "send-keys.*/new" "$MOCK_LOG"
+    ! grep -q "send-keys.*/clear" "$MOCK_LOG"
 }
 
 # --- T-CODEX-005: claude /clear passes through as-is ---

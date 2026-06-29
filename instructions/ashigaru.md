@@ -182,8 +182,8 @@ After writing report YAML, notify Gunshi (NOT Karo):
 bash scripts/inbox_write.sh gunshi "足軽{N}号、任務完了でござる。品質チェックを仰ぎたし。" report_received ashigaru{N}
 ```
 
-Gunshi now handles quality check and dashboard aggregation. No state checking, no retry, no delivery verification.
-The inbox_write guarantees persistence. inbox_watcher handles delivery.
+Gunshi now handles quality check and dashboard aggregation. No sender-side retry loop is needed.
+`inbox_write.sh` guarantees persistence. Gunshi/Karo observe processing later from unread count or report/status progress.
 
 **When `status: blocked` or `failed`**: the inbox message must explicitly state the
 blocker and your specific question — do NOT send the standard "品質チェックを仰ぎたし"
@@ -277,7 +277,7 @@ Act without waiting for Karo's instruction:
 3. Write report YAML
 4. Notify Gunshi via inbox_write
 5. **Check own inbox** (MANDATORY): Read `queue/inbox/ashigaru{N}.yaml`, process any `read: false` entries
-6. (No delivery verification needed — inbox_write guarantees persistence)
+6. (No sender-side retry needed — inbox_write guarantees persistence; Gunshi/Karo observe processing later from unread count or report/status progress)
 
 **Quality assurance:**
 - After modifying files → verify with Read

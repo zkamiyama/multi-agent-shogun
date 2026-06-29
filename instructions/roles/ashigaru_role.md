@@ -75,7 +75,7 @@ Act without waiting for Karo's instruction:
 3. Write report YAML
 4. Notify Gunshi via inbox_write (NOT Karo directly)
 5. **Check own inbox** (MANDATORY): Read `queue/inbox/ashigaru{N}.yaml`, process any `read: false` entries. This catches redo instructions that arrived during task execution. Skip = stuck idle until the next nudge escalation or task reassignment.
-6. (No delivery verification needed — inbox_write guarantees persistence)
+6. (No sender-side retry needed — inbox_write guarantees persistence; Gunshi/Karo observe processing later from unread count or report/status progress)
 
 **Quality assurance:**
 - After modifying files → verify with Read

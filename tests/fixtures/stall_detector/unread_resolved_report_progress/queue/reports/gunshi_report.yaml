@@ -1,0 +1,6 @@
+worker_id: gunshi
+task_id: fixture_gunshi_progress
+timestamp: "2026-05-15T00:10:00"
+status: done
+result:
+  summary: "progress after unread message"

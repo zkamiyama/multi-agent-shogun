@@ -1,0 +1,7 @@
+messages:
+  - id: msg_unread_a1_while_blocked
+    timestamp: "2026-05-15T00:45:00"
+    type: task_assigned
+    from: karo
+    content: "fixture unread while blocked"
+    read: false

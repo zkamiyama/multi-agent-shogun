@@ -73,6 +73,18 @@ PYEOF
 # count_alerts — alert 総数
 count_alerts() { alerts_lines | grep -c . || true; }
 
+alert_evidence() {
+    python3 - "$STALL_ROOT/queue/stall_alerts.yaml" <<'PYEOF'
+import sys, yaml
+try:
+    doc = yaml.safe_load(open(sys.argv[1])) or {}
+except FileNotFoundError:
+    doc = {}
+for a in (doc.get("alerts") or []):
+    print(a.get("evidence") or "")
+PYEOF
+}
+
 # ═══════════════════════════════════════════════════════════════
 # kind: blocked_report_unresolved
 # ═══════════════════════════════════════════════════════════════
@@ -211,6 +223,65 @@ count_alerts() { alerts_lines | grep -c . || true; }
 @test "false-positive: task with blocked_by (intentional dependency hold) never alerts" {
     load_fixture fp_blocked_by
     scan "2026-05-15T12:00:00" '{"ashigaru1":"idle"}'
+    [ "$status" -eq 0 ]
+    [ "$(count_alerts)" -eq 0 ]
+}
+
+# ═══════════════════════════════════════════════════════════════
+# kind: agent_unread_unprocessed
+# ═══════════════════════════════════════════════════════════════
+
+@test "agent_unread_unprocessed: ashigaru unread idle past threshold emits alert with dedupe metadata" {
+    load_fixture unread_ashigaru_idle
+    scan "2026-05-15T00:20:00" '{"ashigaru1":"idle"}'
+    [ "$status" -eq 0 ]
+    run alerts_lines
+    [ "${#lines[@]}" -eq 1 ]
+    [[ "${lines[0]}" == "ashigaru1 agent_unread_unprocessed P2 open"* ]]
+    run alert_evidence
+    [[ "${lines[0]}" == *"pane=idle"* ]]
+    [[ "${lines[0]}" == *"retry_count=2"* ]]
+    [[ "${lines[0]}" == *"last_notified_at=2026-05-15T00:05:00"* ]]
+}
+
+@test "agent_unread_unprocessed: karo unread busy is included and reported as busy evidence" {
+    load_fixture unread_karo_busy
+    scan "2026-05-15T00:50:00" '{"karo":"busy"}'
+    [ "$status" -eq 0 ]
+    run alerts_lines
+    [ "${#lines[@]}" -eq 1 ]
+    [[ "${lines[0]}" == "karo agent_unread_unprocessed P3 open"* ]]
+    run alert_evidence
+    [[ "${lines[0]}" == *"pane=busy"* ]]
+    [[ "${lines[0]}" == *"threshold=45m"* ]]
+}
+
+@test "agent_unread_unprocessed: gunshi unread is suppressed when report progressed after message timestamp" {
+    load_fixture unread_resolved_report_progress
+    scan "2026-05-15T00:30:00" '{"gunshi":"idle"}'
+    [ "$status" -eq 0 ]
+    [ "$(count_alerts)" -eq 0 ]
+}
+
+@test "agent_unread_unprocessed: unread is suppressed when task timestamp progressed after message timestamp" {
+    load_fixture unread_resolved_task_progress
+    scan "2026-05-15T00:30:00" '{"ashigaru1":"idle"}'
+    [ "$status" -eq 0 ]
+    [ "$(count_alerts)" -eq 0 ]
+}
+
+@test "agent_unread_unprocessed: blocked P0/P1 is not hidden by lower-severity unread" {
+    load_fixture blocked_with_unread
+    scan "2026-05-15T01:05:00" '{"ashigaru1":"idle"}'
+    [ "$status" -eq 0 ]
+    run alerts_lines
+    [ "${#lines[@]}" -eq 1 ]
+    [ "${lines[0]}" = "ashigaru1 blocked_report_unresolved P0 open 1" ]
+}
+
+@test "agent_unread_unprocessed: unread is suppressed when task completed_at progressed after message timestamp" {
+    load_fixture unread_resolved_task_completed_at
+    scan "2026-05-15T00:30:00" '{"ashigaru1":"idle"}'
     [ "$status" -eq 0 ]
     [ "$(count_alerts)" -eq 0 ]
 }
