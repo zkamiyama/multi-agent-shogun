@@ -8,6 +8,8 @@
 #   T-WS-002: watcher already running for correct pane → no duplicate started
 #   T-WS-003: lockfile path follows pattern /tmp/shogun_watcher_start_{agent}.lock
 #   T-WS-004: no existing watcher → watcher is started
+#   T-WS-005: stale watcher for same pane does not start duplicate
+#   T-WS-006: inbox_watcher has per agent+pane lifetime lock
 
 PROJECT_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 SUPERVISOR_SCRIPT="$PROJECT_ROOT/scripts/watcher_supervisor.sh"
@@ -189,4 +191,36 @@ source_supervisor_functions() {
     # A launched entry should exist in the log
     [ -f "$launched_log" ]
     grep -q "launched:" "$launched_log"
+}
+
+# ---------------------------------------------------------------------------
+# T-WS-005: stale watcher for same pane → no duplicate started
+# ---------------------------------------------------------------------------
+@test "T-WS-005: stale watcher for same pane does not start duplicate" {
+    local launched_log="$TEST_TMP/watcher_launched.log"
+
+    (
+        pane_exists() { return 0; }
+        ensure_inbox_file() { touch "$TEST_TMP/queue/inbox/${1}.yaml"; }
+
+        nohup() { echo "launched: $*" >> "$launched_log"; }
+
+        eval "$(
+            awk '/^start_watcher_if_missing\(\)/{p=1} p{print} /^\}$/{if(p){p=0}}' \
+                "$SUPERVISOR_SCRIPT"
+        )"
+        has_current_watcher() { return 0; }
+
+        start_watcher_if_missing "ashigaru1" "multiagent:agents.1" "/tmp/test_ws_005.log"
+        [ ! -f "$launched_log" ]
+    )
+}
+
+# ---------------------------------------------------------------------------
+# T-WS-006: inbox_watcher owns a per agent+pane lifetime lock
+# ---------------------------------------------------------------------------
+@test "T-WS-006: inbox_watcher has per-agent-pane lifetime lock" {
+    grep -q 'WATCHER_INSTANCE_LOCK="/tmp/shogun_inbox_watcher_' "$PROJECT_ROOT/scripts/inbox_watcher.sh"
+    grep -q 'flock -n 201' "$PROJECT_ROOT/scripts/inbox_watcher.sh"
+    grep -q 'already running' "$PROJECT_ROOT/scripts/inbox_watcher.sh"
 }

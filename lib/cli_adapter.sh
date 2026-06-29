@@ -336,12 +336,6 @@ build_cli_command() {
             ;;
     esac
 
-    local startup_prompt_arg
-    startup_prompt_arg=$(get_startup_prompt_arg "$agent_id")
-    if [[ -n "$startup_prompt_arg" ]]; then
-        cmd="$cmd $startup_prompt_arg"
-    fi
-
     echo "${prefix}${cmd}"
 }
 
@@ -620,32 +614,11 @@ get_startup_prompt() {
 }
 
 # get_startup_prompt_arg(agent_id)
-# 起動コマンドに埋め込むCLI-specificの初期プロンプト引数を返す
-# Codex: positional prompt
-# その他: 空
+# 起動コマンドに埋め込むCLI-specificの初期プロンプト引数を返す。
+# Codex の Session Start は token 節約のため CLI 起動時には送らず、
+# inbox_watcher が /new や task_assigned recovery 時にだけ送る。
 get_startup_prompt_arg() {
-    local agent_id="$1"
-    local cli_type
-    cli_type=$(get_cli_type "$agent_id")
-    local startup_prompt
-    startup_prompt=$(get_startup_prompt "$agent_id")
-
-    if [[ -z "$startup_prompt" ]]; then
-        echo ""
-        return 0
-    fi
-
-    local quoted_prompt
-    quoted_prompt=$(_cli_adapter_shell_quote "$startup_prompt")
-
-    case "$cli_type" in
-        codex)
-            echo "$quoted_prompt"
-            ;;
-        *)
-            echo ""
-            ;;
-    esac
+    echo ""
 }
 
 # =============================================================================

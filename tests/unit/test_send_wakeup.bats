@@ -28,8 +28,8 @@
 #   T-CODEX-002: send_cli_command — codex /model → skip
 #   T-OPENCODE-001: send_cli_command — opencode /clear → /new conversion
 #   T-OPENCODE-002: send_cli_command — opencode /model → skip
-#   T-CODEX-003: C-u sent when unread=0 and agent is idle
-#   T-CODEX-004: C-u NOT sent when agent is busy
+#   T-CODEX-003: no-unread cleanup never sends C-u
+#   T-CODEX-004: send_wakeup codex is non-destructive
 #   T-CODEX-005: send_cli_command — claude /clear passes through as-is
 #   T-CODEX-006: inbox_watcher.sh has agent_is_busy and Codex/Copilot handlers
 #   T-CODEX-007: pane @agent_cli=codex overrides stale CLI_TYPE (Phase2 C-c抑止)
@@ -555,54 +555,53 @@ MOCK
     echo "$output" | grep -q "Antigravity model changes are restart-only"
 }
 
-# --- T-CODEX-003: C-u sent when unread=0 and agent is idle ---
+# --- T-CODEX-003: no-unread cleanup is non-destructive ---
 
-@test "T-CODEX-003: C-u cleanup sent when no unread and agent is idle" {
+@test "T-CODEX-003: process_unread no-unread cleanup never sends C-u" {
     run bash -c '
-        MOCK_CAPTURE_PANE="› Summarize recent commits
-  ? for shortcuts                100% context left"
         source "'"$TEST_HARNESS"'"
-        # Simulate process_unread no-unread path
+        CLI_TYPE="codex"
+        cat > "$INBOX" <<YAML
+messages: []
+YAML
         FIRST_UNREAD_SEEN=12345
-        normal_count=0
-        if [ "$normal_count" -gt 0 ] 2>/dev/null; then
-            echo "SHOULD_NOT_REACH"
-        else
-            FIRST_UNREAD_SEEN=0
-            if ! agent_is_busy; then
-                timeout 2 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null
-                echo "C_U_SENT"
-            fi
-        fi
+        process_unread event
+        echo "FIRST_UNREAD_SEEN=$FIRST_UNREAD_SEEN"
     '
     [ "$status" -eq 0 ]
-    echo "$output" | grep -q "C_U_SENT"
-    grep -q "send-keys.*C-u" "$MOCK_LOG"
+    echo "$output" | grep -q "FIRST_UNREAD_SEEN=0"
+    ! grep -q "send-keys.*C-u" "$MOCK_LOG"
 }
 
-# --- T-CODEX-004: C-u NOT sent when agent is busy ---
+# --- T-CODEX-004: send_wakeup codex is non-destructive ---
 
-@test "T-CODEX-004: C-u cleanup NOT sent when agent is busy" {
-    rm -f "$TEST_TMPDIR/shogun_idle_test_agent"
+@test "T-CODEX-004: send_wakeup codex sends only inboxN and Enter, no C-u/x/Escape" {
     run bash -c '
+        MOCK_PANE_CLI="codex"
         source "'"$TEST_HARNESS"'"
-        FIRST_UNREAD_SEEN=12345
-        normal_count=0
-        if [ "$normal_count" -gt 0 ] 2>/dev/null; then
-            echo "SHOULD_NOT_REACH"
-        else
-            FIRST_UNREAD_SEEN=0
-            if ! agent_is_busy; then
-                timeout 2 tmux send-keys -t "$PANE_TARGET" C-u 2>/dev/null
-                echo "C_U_SENT"
-            else
-                echo "C_U_SKIPPED"
-            fi
-        fi
+        CLI_TYPE="codex"
+        send_wakeup 3
     '
     [ "$status" -eq 0 ]
-    echo "$output" | grep -q "C_U_SKIPPED"
-    ! grep -q "C-u" "$MOCK_LOG"
+    grep -q "send-keys .*test:0.0 inbox3" "$MOCK_LOG"
+    grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-u" "$MOCK_LOG"
+    ! grep -q "send-keys.* x" "$MOCK_LOG"
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
+}
+
+@test "T-CODEX-004b: send_wakeup codex skips active pane with attached client" {
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS="client0"
+        source "'"$TEST_HARNESS"'"
+        CLI_TYPE="codex"
+        send_wakeup 2
+    '
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "active with attached client"
+    ! grep -q "send-keys" "$MOCK_LOG"
 }
 
 # --- T-CODEX-005: claude /clear passes through as-is ---
@@ -633,8 +632,8 @@ MOCK
     # Codex /model skip exists
     grep -q 'not supported on codex' "$WATCHER_SCRIPT"
 
-    # C-u cleanup exists
-    grep -q 'C-u' "$WATCHER_SCRIPT"
+    # Normal wake-up documents that C-u is forbidden in nudge paths.
+    grep -q 'C-u cleanup is intentionally forbidden in normal wake-up paths' "$WATCHER_SCRIPT"
 
     # Copilot handler exists
     grep -q 'copilot --yolo' "$WATCHER_SCRIPT"
@@ -810,7 +809,7 @@ PY
 
     ! grep -q "send-keys.*Escape" "$MOCK_LOG"
     ! grep -q "send-keys.*C-c" "$MOCK_LOG"
-    grep -q "send-keys.*C-u" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-u" "$MOCK_LOG"
     grep -q "send-keys.*inbox3" "$MOCK_LOG"
 }
 
@@ -970,9 +969,9 @@ YAML
     [ "$status" -ne 0 ]
 }
 
-# --- T-SHOGUN-003: shogun + active pane + client attached → send-keys (post PR#75) ---
+# --- T-SHOGUN-003: shogun + active pane + client attached → skip nudge ---
 
-@test "T-SHOGUN-003: send_wakeup shogun + active + attached uses send-keys" {
+@test "T-SHOGUN-003: send_wakeup shogun + active + attached skips nudge" {
     run bash -c '
         MOCK_PANE_ACTIVE="1"
         MOCK_LIST_CLIENTS="/dev/pts/1: mock_session [200x50 xterm-256color]"
@@ -982,8 +981,8 @@ YAML
     '
     [ "$status" -eq 0 ]
 
-    # Post PR#75: shogun uses send-keys like other agents (display-message path removed)
-    grep -q "send-keys.*inbox2" "$MOCK_LOG"
+    echo "$output" | grep -q "active with attached client"
+    ! grep -q "send-keys" "$MOCK_LOG"
 }
 
 # --- T-SHOGUN-004: shogun + active pane + no client → send-keys fallthrough ---
