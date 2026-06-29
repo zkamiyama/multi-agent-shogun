@@ -1,0 +1,7 @@
+messages:
+  - id: msg_unread_karo
+    timestamp: "2026-05-15T00:00:00"
+    type: task_assigned
+    from: shogun
+    content: "fixture unread command"
+    read: false

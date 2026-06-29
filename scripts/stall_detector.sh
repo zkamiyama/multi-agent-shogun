@@ -224,6 +224,8 @@ ASSIGNED_LONG_MIN = 90        # build/test/full_simulate/simulate/e2e
 ASSIGNED_GUNSHI_MIN = 60      # gunshi L5/L6 analysis
 ASSIGNED_P1_MIN = 120         # assigned_no_progress: P1 escalation
 IDLE_ACTIVE_MIN = 30          # idle_with_active_task
+UNREAD_IDLE_MIN = 15          # agent_unread_unprocessed: idle/unknown/absent
+UNREAD_BUSY_MIN = 45          # agent_unread_unprocessed: busy pane は長めに見る
 KARO_SECONDARY_MIN = 30       # karo_unresponsive_to_stall_alert
 REPEAT_COOLDOWN_MIN = 30      # 再通知 cooldown (軍師: blocked 30m repeat cooldown)
 BUSY_CEILING_MIN = 180        # pane busy でも 3h 超なら informational に downgrade
@@ -406,6 +408,77 @@ def load_report_latest(agent):
     }
 
 
+def iter_report_entries_from_text(text):
+    """report YAML text から timestamp/status/task_id を持つ entry 群を抽出する。"""
+    entries = []
+    try:
+        docs = list(yaml.safe_load_all(text))
+        for d in docs:
+            if not isinstance(d, dict):
+                continue
+            r = d.get("report", d)
+            if isinstance(r, list):
+                entries.extend([x for x in r if isinstance(x, dict)])
+            elif isinstance(r, dict):
+                entries.append(r)
+            if r is not d and ("timestamp" in d or "status" in d):
+                entries.append(d)
+    except Exception:
+        status = None
+        ts = None
+        task_id = None
+        for line in text.splitlines():
+            m = re.match(r"^ {0,2}status:\s*(.+?)\s*$", line)
+            if m:
+                status = m.group(1).strip().strip('"').strip("'")
+            m = re.match(r"^ {0,2}timestamp:\s*(.+?)\s*$", line)
+            if m:
+                ts = m.group(1).strip().strip('"').strip("'")
+            m = re.match(r"^ {0,2}task_id:\s*(.+?)\s*$", line)
+            if m:
+                task_id = m.group(1).strip().strip('"').strip("'")
+        if status is not None or ts is not None:
+            entries.append({"status": status or "", "timestamp": ts, "task_id": task_id})
+    return [e for e in entries if isinstance(e, dict)]
+
+
+def latest_report_progress(agent):
+    """agent prefix の report 群から最新 timestamp を返す。
+    Karo/Gunshi は `<agent>_report.yaml` 以外の per-task report も使うため、
+    queue/reports/<agent>_*.yaml まで見る。"""
+    reports_dir = os.path.join(ROOT, "queue", "reports")
+    try:
+        names = os.listdir(reports_dir)
+    except FileNotFoundError:
+        return None
+    latest = None
+    latest_entry = None
+    for name in names:
+        if not name.endswith((".yaml", ".yml")):
+            continue
+        if name != f"{agent}_report.yaml" and not name.startswith(f"{agent}_"):
+            continue
+        path = os.path.join(reports_dir, name)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except Exception:
+            continue
+        for entry in iter_report_entries_from_text(text):
+            ts = parse_ts(entry.get("timestamp"))
+            if ts is not None and (latest is None or ts > latest):
+                latest = ts
+                latest_entry = {
+                    "file": name,
+                    "status": str(entry.get("status") or ""),
+                    "task_id": entry.get("task_id"),
+                }
+    if latest is None:
+        return None
+    latest_entry["timestamp"] = latest
+    return latest_entry
+
+
 def find_report_for_task(agent, task_id):
     """指定 task_id に対応する report entry (latest match) を全 entry から探す。
     review/analysis task は task YAML status が assigned のまま完了 report を出すゆえ、
@@ -462,6 +535,17 @@ def inbox_unread_count(agent):
     if not isinstance(msgs, list):
         return 0
     return sum(1 for m in msgs if isinstance(m, dict) and not m.get("read", False))
+
+
+def inbox_unread_messages(agent):
+    path = os.path.join(ROOT, "queue", "inbox", f"{agent}.yaml")
+    data = load_yaml_safe(path)
+    if not isinstance(data, dict):
+        return []
+    msgs = data.get("messages") or []
+    if not isinstance(msgs, list):
+        return []
+    return [m for m in msgs if isinstance(m, dict) and not m.get("read", False)]
 
 
 def status_norm(s):
@@ -676,6 +760,131 @@ def add_candidate(agent, task_id, kind, source_ts, severity, evidence):
     }
 
 
+def latest_task_progress(agent):
+    task = load_task(agent)
+    if not isinstance(task, dict):
+        return None
+    ts_candidates = []
+    assigned_ts = parse_ts(task.get("timestamp"))
+    if assigned_ts is not None:
+        ts_candidates.append(("timestamp", assigned_ts))
+    completed_ts = parse_ts(task.get("completed_at"))
+    if completed_ts is not None:
+        ts_candidates.append(("completed_at", completed_ts))
+    if not ts_candidates:
+        return None
+    ts_field, ts = max(ts_candidates, key=lambda item: item[1])
+    if ts is None:
+        return None
+    return {
+        "timestamp": ts,
+        "timestamp_field": ts_field,
+        "task_id": task.get("task_id") or "unknown",
+        "status": status_norm(task.get("status")),
+    }
+
+
+def latest_status_progress(agent):
+    """軽量な status/progress file の mtime を progress signal として使う。"""
+    candidates = [
+        os.path.join(ROOT, "queue", "metrics", f"{agent}_selfwatch.yaml"),
+        os.path.join(ROOT, "queue", "status", f"{agent}.yaml"),
+    ]
+    latest = None
+    latest_path = None
+    for path in candidates:
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            continue
+        dt = datetime.datetime.fromtimestamp(mtime, LOCAL_TZ)
+        if latest is None or dt > latest:
+            latest = dt
+            latest_path = os.path.relpath(path, ROOT)
+    if latest is None:
+        return None
+    return {"timestamp": latest, "path": latest_path}
+
+
+def progress_after_unread_message(agent, msg_ts):
+    progress = []
+    task_progress = latest_task_progress(agent)
+    if task_progress is not None:
+        progress.append(("task", task_progress))
+    report_progress = latest_report_progress(agent)
+    if report_progress is not None:
+        progress.append(("report", report_progress))
+    status_progress = latest_status_progress(agent)
+    if status_progress is not None:
+        progress.append(("status", status_progress))
+
+    latest_kind = None
+    latest_item = None
+    for kind, item in progress:
+        ts = item.get("timestamp")
+        if ts is None:
+            continue
+        if latest_item is None or ts > latest_item.get("timestamp"):
+            latest_kind = kind
+            latest_item = item
+    progressed = (
+        msg_ts is not None
+        and latest_item is not None
+        and latest_item.get("timestamp") is not None
+        and latest_item["timestamp"] > msg_ts
+    )
+    return progressed, latest_kind, latest_item
+
+
+for agent in AGENTS:
+    unread_msgs = inbox_unread_messages(agent)
+    if not unread_msgs:
+        continue
+    oldest = min(unread_msgs, key=lambda m: parse_ts(m.get("timestamp")) or MIN_DT)
+    msg_ts = parse_ts(oldest.get("timestamp"))
+    if msg_ts is None:
+        continue
+    progressed, progress_kind, progress_item = progress_after_unread_message(agent, msg_ts)
+    if progressed:
+        continue
+    age_min = minutes_since(msg_ts)
+    if age_min is None:
+        continue
+    pstate = PANE_STATES.get(agent, "unknown")
+    threshold = UNREAD_BUSY_MIN if pstate == "busy" else UNREAD_IDLE_MIN
+    if age_min < threshold:
+        continue
+    severity = "P3" if pstate == "busy" else "P2"
+    if agent == "karo" and pstate != "busy":
+        severity = "P1"
+    task_progress = latest_task_progress(agent)
+    task_id = (task_progress or {}).get("task_id") or oldest.get("dedup_key") or oldest.get("id") or "unread"
+    latest_desc = "none"
+    if progress_item is not None:
+        latest_desc = f"{progress_kind}@{iso(progress_item['timestamp'])}"
+        if progress_kind == "report":
+            latest_desc += f" file={progress_item.get('file')} status={progress_item.get('status')}"
+        elif progress_kind == "task":
+            latest_desc += (f" task={progress_item.get('task_id')} "
+                            f"status={progress_item.get('status')} "
+                            f"field={progress_item.get('timestamp_field')}")
+        elif progress_kind == "status":
+            latest_desc += f" path={progress_item.get('path')}"
+    dedupe_meta = []
+    for field in ("dedup_key", "retry_count", "first_notified_at", "last_notified_at"):
+        if field in oldest:
+            dedupe_meta.append(f"{field}={oldest.get(field)}")
+    meta = ", ".join(dedupe_meta) if dedupe_meta else "none"
+    ev = (f"inbox unread oldest message '{oldest.get('id', 'unknown')}' "
+          f"type={oldest.get('type', 'unknown')} from={oldest.get('from', 'unknown')} "
+          f"age={int(age_min)}m threshold={threshold}m unread_count={len(unread_msgs)}; "
+          f"pane={pstate} idle_streak={idle_streak(agent)}; "
+          f"no task/report/status progress after message timestamp {iso(msg_ts)} "
+          f"(latest_progress={latest_desc}); dedupe_meta: {meta}。")
+    add_candidate(agent, task_id, "agent_unread_unprocessed",
+                  iso(msg_ts), severity, ev)
+
+
 for agent in ASHIGARU + ["gunshi"]:
     task = load_task(agent)
     rep = load_report_latest(agent)
@@ -845,17 +1054,22 @@ for agent in ASHIGARU + ["gunshi"]:
 
 
 # false_positive_controls #5: Karo には agent ごとに 1 actionable alert を出す。
-# 同一 agent に複数 kind が立った場合 (例: blocked report を抱えたまま idle)、
-# 優先度 blocked > assigned_no_progress > idle_with_active_task で 1 件に絞る。
+# 同一 agent に複数 kind が立った場合 (例: blocked report を抱えたまま unread)、
+# severity を最優先し、同 severity なら kind priority で 1 件に絞る。
+CANDIDATE_SEV_RANK = {"P3": 0, "P2": 1, "P1": 2, "P0": 3}
 KIND_PRIORITY = {
-    "blocked_report_unresolved": 3,
+    "blocked_report_unresolved": 4,
+    "agent_unread_unprocessed": 3,
     "assigned_no_progress": 2,
     "idle_with_active_task": 1,
 }
 _best_by_agent = {}
 for _key, _cand in current.items():
     _agent = _cand["agent"]
-    _prio = KIND_PRIORITY.get(_cand["kind"], 0)
+    _prio = (
+        CANDIDATE_SEV_RANK.get(_cand["severity"], 0),
+        KIND_PRIORITY.get(_cand["kind"], 0),
+    )
     if _agent not in _best_by_agent or _prio > _best_by_agent[_agent][0]:
         _best_by_agent[_agent] = (_prio, _key)
 _keep_keys = {k for _, k in _best_by_agent.values()}
@@ -884,8 +1098,8 @@ def should_notify(alert, new_severity):
     return False
 
 
-PRIMARY_KINDS = ("blocked_report_unresolved", "assigned_no_progress",
-                 "idle_with_active_task")
+PRIMARY_KINDS = ("agent_unread_unprocessed", "blocked_report_unresolved",
+                 "assigned_no_progress", "idle_with_active_task")
 
 for key, cand in current.items():
     existing = alerts_by_key.get(key)

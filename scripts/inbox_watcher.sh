@@ -146,8 +146,9 @@ ESCALATE_COOLDOWN=${ESCALATE_COOLDOWN:-300}
 LAST_NUDGE_TS=${LAST_NUDGE_TS:-0}
 LAST_NUDGE_COUNT=${LAST_NUDGE_COUNT:-""}
 NUDGE_COOLDOWN_SEC=${NUDGE_COOLDOWN_SEC:-60}
-# Codex は「思考中に入力が入ると即拾う」挙動があり、思考がループすることがあるため長めにする。
-NUDGE_COOLDOWN_SEC_CODEX=${NUDGE_COOLDOWN_SEC_CODEX:-300}
+# Codex retry must still be bounded; 300s made Karo/Gunshi unread recovery too slow.
+NUDGE_COOLDOWN_SEC_CODEX=${NUDGE_COOLDOWN_SEC_CODEX:-60}
+PLAIN_NUDGE_ACTIVE_ATTACHED_STALE_SEC=${PLAIN_NUDGE_ACTIVE_ATTACHED_STALE_SEC:-10}
 
 reset_nudge_throttle() {
     LAST_NUDGE_TS=0
@@ -183,6 +184,9 @@ NEW_CONTEXT_SENT=${NEW_CONTEXT_SENT:-0}
 # Tracks whether we sent a startup prompt (Codex) that includes full recovery.
 # When set, skip follow-up nudge for this cycle (agent already knows what to do).
 STARTUP_PROMPT_SENT=${STARTUP_PROMPT_SENT:-0}
+# Stable unread batch key that already received destructive command-layer
+# recovery. Prevents repeated /new or startup prompt loops for unchanged unread.
+DESTRUCTIVE_RECOVERY_BATCH_KEY_SENT=${DESTRUCTIVE_RECOVERY_BATCH_KEY_SENT:-""}
 
 # ─── Phase feature flags (cmd_107 Phase 1/2/3) ───
 # ASW_PHASE:
@@ -463,11 +467,11 @@ except Exception:
         # 2026-05-18 殿 mandate Option A 拡張 (W11/W12a/W12b/W13 a1-a5 task 着手後 stop 連発対策)
         local worktree_dirty=0
         local worktree_path
-        worktree_path=$(TASK_AGENT="$AGENT_ID" "$SCRIPT_DIR/.venv/bin/python3" -c "
+        worktree_path=$(TASK_AGENT="$AGENT_ID" SCRIPT_DIR="$SCRIPT_DIR" "$SCRIPT_DIR/.venv/bin/python3" -c "
 import yaml, os, sys
 try:
     agent = os.environ['TASK_AGENT']
-    task_path = f'/home/dev/tools/multi-agent-shogun/queue/tasks/{agent}.yaml'
+    task_path = os.path.join(os.environ['SCRIPT_DIR'], 'queue', 'tasks', f'{agent}.yaml')
     with open(task_path) as f:
         data = yaml.safe_load(f) or {}
     task = data.get('task', {}) or {}
@@ -579,10 +583,16 @@ try:
 
     normal_count = len(unread) - len(specials)
     normal_msgs = [m for m in unread if m.get("type") not in special_types]
+    batch_parts = []
+    for m in normal_msgs:
+        key = m.get("dedup_key") or m.get("id") or m.get("timestamp") or m.get("content") or ""
+        batch_parts.append(str(key))
+    batch_key = "|".join(sorted(batch_parts))
     has_task_assigned = any(m.get("type") == "task_assigned" for m in normal_msgs)
     payload = {
         "count": normal_count,
         "has_task_assigned": has_task_assigned,
+        "batch_key": batch_key,
         "specials": [{"type": m.get("type", ""), "content": m.get("content", "")} for m in specials],
     }
     print(json.dumps(payload))
@@ -610,7 +620,7 @@ send_cli_command() {
         return 1
     fi
 
-    if skip_if_active_pane_has_client "CLI command injection ($cmd, cli=$effective_cli)"; then
+    if skip_destructive_if_active_pane_has_client "CLI command injection ($cmd, cli=$effective_cli)"; then
         return 0
     fi
 
@@ -822,7 +832,10 @@ send_context_reset() {
         return 0
     fi
 
-    if skip_if_active_pane_has_client "context reset (cli=$effective_cli)"; then
+    if skip_destructive_if_active_pane_has_client "context reset (cli=$effective_cli)"; then
+        if [[ "$AGENT_ID" =~ ^ashigaru[1-7]$ ]]; then
+            echo "[$(date)] [CONTEXT-RESET-SKIPPED] $AGENT_ID active-attached: destructive reset not sent; any later plain nudge is delivery only, not fresh context reset" >&2
+        fi
         return 0
     fi
 
@@ -975,6 +988,120 @@ skip_if_active_pane_has_client() {
     return 1
 }
 
+agent_can_receive_clean_idle_plain_nudge() {
+    [[ "$AGENT_ID" == "karo" || "$AGENT_ID" == "gunshi" || "$AGENT_ID" =~ ^ashigaru[1-7]$ ]]
+}
+
+command_layer_agent_can_receive_destructive_recovery() {
+    [[ "$AGENT_ID" == "karo" || "$AGENT_ID" == "gunshi" ]]
+}
+
+destructive_recovery_already_sent_for_batch() {
+    local batch_key="${1:-}"
+    [ -n "$batch_key" ] || return 1
+    [ "${DESTRUCTIVE_RECOVERY_BATCH_KEY_SENT:-}" = "$batch_key" ]
+}
+
+mark_destructive_recovery_sent_for_batch() {
+    local batch_key="${1:-}"
+    [ -n "$batch_key" ] || return 0
+    DESTRUCTIVE_RECOVERY_BATCH_KEY_SENT="$batch_key"
+}
+
+unread_is_stale_for_plain_nudge() {
+    local now
+    now=$(date +%s)
+    local threshold="${PLAIN_NUDGE_ACTIVE_ATTACHED_STALE_SEC:-10}"
+
+    [ "${FIRST_UNREAD_SEEN:-0}" -gt 0 ] 2>/dev/null || return 1
+    [ "$((now - FIRST_UNREAD_SEEN))" -ge "$threshold" ] 2>/dev/null
+}
+
+pane_capture_has_busy_markers() {
+    local capture_text="$1"
+    echo "$capture_text" | grep -qiE '(esc[[:space:]]+to|background terminal running|Compacting conversation|Working|Thinking|Planning|Sending|task is in progress|thought for|思考中|考え中|計画中|送信中|処理中|実行中)'
+}
+
+pane_capture_is_clean_idle_prompt() {
+    local capture_text="$1"
+    local effective_cli="${2:-}"
+    local visible last_line
+    visible=$(printf '%s\n' "$capture_text" | grep -v '^[[:space:]]*$' || true)
+    if [ -z "$visible" ]; then
+        # Zellij dump-screen can return an empty capture for a live Codex
+        # --no-alt-screen pane. agent_is_busy() already established idle.
+        [[ "$effective_cli" == "codex" ]] && return 0
+        return 1
+    fi
+
+    if pane_capture_has_busy_markers "$visible"; then
+        return 1
+    fi
+
+    last_line=$(printf '%s\n' "$visible" | tail -1)
+
+    # Claude/Codex clean prompt: no draft text after the prompt marker.
+    if printf '%s\n' "$last_line" | grep -qE '^[[:space:]]*(❯|›)[[:space:]]*$'; then
+        return 0
+    fi
+
+    # Codex commonly renders the shortcut/status line below an empty prompt.
+    if printf '%s\n' "$visible" | grep -qE '(\? for shortcuts|context left)' \
+        && ! printf '%s\n' "$visible" | grep -qE '^[[:space:]]*(❯|›)[[:space:]]+[^[:space:]]'; then
+        return 0
+    fi
+
+    return 1
+}
+
+allow_plain_nudge_active_attached() {
+    local effective_cli="${1:-}"
+    local pane_content
+
+    # Shogun is Lord-controlled: active+attached is a hard no-key invariant.
+    [ "$AGENT_ID" != "shogun" ] || return 1
+
+    agent_can_receive_clean_idle_plain_nudge || return 1
+    unread_is_stale_for_plain_nudge || return 1
+
+    if agent_is_busy; then
+        echo "[$(date)] [SKIP] $AGENT_ID active-attached plain nudge exception denied: agent busy (cli=$effective_cli)" >&2
+        return 1
+    fi
+
+    pane_content=$(mux_capture "$PANE_TARGET" --tail 8 2>/dev/null || true)
+    if ! pane_capture_is_clean_idle_prompt "$pane_content" "$effective_cli"; then
+        echo "[$(date)] [SKIP] $AGENT_ID active-attached plain nudge exception denied: prompt not clean idle (cli=$effective_cli)" >&2
+        return 1
+    fi
+
+    return 0
+}
+
+should_skip_plain_nudge_for_active_attached() {
+    local effective_cli="${1:-}"
+    if ! active_pane_has_attached_client; then
+        return 1
+    fi
+
+    if allow_plain_nudge_active_attached "$effective_cli"; then
+        echo "[$(date)] [ALLOW] $AGENT_ID active-attached clean-idle stale unread: sending plain nudge only (cli=$effective_cli)" >&2
+        return 1
+    fi
+
+    echo "[$(date)] [SKIP] $AGENT_ID pane is active with attached client; deferring non-destructive nudge (cli=$effective_cli)" >&2
+    return 0
+}
+
+skip_destructive_if_active_pane_has_client() {
+    local action="${1:-destructive keystroke injection}"
+    if active_pane_has_attached_client; then
+        echo "[$(date)] [SKIP] $AGENT_ID pane is active with attached client; deferring $action" >&2
+        return 0
+    fi
+    return 1
+}
+
 # ─── Send wake-up nudge ───
 # Layered approach:
 #   1. If agent has active inotifywait self-watch → skip (agent wakes itself)
@@ -1009,13 +1136,13 @@ send_wakeup() {
         return 0
     fi
 
-    if should_throttle_nudge "$unread_count"; then
+    local effective_cli_for_nudge
+    effective_cli_for_nudge=$(get_effective_cli_type)
+    if should_skip_plain_nudge_for_active_attached "$effective_cli_for_nudge"; then
         return 0
     fi
 
-    local effective_cli_for_nudge
-    effective_cli_for_nudge=$(get_effective_cli_type)
-    if skip_if_active_pane_has_client "non-destructive nudge (cli=$effective_cli_for_nudge)"; then
+    if should_throttle_nudge "$unread_count"; then
         return 0
     fi
 
@@ -1031,6 +1158,13 @@ send_wakeup() {
     local attempt=0
     while [ $attempt -le $max_retries ]; do
         # nudge 送信
+        if active_pane_has_attached_client; then
+            if ! allow_plain_nudge_active_attached "$effective_cli_for_nudge"; then
+                echo "[$(date)] [SKIP] $AGENT_ID active-attached state changed before send; aborting plain nudge" >&2
+                return 0
+            fi
+        fi
+
         if ! mux_send_literal "$PANE_TARGET" "$nudge" 2>/dev/null; then
             echo "[$(date)] WARNING: send-keys nudge failed for $AGENT_ID (attempt $((attempt+1)))" >&2
             attempt=$((attempt+1))
@@ -1123,7 +1257,7 @@ send_wakeup_with_escape() {
         return 0
     fi
 
-    if skip_if_active_pane_has_client "Phase 2 Escape escalation (cli=$effective_cli)"; then
+    if skip_destructive_if_active_pane_has_client "Phase 2 Escape escalation (cli=$effective_cli)"; then
         return 0
     fi
 
@@ -1246,6 +1380,9 @@ for s in data.get('specials', []):
     local has_task_assigned
     has_task_assigned=$(echo "$info" | "$SCRIPT_DIR/.venv/bin/python3" -c "import sys,json; print(1 if json.load(sys.stdin).get('has_task_assigned') else 0)" 2>/dev/null)
 
+    local unread_batch_key
+    unread_batch_key=$(echo "$info" | "$SCRIPT_DIR/.venv/bin/python3" -c "import sys,json; print(json.load(sys.stdin).get('batch_key',''))" 2>/dev/null)
+
     if [ "$normal_count" -gt 0 ] 2>/dev/null; then
         local now
         now=$(date +%s)
@@ -1339,19 +1476,27 @@ for s in data.get('specials', []):
             if [ "$LAST_CLEAR_TS" -lt "$((now - ESCALATE_COOLDOWN))" ]; then
                 local effective_cli
                 effective_cli=$(get_effective_cli_type)
-                if [[ "$effective_cli" == "codex" ]]; then
-                    # Codex /clear -> /new は会話を切ってしまうため、安全側に倒す。
+                if [ "$AGENT_ID" = "shogun" ]; then
+                    echo "[$(date)] [SKIP] ESCALATION Phase 3: shogun suppressed (human-controlled, ${age}s). Using plain nudge policy." >&2
+                    FIRST_UNREAD_SEEN=$now  # Reset timer
+                    send_wakeup "$normal_count"
+                elif [[ "$effective_cli" == "codex" && "$AGENT_ID" != "karo" && "$AGENT_ID" != "gunshi" ]]; then
+                    # Codex /clear -> /new cuts the conversation. Keep it disabled
+                    # outside command-layer recovery, where cmd_009 explicitly needs it.
                     echo "[$(date)] ESCALATION Phase 3: $AGENT_ID unresponsive for ${age}s, but cli=codex — skipping /clear." >&2
                     FIRST_UNREAD_SEEN=$now  # Reset timer (no destructive action)
                     send_wakeup "$normal_count"
-                elif [ "$AGENT_ID" = "shogun" ] || [ "$AGENT_ID" = "karo" ] || [ "$AGENT_ID" = "gunshi" ]; then
-                    # Command-layer agents (karo/gunshi/shogun): suppress /clear even in Phase 3
-                    echo "[$(date)] [SKIP] ESCALATION Phase 3: $AGENT_ID suppressed (command-layer agent, ${age}s). Using Escape+nudge." >&2
-                    FIRST_UNREAD_SEEN=$now  # Reset timer
-                    send_wakeup_with_escape "$normal_count"
+                elif command_layer_agent_can_receive_destructive_recovery && destructive_recovery_already_sent_for_batch "$unread_batch_key"; then
+                    echo "[$(date)] [SKIP] ESCALATION Phase 3: $AGENT_ID destructive recovery already sent for unread batch; using plain nudge path." >&2
+                    FIRST_UNREAD_SEEN=$now  # Reset timer; same batch must not trigger another /new after cooldown
+                    send_wakeup "$normal_count"
                 else
                     echo "[$(date)] ESCALATION Phase 3: Agent $AGENT_ID unresponsive for ${age}s. Sending /clear." >&2
-                    send_cli_command "/clear"
+                    if send_cli_command "/clear"; then
+                        if command_layer_agent_can_receive_destructive_recovery; then
+                            mark_destructive_recovery_sent_for_batch "$unread_batch_key"
+                        fi
+                    fi
                     LAST_CLEAR_TS=$now
                     FIRST_UNREAD_SEEN=0  # Reset — will re-detect on next cycle
                     NEW_CONTEXT_SENT=0
@@ -1369,6 +1514,7 @@ for s in data.get('specials', []):
         fi
         FIRST_UNREAD_SEEN=0
         NEW_CONTEXT_SENT=0
+        DESTRUCTIVE_RECOVERY_BATCH_KEY_SENT=""
         reset_nudge_throttle
         # Ensure idle flag exists when all messages are read.
         # Recovers from stop_hook_inbox.sh flag loss during block cycles.

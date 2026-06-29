@@ -1,0 +1,6 @@
+task:
+  task_id: fixture_unread_task
+  type: infra_implementation
+  status: assigned
+  worktree: null
+  timestamp: "2026-05-14T23:00:00"

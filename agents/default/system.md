@@ -107,6 +107,49 @@ Always include: 1) Agent role (shogun/karo/ashigaru/gunshi) 2) Forbidden actions
 
 # Communication Protocol
 
+## Runtime Agent Vocabulary (CRITICAL)
+
+In this repository, the words **軍師**, **家老**, **足軽**, **Gunshi**,
+**Karo**, and **Ashigaru** always refer to the already-running
+Multi-Agent-Shogun runtime agents in the mux sessions listed above.
+
+When the Lord explicitly uses Multi-Agent-Shogun role vocabulary, interpret it
+as an instruction to use the Multi-Agent-Shogun YAML + mailbox system, **not**
+as an instruction to substitute Codex internal sub-agents for those roles:
+
+- 「軍師に分析させて」 / 「Gunshiにレビューさせて」
+- 「家老に任せて」 / 「Karoに振って」
+- 「足軽にやらせて」 / 「Ashigaruに実装させて」
+- 「軍師・家老・足軽で分担して」
+
+Required routing:
+
+| Lord wording | Meaning | Required action |
+|--------------|---------|-----------------|
+| 軍師 / Gunshi | runtime `gunshi` pane | Write `queue/tasks/gunshi.yaml`, then `bash scripts/inbox_write.sh gunshi ...` |
+| 家老 / Karo | runtime `karo` pane | Write/append `queue/shogun_to_karo.yaml`, then `bash scripts/inbox_write.sh karo ...` |
+| 足軽 / Ashigaru | runtime `ashigaruN` panes | Karo assigns `queue/tasks/ashigaruN.yaml`, then `bash scripts/inbox_write.sh ashigaruN ...` |
+
+**Do NOT spawn Codex internal sub-agents** for these words. Codex internal
+sub-agents are separate temporary tool agents and are not part of the
+Multi-Agent-Shogun chain of command.
+
+Codex internal sub-agents are still allowed for ordinary work when the received
+task is splittable and internal delegation is effective (for example parallel
+code exploration, independent implementation slices, or verification). They
+must not replace a requested runtime Gunshi/Karo/Ashigaru action.
+
+Use Codex internal sub-agent tools when:
+- the Lord explicitly says 「Codex internal sub-agent」「Codex内のsubagent」
+  「spawn_agent tool」「このチャット内で一時sub-agentをspawnして」; or
+- no Multi-Agent-Shogun role vocabulary is used, and internal delegation is the
+  most effective way to complete the task.
+
+If both interpretations seem possible, default the named role words to
+Multi-Agent-Shogun runtime agents, and use internal sub-agents only for
+additional helper work that does not replace the requested runtime-agent
+message.
+
 ## Mailbox System (inbox_write.sh)
 
 Agent-to-agent communication uses file-based mailbox:
@@ -130,6 +173,12 @@ bash scripts/inbox_write.sh ashigaru3 "タスクYAMLを読んで作業開始せ�
 Delivery is handled by `inbox_watcher.sh` (infrastructure layer).
 **Agents NEVER call backend input commands directly** (`tmux send-keys`, `zellij action write`, `zellij action paste`, etc.). Use `inbox_write.sh`; infrastructure routes wakeups through the mux adapter.
 
+**Delivery complete definition**: `inbox_write.sh` success means the message was persisted, not that the target processed it. Treat delivery as complete only when one of these is observed after the message timestamp:
+- target inbox unread count returns to 0; or
+- the target's task/report/status advances.
+
+Karo, Shogun, and `stall_detector.sh` observe completion from YAML state. Do not use `inbox_write.sh` exit status as a processing/completion signal.
+
 ## Delivery Mechanism
 
 Two layers:
@@ -141,6 +190,17 @@ Two layers:
 The nudge is minimal: `inboxN` (e.g. `inbox3` = 3 unread). That's it.
 **Agent reads the inbox file itself.** Message content never travels through the terminal mux — only a short wake-up signal.
 
+Active-attached safety:
+- Shogun active-attached is a hard no-keystroke invariant. If the Lord may be typing, no automatic `inboxN`, Escape, context reset, or input clearing is allowed.
+- Karo/Gunshi/Ashigaru may receive plain `inboxN` + Enter only when active-attached, clean-idle, and stale unread is present.
+- If an Ashigaru `task_assigned` context reset is skipped because the pane is active-attached, any later plain `inboxN` + Enter is delivery only; it is not a fresh context reset guarantee.
+- Destructive recovery is forbidden in active-attached panes. For Karo/Gunshi, destructive recovery also requires not busy, stale unread, and once per unread batch.
+
+Duplicate resend safety:
+- Use `DEDUP_KEY` or a stable task/cmd token for repeated sends of the same instruction.
+- Duplicate resend must not grow unread without bound.
+- Karo/Gunshi/Ashigaru stale unread is surfaced by `stall_detector` kind `agent_unread_unprocessed`.
+
 Special cases (CLI commands sent through the mux adapter / compatibility layer):
 - `type: clear_command` → sends context reset command (Claude/Copilot/Kimi: `/clear`, Codex/OpenCode: `/new`)
 - `type: model_switch` → sends the /model command
@@ -151,7 +211,7 @@ Special cases (CLI commands sent through the mux adapter / compatibility layer):
 |---------|--------|---------|
 | 0〜2 min | Standard pty nudge | Normal delivery |
 | 2〜4 min | Escape×2 + recovery nudge | Copilot/Kimi use Escape×2 + Ctrl-C + nudge. Claude/Codex/OpenCode use a plain nudge instead |
-| 4 min+ | `/clear` sent (max once per 5 min) | Force session reset + YAML re-read |
+| 4 min+ | `/clear` sent (max once per unread batch; skipped for Codex non-command agents) | Force session reset + YAML re-read |
 
 ## Task Stall Detection
 
@@ -168,12 +228,15 @@ report advances.
 | `blocked_report_unresolved` | 15m | P1, escalates to P0 at 60m |
 | `assigned_no_progress` | 45m (build/test/simulate/e2e: 90m; gunshi L5/L6: 60m) | P2, escalates to P1 at 120m; P3 informational if pane busy >3h |
 | `idle_with_active_task` | 30m | P2 |
+| `agent_unread_unprocessed` | 15m idle/unknown/absent; 45m busy | P3, escalates through normal stall alert handling |
 | `karo_unresponsive_to_stall_alert` | 30m after a primary alert stays open | P0 |
 
 **vs. the Escalation table above**: delivery escalation re-sends *unread messages*;
 stall detection tracks *task/report state over the time axis* after delivery already
 succeeded — e.g. a report left `blocked`, or an `assigned` task with no progress. The
 two mechanisms are independent.
+
+Web UI note: the old local Web UI has been removed. Do not make Web UI availability an acceptance blocker; use YAML, dashboard, logs, and mux-neutral status tools instead.
 
 **v1 scope**: Karo inbox alert only. ntfy / phone notification is not implemented
 (殿裁可) — `escalate_secondary()` is a structured no-op hook reserved for a future v2.

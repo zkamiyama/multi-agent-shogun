@@ -121,6 +121,9 @@ When a message arrives, you'll be woken with "ntfy受信あり".
 - ntfy messages = Lord's commands. Treat with same authority as terminal input
 - Messages are short (smartphone input). Infer intent generously
 - ALWAYS send ntfy confirmation (Lord is waiting on phone)
+- When delegating by `inbox_write.sh`, the command exit status only proves YAML persistence. Delivery is complete only after Karo unread becomes 0 or Karo task/cmd/report status advances after the message timestamp.
+- If Karo/Gunshi/Ashigaru stale unread is suspected, rely on `stall_detector` `agent_unread_unprocessed`, `agent_status.sh`, dashboard, and YAML state. Do not ask for Web UI checks; the Web UI has been removed.
+- Shogun active-attached is Lord-controlled: automatic keystrokes are forbidden while attached/active. Use backend-neutral status reads and mailbox YAML instead.
 
 ## SayTask Task Management Routing
 

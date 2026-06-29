@@ -47,6 +47,49 @@ normalize_generated_markdown() {
     mv "$tmp_path" "$output_path"
 }
 
+# Function: normalize_claude_autoload_source
+# Description: Keeps the root Claude auto-load source aligned with shared protocol
+# wording before deriving other root auto-load files from it.
+normalize_claude_autoload_source() {
+    local claude_md="$ROOT_DIR/CLAUDE.md"
+    local python_bin
+
+    [ -f "$claude_md" ] || return 0
+    python_bin=$(command -v python3 2>/dev/null || true)
+    if [[ -z "$python_bin" ]]; then
+        echo "  ❌ python3 is required to normalize CLAUDE.md protocol wording." >&2
+        return 1
+    fi
+
+    "$python_bin" - "$claude_md" <<'PYEOF'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+raw = path.read_bytes()
+newline = "\r\n" if b"\r\n" in raw else "\n"
+text = raw.decode("utf-8")
+
+old_nudge = "- Karo/Gunshi may receive plain `inboxN` + Enter only when active-attached, clean-idle, and stale unread is present."
+new_nudge = "- Karo/Gunshi/Ashigaru may receive plain `inboxN` + Enter only when active-attached, clean-idle, and stale unread is present."
+caveat = "- If an Ashigaru `task_assigned` context reset is skipped because the pane is active-attached, any later plain `inboxN` + Enter is delivery only; it is not a fresh context reset guarantee."
+
+text = text.replace(old_nudge, new_nudge)
+if new_nudge in text and caveat not in text:
+    text = text.replace(new_nudge, f"{new_nudge}\n{caveat}", 1)
+
+text = text.replace(
+    "- Karo/Gunshi stale unread is surfaced by `stall_detector` kind `agent_unread_unprocessed`.",
+    "- Karo/Gunshi/Ashigaru stale unread is surfaced by `stall_detector` kind `agent_unread_unprocessed`.",
+)
+
+text = text.replace("\r\n", "\n").replace("\r", "\n")
+path.write_bytes(text.replace("\n", newline).encode("utf-8"))
+PYEOF
+}
+
+normalize_claude_autoload_source
+
 # ============================================================
 # Helper function: Build a complete instruction file
 # ============================================================
@@ -194,7 +237,7 @@ generate_agents_md() {
         -e 's|lost on /clear)|lost on /new)|g' \
         -e 's|(/new or /clear)|(`/new`)|g' \
         -e 's|sends `/clear` + Enter via send-keys|sends `/new` + Enter via send-keys（/clear→/new自動変換）|g' \
-        -e 's|`/clear` sent (max once per 5 min)|スキップ（Codexは`/clear`不可）|g' \
+        -e 's|`/clear` sent (max once per unread batch; skipped for Codex non-command agents)|Context reset sent (max once per unread batch; skipped for Codex non-command agents)|g' \
         -e 's|escalation sends `/clear` (~4 min)|next nudge escalation or task reassignment|g' \
         -e 's|delivers `/clear` to the agent|delivers `/new` to the agent（/clear→/new自動変換）|g' \
         -e 's|`/clear` wipes old context|`/new` wipes old context|g' \

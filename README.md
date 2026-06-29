@@ -282,31 +282,35 @@ cd /mnt/c/tools/multi-agent-shogun
 ./shutsujin_departure.sh
 ```
 
-### 🖥️ Browser Access — Web UI
+### Browser Access
 
-For desktop micromanagement, `shutsujin_departure.sh` starts the local browser UI automatically:
+`shutsujin_departure.sh` starts Zellij's built-in web server automatically for
+browser access to the running terminal sessions.
+
+Open `http://127.0.0.1:8082` in your browser and log in with a Zellij web token.
+From there, attach to the `shogun` or `multiagent` Zellij sessions.
+
+Create a token once, or whenever you want to rotate it:
 
 ```bash
-# Open http://127.0.0.1:1192/
+# Create a login token. Save the displayed token; it is shown only once.
+zellij web --create-token
 ```
 
-Manual startup is also available:
+Useful manual commands:
 
 ```bash
-python3 scripts/shogun-webui.py
+# Check server status
+zellij web --status
+
+# Start the server manually if needed
+zellij web --daemonize --ip 127.0.0.1 --port 8082
 ```
 
-It mirrors the Android companion's tmux workflow without SSH setup:
-
-| Feature | Description |
-|---------|-------------|
-| **Live panes** | Shogun separately, plus Karo + 7 Ashigaru + Gunshi in the Agents tab, stream through SSE backed by `tmux pipe-pane` |
-| **Direct control** | Send text from each pane's own input field; Shogun also has special-key controls |
-| **Dashboard** | Renders `dashboard.md` in a dense, selectable browser view |
-| **Screenshots** | Paste or drop an image into Settings to save it directly under `config/settings.yaml` → `screenshot.path` |
-| **Rate Limit** | Runs `scripts/ratelimit_check.sh` from the Agents toolbar |
-
-By default it binds to `127.0.0.1`. If you use `--host 0.0.0.0`, put it behind SSH tunneling, VPN, or reverse-proxy authentication because it can send tmux keys.
+The old Shogun-specific local Web UI has been removed. Do not use that removed
+Web UI as an acceptance blocker. For automation and status checks, rely on YAML
+queues, `dashboard.md`, logs, and mux-neutral status commands such as
+`bash scripts/agent_status.sh --lang ja`.
 
 ### 📱 Mobile Access — Dedicated Android App (Recommended)
 
@@ -811,7 +815,7 @@ Or set the default directly in `scripts/inbox_watcher.sh` (`ASW_PHASE` variable)
 |-------|--------|--------|
 | Phase 1 | 0-2 min | Standard nudge (`inbox3` text + Enter) — *skipped for busy agents in ASW Phase 2+* |
 | Phase 2 | 2-4 min | Copilot/Kimi: Escape×2 + single Ctrl-C + nudge. Claude/Codex/OpenCode: plain nudge fallback |
-| Phase 3 | 4+ min | Send CLI-specific context reset: Claude/Copilot/Kimi use `/clear`, Codex/OpenCode use `/new` (max once per 5 min) |
+| Phase 3 | 4+ min | Send CLI-specific context reset once per unread batch: Claude/Copilot/Kimi use `/clear`, Codex/OpenCode use `/new` where allowed |
 
 **Key design choices:**
 - **Message content is never sent through tmux** — only a short "you have mail" nudge. The agent reads its own file. This eliminates character corruption and transmission hangs.

@@ -111,7 +111,7 @@ install_zellij_user() {
         url=$(python3 - <<'PY'
 import json
 rel=json.load(open("release.json"))
-assets=rel.get("assets", [])
+assets=[a for a in rel.get("assets", []) if "no-web" not in a.get("name", "")]
 for pred in [
     lambda n: "x86_64-unknown-linux-musl" in n and n.endswith((".tar.gz", ".tgz")),
     lambda n: "x86_64-unknown-linux" in n and n.endswith((".tar.gz", ".tgz")),
@@ -137,20 +137,72 @@ PY
     return "$rc"
 }
 
+zellij_has_web_support() {
+    local bin="${1:-zellij}"
+    local out
+    out=$("$bin" web --status --timeout 1 2>&1 || true)
+    ! printf '%s\n' "$out" | grep -qi 'compiled without web server support'
+}
+
 if command -v zellij &> /dev/null; then
-    ZELLIJ_VERSION=$(zellij --version | awk '{print $2}')
-    log_success "Zellij がインストール済みです (v$ZELLIJ_VERSION)"
-    RESULTS+=("zellij: OK (v$ZELLIJ_VERSION)")
+    ZELLIJ_BIN="$(command -v zellij)"
+    ZELLIJ_VERSION=$("$ZELLIJ_BIN" --version | awk '{print $2}')
+    if zellij_has_web_support "$ZELLIJ_BIN"; then
+        log_success "Zellij がインストール済みです (v$ZELLIJ_VERSION, web対応)"
+        RESULTS+=("zellij: OK (v$ZELLIJ_VERSION, web対応)")
+    else
+        log_warn "Zellij はインストール済みですが Web 非対応版です。Web対応版を ~/.local/bin に再インストールします"
+        if install_zellij_user; then
+            ZELLIJ_VERSION=$("$HOME/.local/bin/zellij" --version | awk '{print $2}')
+            if zellij_has_web_support "$HOME/.local/bin/zellij"; then
+                log_success "Zellij Web対応版インストール完了 (v$ZELLIJ_VERSION)"
+                RESULTS+=("zellij: Web対応版へ更新 (v$ZELLIJ_VERSION)")
+            else
+                log_error "Zellij をインストールしましたが Web対応を確認できませんでした"
+                RESULTS+=("zellij: Web対応確認失敗")
+                HAS_ERROR=true
+            fi
+        else
+            log_error "Zellij Web対応版のインストールに失敗しました"
+            RESULTS+=("zellij: Web対応版インストール失敗")
+            HAS_ERROR=true
+        fi
+    fi
 elif [ -x "$HOME/.local/bin/zellij" ]; then
     ZELLIJ_VERSION=$("$HOME/.local/bin/zellij" --version | awk '{print $2}')
-    log_success "Zellij が ~/.local/bin にインストール済みです (v$ZELLIJ_VERSION)"
-    RESULTS+=("zellij: OK (v$ZELLIJ_VERSION)")
+    if zellij_has_web_support "$HOME/.local/bin/zellij"; then
+        log_success "Zellij が ~/.local/bin にインストール済みです (v$ZELLIJ_VERSION, web対応)"
+        RESULTS+=("zellij: OK (v$ZELLIJ_VERSION, web対応)")
+    else
+        log_warn "Zellij が ~/.local/bin にありますが Web 非対応版です。Web対応版を再インストールします"
+        if install_zellij_user; then
+            ZELLIJ_VERSION=$("$HOME/.local/bin/zellij" --version | awk '{print $2}')
+            if zellij_has_web_support "$HOME/.local/bin/zellij"; then
+                log_success "Zellij Web対応版インストール完了 (v$ZELLIJ_VERSION)"
+                RESULTS+=("zellij: Web対応版へ更新 (v$ZELLIJ_VERSION)")
+            else
+                log_error "Zellij をインストールしましたが Web対応を確認できませんでした"
+                RESULTS+=("zellij: Web対応確認失敗")
+                HAS_ERROR=true
+            fi
+        else
+            log_error "Zellij Web対応版のインストールに失敗しました"
+            RESULTS+=("zellij: Web対応版インストール失敗")
+            HAS_ERROR=true
+        fi
+    fi
 else
-    log_warn "Zellij がインストールされていません。~/.local/bin にインストールします"
+    log_warn "Zellij がインストールされていません。Web対応版を ~/.local/bin にインストールします"
     if install_zellij_user; then
         ZELLIJ_VERSION=$("$HOME/.local/bin/zellij" --version | awk '{print $2}')
-        log_success "Zellij インストール完了 (v$ZELLIJ_VERSION)"
-        RESULTS+=("zellij: インストール完了 (v$ZELLIJ_VERSION)")
+        if zellij_has_web_support "$HOME/.local/bin/zellij"; then
+            log_success "Zellij Web対応版インストール完了 (v$ZELLIJ_VERSION)"
+            RESULTS+=("zellij: Web対応版インストール完了 (v$ZELLIJ_VERSION)")
+        else
+            log_error "Zellij をインストールしましたが Web対応を確認できませんでした"
+            RESULTS+=("zellij: Web対応確認失敗")
+            HAS_ERROR=true
+        fi
     else
         log_error "Zellij のインストールに失敗しました"
         RESULTS+=("zellij: インストール失敗")

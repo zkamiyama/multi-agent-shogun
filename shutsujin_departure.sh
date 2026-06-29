@@ -92,25 +92,24 @@ log_war() {
 
 start_webui_if_missing() {
     local host="${SHOGUN_WEB_HOST:-127.0.0.1}"
-    local port="${SHOGUN_WEB_PORT:-1192}"
+    local port="${SHOGUN_WEB_PORT:-8082}"
     local url="http://${host}:${port}/"
-    local log_file="$SCRIPT_DIR/logs/shogun_webui.log"
 
-    if curl -fsS "${url}api/meta" >/dev/null 2>&1; then
-        log_info "🖥️ Web UI 稼働中: $url"
+    if ! command -v zellij >/dev/null 2>&1; then
+        log_info "⚠️ Zellij が見つからないため Browser Access はスキップ"
         return 0
     fi
 
-    mkdir -p "$SCRIPT_DIR/logs"
-    nohup python3 "$SCRIPT_DIR/scripts/shogun-webui.py" --host "$host" --port "$port" \
-        >> "$log_file" 2>&1 &
-    disown
-    sleep 0.5
+    if zellij web --status --timeout 2 >/dev/null 2>&1; then
+        log_info "🖥️ Zellij Browser Access 稼働中: $url"
+        return 0
+    fi
 
-    if curl -fsS "${url}api/meta" >/dev/null 2>&1; then
-        log_success "  └─ Web UI 起動完了: $url"
+    if zellij web --daemonize --ip "$host" --port "$port" >/dev/null 2>&1; then
+        log_success "  └─ Zellij Browser Access 起動完了: $url"
+        log_info "     初回またはtoken再発行: zellij web --create-token"
     else
-        log_info "⚠️ Web UI 起動確認未完了。ログ確認: $log_file"
+        log_info "⚠️ Zellij Browser Access 起動未完了。手動確認: zellij web --status"
     fi
 }
 
@@ -1326,10 +1325,10 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# STEP 6.10: Web UI 起動
+# STEP 6.10: Browser Access 起動
 # ═══════════════════════════════════════════════════════════════════════════════
 log_info ""
-log_info "STEP 6.10: Web UI 起動..."
+log_info "STEP 6.10: Browser Access 起動..."
 start_webui_if_missing
 
 # ═══════════════════════════════════════════════════════════════════════════════
