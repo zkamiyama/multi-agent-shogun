@@ -101,6 +101,56 @@ teardown() {
     grep -q "delete_session shogun" "$MUX_STUB_LOG"
 }
 
+@test "zellij create session enables browser sharing without starting web server inline" {
+    fake_zellij="$TEST_TMPDIR/zellij"
+    printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'printf "%s\n" "$*" >> "$ZELLIJ_ARGS_LOG"' \
+        'exit 0' \
+        > "$fake_zellij"
+    chmod +x "$fake_zellij"
+
+    run bash -c "
+        export MUX_BACKEND=zellij
+        export ZELLIJ_BIN='$fake_zellij'
+        export ZELLIJ_ARGS_LOG='$TEST_TMPDIR/zellij_args.log'
+        export MUX_STATE_FILE='$TEST_TMPDIR/mux_state.yaml'
+        source '$PROJECT_ROOT/lib/mux_adapter.sh'
+        mux_create_session shogun
+    "
+    [ "$status" -eq 0 ]
+    run bash -c "cat '$TEST_TMPDIR/zellij_args.log'"
+    [ "$status" -eq 0 ]
+    [ "$output" = "--config $TEST_TMPDIR/zellij-webshare.kdl attach --create-background shogun" ]
+    grep -q 'web_sharing "on"' "$TEST_TMPDIR/zellij-webshare.kdl"
+    grep -q 'web_server false' "$TEST_TMPDIR/zellij-webshare.kdl"
+}
+
+@test "zellij delete session verifies the session disappeared" {
+    fake_zellij="$TEST_TMPDIR/zellij"
+    fake_sleep="$TEST_TMPDIR/sleep"
+    printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'printf "%s\n" "$*" >> "$ZELLIJ_ARGS_LOG"' \
+        'if [ "$1" = "list-sessions" ]; then echo shogun; exit 0; fi' \
+        'if [ "$1" = "delete-session" ]; then exit 0; fi' \
+        'exit 0' \
+        > "$fake_zellij"
+    printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$fake_sleep"
+    chmod +x "$fake_zellij" "$fake_sleep"
+
+    run bash -c "
+        export MUX_BACKEND=zellij
+        export ZELLIJ_BIN='$fake_zellij'
+        export ZELLIJ_ARGS_LOG='$TEST_TMPDIR/zellij_args.log'
+        export PATH='$TEST_TMPDIR':\$PATH
+        source '$PROJECT_ROOT/lib/mux_adapter.sh'
+        mux_delete_session shogun
+    "
+    [ "$status" -eq 12 ]
+    [[ "$output" == *"session still exists after delete-session --force: shogun"* ]]
+}
+
 @test "zellij metadata writes are serialized and do not lose concurrent keys" {
     state_file="$TEST_TMPDIR/mux_state.yaml"
     run bash -c "
