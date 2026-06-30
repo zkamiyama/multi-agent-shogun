@@ -282,13 +282,24 @@ cd /mnt/c/tools/multi-agent-shogun
 
 ### 🖥️ ブラウザからアクセス — Zellij Web
 
-デスクトップで細かく介入したい場合は、`shutsujin_departure.sh` が Zellij 組み込みWebサーバを自動起動する：
+デスクトップで細かく介入したい場合は、`shutsujin_departure.sh` が Zellij 組み込みWebサーバとローカル専用の自動ログイン入口を起動する。Zellij本体のtoken認証は残したまま、`127.0.0.1:8083` 側でtoken入力を省略する：
 
 ```bash
-# http://127.0.0.1:8082/ を開く
+# 将軍の本陣
+http://127.0.0.1:8083/shogun
+
+# 家老・足軽・軍師の陣
+http://127.0.0.1:8083/multiagent
 ```
 
 `shutsujin_departure.sh` は起動時に古い Zellij Web login token を無効化し、新しいtokenを表示する。Zellijのtoken値は作成時に一度しか表示されないため、出力されたtokenでログインする。
+Zellij Web は `/` にセッション一覧を出さず、URLパスをセッション名として扱うため、上記の直リンクを開く。
+
+自動ログイン入口を止め、Zellij本体のtoken入力画面を使う場合：
+
+```bash
+SHOGUN_WEB_AUTO_LOGIN=0 ./shutsujin_departure.sh
+```
 
 古いtokenを残したい場合：
 
@@ -311,7 +322,7 @@ zellij web --list-tokens
 zellij web --revoke-all-tokens
 ```
 
-ログイン後、`shogun` または `multiagent` セッションにattachできる。
+`/shogun` または `/multiagent` で開くと、対応する Zellij セッションにattachできる。
 
 ### 📱 スマホからアクセス — 専用Androidアプリ（推奨）
 

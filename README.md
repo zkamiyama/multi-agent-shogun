@@ -287,13 +287,24 @@ cd /mnt/c/tools/multi-agent-shogun
 `shutsujin_departure.sh` starts Zellij's built-in web server automatically for
 browser access to the running terminal sessions.
 
-Open `http://127.0.0.1:8082` in your browser and log in with the Zellij web
-token printed by `shutsujin_departure.sh`.
-From there, attach to the `shogun` or `multiagent` Zellij sessions.
+Open the local auto-login URL in your browser. `shutsujin_departure.sh` keeps
+Zellij's token authentication enabled internally, but starts a local-only helper
+on `127.0.0.1:8083` so you do not have to paste the token manually:
+
+- `http://127.0.0.1:8083/shogun`
+- `http://127.0.0.1:8083/multiagent`
+
+Zellij Web uses the URL path as the session name, so use direct links rather
+than expecting a session list at `/`. To disable the auto-login helper and use
+Zellij's raw token prompt instead:
+
+```bash
+SHOGUN_WEB_AUTO_LOGIN=0 ./shutsujin_departure.sh
+```
 
 `shutsujin_departure.sh` revokes old Zellij web tokens, then creates and prints
-a fresh token at startup because Zellij only shows token values once. To keep
-old tokens instead:
+a fresh token at startup because Zellij only shows token values once. The
+auto-login helper uses that token locally. To keep old tokens instead:
 
 ```bash
 SHOGUN_WEB_REVOKE_OLD_TOKENS=0 ./shutsujin_departure.sh

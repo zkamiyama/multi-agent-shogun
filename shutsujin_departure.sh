@@ -104,41 +104,116 @@ show_zellij_web_login_token() {
         fi
     fi
 
-    local token_output
+    local token_output token_value
     if token_output=$(zellij web --create-token 2>&1); then
+        token_value=$(printf '%s\n' "$token_output" | awk -F': ' '/^token_/ {print $2; exit}')
         log_info "     Zellij Web login token（今回のみ表示）:"
         while IFS= read -r line; do
             [ -n "$line" ] && echo "       $line"
         done <<< "$token_output"
         log_info "     token管理: zellij web --list-tokens / zellij web --revoke-all-tokens"
         log_info "     古いtokenを残す場合: SHOGUN_WEB_REVOKE_OLD_TOKENS=0 ./shutsujin_departure.sh"
+        if [ -n "$token_value" ]; then
+            start_zellij_web_autologin "$token_value"
+        fi
     else
         log_info "⚠️ Zellij Web login token 作成に失敗: $token_output"
         log_info "     手動作成: zellij web --create-token"
     fi
 }
 
+start_zellij_web_autologin() {
+    local token="$1"
+    local host="${SHOGUN_WEB_HOST:-127.0.0.1}"
+    local port="${SHOGUN_WEB_PORT:-8082}"
+    local autologin="${SHOGUN_WEB_AUTO_LOGIN:-1}"
+    local auto_host="${SHOGUN_WEB_AUTO_LOGIN_HOST:-127.0.0.1}"
+    local auto_port="${SHOGUN_WEB_AUTO_LOGIN_PORT:-8083}"
+    local pid_file="$SCRIPT_DIR/queue/zellij_web_autologin.pid"
+    local log_file="$SCRIPT_DIR/logs/zellij_web_autologin.log"
+
+    [ "$autologin" = "1" ] || return 0
+    case "$host" in
+        127.0.0.1|localhost|::1) ;;
+        *)
+            log_info "     Zellij Web auto-login は非ローカルhostのためスキップ: $host"
+            return 0
+            ;;
+    esac
+
+    mkdir -p "$SCRIPT_DIR/queue" "$SCRIPT_DIR/logs"
+    if [ -f "$pid_file" ]; then
+        local old_pid
+        old_pid=$(cat "$pid_file" 2>/dev/null || true)
+        if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+            kill "$old_pid" 2>/dev/null || true
+        fi
+    fi
+
+    SHOGUN_WEB_AUTO_LOGIN_TOKEN="$token" nohup python3 "$SCRIPT_DIR/scripts/zellij_web_autologin.py" \
+        --listen-host "$auto_host" \
+        --listen-port "$auto_port" \
+        --zellij-base-url "http://${host}:${port}" \
+        >"$log_file" 2>&1 &
+    local pid=$!
+    echo "$pid" > "$pid_file"
+    disown "$pid" 2>/dev/null || true
+    sleep 0.2
+
+    if command -v curl >/dev/null 2>&1 && curl -fsS "http://${auto_host}:${auto_port}/health" >/dev/null 2>&1; then
+        log_info "     token入力なし入口: http://${auto_host}:${auto_port}/shogun / http://${auto_host}:${auto_port}/multiagent"
+    else
+        log_info "⚠️ Zellij Web auto-login 起動未確認。ログ: $log_file"
+    fi
+}
+
+zellij_web_access_base_url() {
+    local host="${SHOGUN_WEB_HOST:-127.0.0.1}"
+    local port="${SHOGUN_WEB_PORT:-8082}"
+    local auto_host="${SHOGUN_WEB_AUTO_LOGIN_HOST:-127.0.0.1}"
+    local auto_port="${SHOGUN_WEB_AUTO_LOGIN_PORT:-8083}"
+
+    if [ "${SHOGUN_WEB_AUTO_LOGIN:-1}" = "1" ]; then
+        case "$host" in
+            127.0.0.1|localhost|::1)
+                printf 'http://%s:%s\n' "$auto_host" "$auto_port"
+                return 0
+                ;;
+        esac
+    fi
+    printf 'http://%s:%s\n' "$host" "$port"
+}
+
 start_webui_if_missing() {
     local host="${SHOGUN_WEB_HOST:-127.0.0.1}"
     local port="${SHOGUN_WEB_PORT:-8082}"
     local url="http://${host}:${port}/"
+    local status_output
 
     if ! command -v zellij >/dev/null 2>&1; then
         log_info "⚠️ Zellij が見つからないため Browser Access はスキップ"
         return 0
     fi
 
-    if zellij web --status --timeout 2 >/dev/null 2>&1; then
+    status_output=$(zellij web --status --timeout 2 --ip "$host" --port "$port" 2>&1 || true)
+    if [[ "$status_output" == *"online"* ]]; then
         log_info "🖥️ Zellij Browser Access 稼働中: $url"
         show_zellij_web_login_token
         return 0
     fi
 
-    if zellij web --daemonize --ip "$host" --port "$port" >/dev/null 2>&1; then
-        log_success "  └─ Zellij Browser Access 起動完了: $url"
-        show_zellij_web_login_token
+    local start_output
+    if start_output=$(zellij web --daemonize --ip "$host" --port "$port" 2>&1); then
+        status_output=$(zellij web --status --timeout 2 --ip "$host" --port "$port" 2>&1 || true)
+        if [[ "$status_output" == *"online"* ]]; then
+            log_success "  └─ Zellij Browser Access 起動完了: $url"
+            show_zellij_web_login_token
+        else
+            log_info "⚠️ Zellij Browser Access 起動未確認: $status_output"
+        fi
     else
-        log_info "⚠️ Zellij Browser Access 起動未完了。手動確認: zellij web --status"
+        log_info "⚠️ Zellij Browser Access 起動未完了: $start_output"
+        log_info "     手動確認: zellij web --status --timeout 2 --ip \"$host\" --port \"$port\""
     fi
 }
 
@@ -247,6 +322,25 @@ zellij_start_watcher_if_missing() {
     disown
 }
 
+zellij_delete_session_for_departure() {
+    local session="$1"
+    local label="$2"
+
+    if ! mux_has_session "$session"; then
+        log_info "  └─ ${label}は存在せず (Zellij)"
+        return 0
+    fi
+
+    if mux_delete_session "$session" >/dev/null 2>&1; then
+        log_info "  └─ ${label}、撤収完了 (Zellij)"
+        return 0
+    fi
+
+    log_info "⚠️ ${label}を撤収できませんでした (Zellij)"
+    log_info "     shogun/multiagent の外側の通常シェルから ./shutsujin_departure.sh を再実行してください。"
+    return 12
+}
+
 start_zellij_deployment() {
     log_war "🧩 Zellij backend で布陣を構築中..."
     mux_preflight || exit $?
@@ -256,11 +350,11 @@ start_zellij_deployment() {
     : > "$SCRIPT_DIR/queue/mux_state.yaml"
 
     # Exact-session cleanup only. This is scoped to shogun-managed sessions.
-    mux_delete_session multiagent >/dev/null 2>&1 || true
-    mux_delete_session shogun >/dev/null 2>&1 || true
+    zellij_delete_session_for_departure multiagent "multiagent陣" || exit $?
+    zellij_delete_session_for_departure shogun "shogun本陣" || exit $?
 
-    mux_create_session shogun main
-    mux_create_session multiagent agents
+    mux_create_session shogun main || exit $?
+    mux_create_session multiagent agents || exit $?
 
     declare -A Z_TARGETS=()
 
@@ -390,6 +484,12 @@ start_zellij_deployment() {
 
     log_success "  └─ Zellij 布陣、構築完了"
     echo ""
+    log_info "🖥️ Zellij Browser Access 起動確認..."
+    start_webui_if_missing
+
+    local web_base_url
+    web_base_url=$(zellij_web_access_base_url)
+    echo ""
     echo "  次のステップ:"
     echo "  ┌──────────────────────────────────────────────────────────┐"
     echo "  │  将軍の本陣にアタッチ:                                  │"
@@ -397,6 +497,10 @@ start_zellij_deployment() {
     echo "  │                                                          │"
     echo "  │  家老・足軽の陣を確認:                                  │"
     echo "  │     csm   (zellij attach multiagent)                     │"
+    echo "  │                                                          │"
+    echo "  │  Zellij Web UI で全paneを監視・直接操作:                 │"
+    printf "  │     %-52s │\n" "${web_base_url}/shogun"
+    printf "  │     %-52s │\n" "${web_base_url}/multiagent"
     echo "  │                                                          │"
     echo "  │  tmux legacy backend を使う場合:                         │"
     echo "  │     MUX_BACKEND=tmux ./shutsujin_departure.sh            │"
@@ -638,8 +742,8 @@ echo ""
 # ═══════════════════════════════════════════════════════════════════════════════
 log_info "🧹 既存の陣を撤収中..."
 if [ "$(mux_backend_name)" = "zellij" ]; then
-    mux_delete_session multiagent >/dev/null 2>&1 && log_info "  └─ multiagent陣、撤収完了 (Zellij)" || log_info "  └─ multiagent陣は存在せず (Zellij)"
-    mux_delete_session shogun >/dev/null 2>&1 && log_info "  └─ shogun本陣、撤収完了 (Zellij)" || log_info "  └─ shogun本陣は存在せず (Zellij)"
+    zellij_delete_session_for_departure multiagent "multiagent陣" || exit $?
+    zellij_delete_session_for_departure shogun "shogun本陣" || exit $?
 else
     tmux kill-session -t multiagent 2>/dev/null && log_info "  └─ multiagent陣、撤収完了" || log_info "  └─ multiagent陣は存在せず"
     tmux kill-session -t shogun 2>/dev/null && log_info "  └─ shogun本陣、撤収完了" || log_info "  └─ shogun本陣は存在せず"
@@ -1433,7 +1537,13 @@ echo "  │     csm   (tmux attach-session -t multiagent)            │"
 fi
 echo "  │                                                          │"
 echo "  │  Web UI で全paneを監視・直接操作する:                     │"
+if [ "$(mux_backend_name)" = "zellij" ]; then
+web_access_base_url=$(zellij_web_access_base_url)
+printf "  │     %-52s │\n" "${web_access_base_url}/shogun"
+printf "  │     %-52s │\n" "${web_access_base_url}/multiagent"
+else
 echo "  │     http://${SHOGUN_WEB_HOST:-127.0.0.1}:${SHOGUN_WEB_PORT:-8082}/              │"
+fi
 echo "  │                                                          │"
 echo "  │  ※ 各エージェントは指示書を読み込み済み。                 │"
 echo "  │    すぐに命令を開始できます。                             │"
