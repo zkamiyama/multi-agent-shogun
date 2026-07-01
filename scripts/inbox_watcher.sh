@@ -1056,22 +1056,14 @@ pane_capture_is_clean_idle_prompt() {
 
 allow_plain_nudge_active_attached() {
     local effective_cli="${1:-}"
-    local pane_content
 
     # Shogun is Lord-controlled: active+attached is a hard no-key invariant.
     [ "$AGENT_ID" != "shogun" ] || return 1
 
     agent_can_receive_clean_idle_plain_nudge || return 1
-    unread_is_stale_for_plain_nudge || return 1
 
     if agent_is_busy; then
         echo "[$(date)] [SKIP] $AGENT_ID active-attached plain nudge exception denied: agent busy (cli=$effective_cli)" >&2
-        return 1
-    fi
-
-    pane_content=$(mux_capture "$PANE_TARGET" --tail 8 2>/dev/null || true)
-    if ! pane_capture_is_clean_idle_prompt "$pane_content" "$effective_cli"; then
-        echo "[$(date)] [SKIP] $AGENT_ID active-attached plain nudge exception denied: prompt not clean idle (cli=$effective_cli)" >&2
         return 1
     fi
 
@@ -1085,7 +1077,7 @@ should_skip_plain_nudge_for_active_attached() {
     fi
 
     if allow_plain_nudge_active_attached "$effective_cli"; then
-        echo "[$(date)] [ALLOW] $AGENT_ID active-attached clean-idle stale unread: sending plain nudge only (cli=$effective_cli)" >&2
+        echo "[$(date)] [ALLOW] $AGENT_ID active-attached idle unread: sending plain nudge only (cli=$effective_cli)" >&2
         return 1
     fi
 

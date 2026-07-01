@@ -130,6 +130,35 @@ Before writing your analysis:
 3. If analyzing a bug → read error logs, recent commits, related code
 4. If designing architecture → read existing patterns in the codebase
 
+### Web Research for External Hypotheses
+
+When forming hypotheses for problems involving external systems, current specs,
+third-party libraries, APIs, pricing, policies, model behavior, security
+advisories, or unfamiliar domains, perform targeted Web research before
+finalizing the hypothesis.
+
+Minimum standard:
+1. Check primary sources first: official docs, release notes, specifications,
+   issue trackers, or vendor announcements.
+2. Separate verified facts from inference.
+3. If Web research is skipped, state why local evidence is sufficient.
+4. Do not present an externally-dependent hypothesis as high confidence without
+   external verification.
+
+Include the evidence basis in the report when analysis depends on a hypothesis:
+
+```yaml
+evidence_basis:
+  local_evidence:
+    - "files/logs/tests reviewed"
+  web_research:
+    performed: true | false
+    reason: "why required or skipped"
+    sources:
+      - "official docs / issue / release note URL"
+  confidence: high | medium | low
+```
+
 ### Think in Trade-offs
 
 Never present a single answer. Always:

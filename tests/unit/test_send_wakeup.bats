@@ -662,7 +662,7 @@ YAML
     ! grep -q "send-keys" "$MOCK_LOG"
 }
 
-@test "T-ACTIVE-005: karo active-attached clean-idle stale unread gets plain nudge only" {
+@test "T-ACTIVE-005: karo active-attached idle unread gets plain nudge only" {
     run bash -c '
         MOCK_PANE_CLI="codex"
         MOCK_PANE_ACTIVE="1"
@@ -675,7 +675,7 @@ YAML
         send_wakeup 4
     '
     [ "$status" -eq 0 ]
-    echo "$output" | grep -q "clean-idle stale unread"
+    echo "$output" | grep -q "active-attached idle unread"
     grep -q "send-keys .*test:0.0 inbox4" "$MOCK_LOG"
     grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
     ! grep -q "send-keys.*C-u" "$MOCK_LOG"
@@ -685,7 +685,7 @@ YAML
     ! grep -q "send-keys.*/clear" "$MOCK_LOG"
 }
 
-@test "T-ACTIVE-005b: karo active-attached blank Codex capture stale unread gets plain nudge" {
+@test "T-ACTIVE-005b: karo active-attached blank Codex capture gets plain nudge" {
     run bash -c '
         MOCK_PANE_CLI="codex"
         MOCK_PANE_ACTIVE="1"
@@ -698,7 +698,7 @@ YAML
         send_wakeup 1
     '
     [ "$status" -eq 0 ]
-    echo "$output" | grep -q "clean-idle stale unread"
+    echo "$output" | grep -q "active-attached idle unread"
     grep -q "send-keys .*test:0.0 inbox1" "$MOCK_LOG"
     grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
     ! grep -q "send-keys.*C-u" "$MOCK_LOG"
@@ -706,7 +706,7 @@ YAML
     ! grep -q "send-keys.*C-c" "$MOCK_LOG"
 }
 
-@test "T-ACTIVE-006: gunshi active-attached clean-idle stale unread gets plain nudge only" {
+@test "T-ACTIVE-006: gunshi active-attached idle unread gets plain nudge only" {
     run bash -c '
         MOCK_PANE_CLI="claude"
         MOCK_PANE_ACTIVE="1"
@@ -720,7 +720,7 @@ YAML
         send_wakeup 2
     '
     [ "$status" -eq 0 ]
-    echo "$output" | grep -q "clean-idle stale unread"
+    echo "$output" | grep -q "active-attached idle unread"
     grep -q "send-keys .*test:0.0 inbox2" "$MOCK_LOG"
     grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
     ! grep -q "send-keys.*C-u" "$MOCK_LOG"
@@ -728,7 +728,7 @@ YAML
     ! grep -q "send-keys.*C-c" "$MOCK_LOG"
 }
 
-@test "T-ACTIVE-006b: ashigaru active-attached clean-idle stale unread gets plain nudge only" {
+@test "T-ACTIVE-006b: ashigaru active-attached idle unread gets plain nudge only" {
     run bash -c '
         MOCK_PANE_CLI="codex"
         MOCK_PANE_ACTIVE="1"
@@ -741,7 +741,7 @@ YAML
         send_wakeup 3
     '
     [ "$status" -eq 0 ]
-    echo "$output" | grep -q "clean-idle stale unread"
+    echo "$output" | grep -q "active-attached idle unread"
     grep -q "send-keys .*test:0.0 inbox3" "$MOCK_LOG"
     grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
     ! grep -q "send-keys.*C-u" "$MOCK_LOG"
@@ -751,7 +751,7 @@ YAML
     ! grep -q "send-keys.*/clear" "$MOCK_LOG"
 }
 
-@test "T-ACTIVE-007: karo active-attached dirty prompt sends no keys" {
+@test "T-ACTIVE-007: karo active-attached dirty prompt still gets plain nudge" {
     run bash -c '
         MOCK_PANE_CLI="codex"
         MOCK_PANE_ACTIVE="1"
@@ -764,11 +764,15 @@ YAML
         send_wakeup 1
     '
     [ "$status" -eq 0 ]
-    echo "$output" | grep -q "prompt not clean idle"
-    ! grep -q "send-keys" "$MOCK_LOG"
+    echo "$output" | grep -q "active-attached idle unread"
+    grep -q "send-keys .*test:0.0 inbox1" "$MOCK_LOG"
+    grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-u" "$MOCK_LOG"
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-c" "$MOCK_LOG"
 }
 
-@test "T-ACTIVE-007b: ashigaru active-attached dirty prompt sends no keys" {
+@test "T-ACTIVE-007b: ashigaru active-attached dirty prompt still gets plain nudge" {
     run bash -c '
         MOCK_PANE_CLI="codex"
         MOCK_PANE_ACTIVE="1"
@@ -781,8 +785,12 @@ YAML
         send_wakeup 1
     '
     [ "$status" -eq 0 ]
-    echo "$output" | grep -q "prompt not clean idle"
-    ! grep -q "send-keys" "$MOCK_LOG"
+    echo "$output" | grep -q "active-attached idle unread"
+    grep -q "send-keys .*test:0.0 inbox1" "$MOCK_LOG"
+    grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-u" "$MOCK_LOG"
+    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
+    ! grep -q "send-keys.*C-c" "$MOCK_LOG"
 }
 
 @test "T-ACTIVE-008: gunshi active-attached busy prompt sends no keys" {
@@ -958,7 +966,7 @@ YAML
     echo "$output" | grep -q "destructive recovery already sent for unread batch"
 }
 
-@test "T-ACTIVE-015: active-attached skip does not poison throttle before stale clean-idle nudge" {
+@test "T-ACTIVE-015: active-attached idle unread nudges immediately" {
     run bash -c '
         MOCK_PANE_CLI="codex"
         MOCK_PANE_ACTIVE="1"
@@ -970,21 +978,21 @@ YAML
         LAST_NUDGE_TS=0
         LAST_NUDGE_COUNT=""
 
-        # Fresh unread in an active-attached pane must be skipped without
-        # recording a nudge throttle, because no key was actually sent.
+        # Fresh unread in an active-attached command pane is delivered
+        # immediately when the agent is not busy.
         FIRST_UNREAD_SEEN=$(date +%s)
         send_wakeup 1
         first_ts=$LAST_NUDGE_TS
 
-        # Once the same unread batch is stale and still clean-idle, the plain
-        # nudge exception must be allowed immediately, not blocked by cooldown.
+        # The second attempt is throttled because the first one really sent a
+        # nudge.
         FIRST_UNREAD_SEEN=$(($(date +%s) - 11))
         send_wakeup 1
         echo "first_ts=$first_ts final_ts=$LAST_NUDGE_TS"
     '
     [ "$status" -eq 0 ]
-    echo "$output" | grep -q "first_ts=0"
-    echo "$output" | grep -q "clean-idle stale unread"
+    ! echo "$output" | grep -q "first_ts=0"
+    echo "$output" | grep -q "active-attached idle unread"
     grep -q "send-keys .*test:0.0 inbox1" "$MOCK_LOG"
     grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
 }
@@ -1080,7 +1088,7 @@ YAML
     '
     [ "$status" -eq 0 ]
     echo "$output" | grep -q "CONTEXT-RESET-SKIPPED.*delivery only, not fresh context reset"
-    echo "$output" | grep -q "clean-idle stale unread"
+    echo "$output" | grep -q "active-attached idle unread"
     grep -q "send-keys .*test:0.0 inbox1" "$MOCK_LOG"
     grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
     ! grep -q "send-keys.*C-u" "$MOCK_LOG"
