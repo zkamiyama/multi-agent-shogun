@@ -63,6 +63,7 @@ CLI_TYPE="claude"
 INBOX="$TEST_HOOK_TMP/queue/inbox/test_idle_agent.yaml"
 LOCKFILE="\${INBOX}.lock"
 SCRIPT_DIR="$PROJECT_ROOT"
+export MUX_BACKEND=tmux
 export IDLE_FLAG_DIR="$IDLE_FLAG_DIR"
 
 tmux() {
