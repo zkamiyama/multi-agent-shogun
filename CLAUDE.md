@@ -4,13 +4,13 @@ version: "3.0"
 updated: "2026-02-07"
 description: "Claude Code + mux-backend multi-agent parallel dev platform with sengoku military hierarchy"
 
-hierarchy: "Lord (human) → Shogun → Karo → Ashigaru 1-7 / Gunshi"
+hierarchy: "Lord (human) → Shogun → Karo → Ashigaru 1-7 / Gunshi1-2"
 communication: "YAML files + inbox mailbox system (event-driven, NO polling)"
 
 mux_backend: "config/settings.yaml → mux.backend (zellij default, tmux legacy)"
 mux_sessions:
   shogun: { pane_0: shogun }
-  multiagent: { pane_0: karo, pane_1-7: ashigaru1-7, pane_8: gunshi }
+  multiagent: { pane_0: karo, pane_1-7: ashigaru1-7, pane_8: gunshi, pane_9: gunshi2 }
 
 files:
   config: config/projects.yaml          # Project list (summary)
@@ -18,10 +18,12 @@ files:
   context: "context/{project}.md"       # Project-specific notes for ashigaru/gunshi
   cmd_queue: queue/shogun_to_karo.yaml  # Shogun → Karo commands
   tasks: "queue/tasks/ashigaru{N}.yaml" # Karo → Ashigaru assignments (per-ashigaru)
-  gunshi_task: queue/tasks/gunshi.yaml  # Karo → Gunshi strategic assignments
+  gunshi_task: queue/tasks/gunshi.yaml  # Karo → Gunshi1 strategic assignments
+  gunshi2_task: queue/tasks/gunshi2.yaml # stall_detector/Karo → Gunshi2 long-task escalation
   pending_tasks: queue/tasks/pending.yaml # Karo管理の保留タスク（blocked未割当）
   reports: "queue/reports/ashigaru{N}_report.yaml" # Ashigaru → Gunshi reports
-  gunshi_report: queue/reports/gunshi_report.yaml  # Gunshi → Karo strategic reports
+  gunshi_report: queue/reports/gunshi_report.yaml  # Gunshi1 → Karo strategic reports
+  gunshi2_report: queue/reports/gunshi2_report.yaml # Gunshi2 → Karo escalation reports
   dashboard: dashboard.md              # Human-readable summary (secondary data)
   daily_log: "logs/daily/YYYY-MM-DD.md" # Karo appends cmd summary on completion. Shogun reads for daily reports.
   ntfy_inbox: queue/ntfy_inbox.yaml    # Incoming ntfy messages from Lord's phone
@@ -132,7 +134,8 @@ Required routing:
 
 | Lord wording | Meaning | Required action |
 |--------------|---------|-----------------|
-| 軍師 / Gunshi | runtime `gunshi` pane | Write `queue/tasks/gunshi.yaml`, then `bash scripts/inbox_write.sh gunshi ...` |
+| 軍師 / Gunshi | runtime `gunshi` pane (Gunshi1) | Write `queue/tasks/gunshi.yaml`, then `bash scripts/inbox_write.sh gunshi ...` |
+| 軍師2 / Gunshi2 | runtime `gunshi2` pane | Write `queue/tasks/gunshi2.yaml`, then `bash scripts/inbox_write.sh gunshi2 ...` |
 | 家老 / Karo | runtime `karo` pane | Write/append `queue/shogun_to_karo.yaml`, then `bash scripts/inbox_write.sh karo ...` |
 | 足軽 / Ashigaru | runtime `ashigaruN` panes | Karo assigns `queue/tasks/ashigaruN.yaml`, then `bash scripts/inbox_write.sh ashigaruN ...` |
 
@@ -308,7 +311,7 @@ System manages ALL white-collar work, not just self-improvement. Project folders
 
 1. **Dashboard**: Karo + Gunshi update. Gunshi: QC results aggregation. Karo: task status/streaks/action items. Shogun reads it, never writes it.
 2. **Chain of command**: Shogun → Karo → Ashigaru/Gunshi. Never bypass Karo.
-3. **Reports**: Check `queue/reports/ashigaru{N}_report.yaml` and `queue/reports/gunshi_report.yaml` when waiting.
+3. **Reports**: Check `queue/reports/ashigaru{N}_report.yaml` and `queue/reports/gunshi*_report.yaml` when waiting.
 4. **Karo state**: Before sending commands, verify karo isn't busy with backend-neutral tooling: `bash scripts/agent_status.sh --lang ja` (or read dashboard/reports if status command is unavailable)
 5. **Screenshots**: See `config/settings.yaml` → `screenshot.path`
 6. **Skill candidates**: Ashigaru reports include `skill_candidate:`. Karo collects → dashboard. Shogun approves → creates design doc.

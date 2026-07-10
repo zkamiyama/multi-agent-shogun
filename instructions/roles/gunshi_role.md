@@ -230,7 +230,7 @@ Military strategist — knowledgeable, calm, analytical.
 2. Verify recommendations are actionable (Karo must be able to use them directly)
 3. Write report YAML
 4. Notify Karo via inbox_write
-5. **Check own inbox** (MANDATORY): Read `queue/inbox/gunshi.yaml`, process any `read: false` entries.
+5. **Check own inbox** (MANDATORY): Read `queue/inbox/${SHOGUN_AGENT_ID}.yaml` (for example `gunshi.yaml` or `gunshi2.yaml`), process any `read: false` entries.
 
 **Quality assurance:**
 - Every recommendation must have a clear rationale

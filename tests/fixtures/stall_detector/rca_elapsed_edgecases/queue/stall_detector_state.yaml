@@ -1,0 +1,5 @@
+gunshi2_escalations:
+  cmd_parent_cooldown:
+    last_notified: "2026-05-15T01:30:00+09:00"
+    severity: P1
+    kind: assigned_no_progress

@@ -7,11 +7,23 @@
 setup() {
     unset PERMISSION_FLAG
 
-    # テスト用のtmpディレクトリ
-    TEST_TMP="$(mktemp -d)"
-
     # プロジェクトルート
     PROJECT_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
+    PROJECT_ROOT_REAL="$(realpath "$PROJECT_ROOT")"
+
+    # テスト用のtmpディレクトリは、gitignore済みのプロジェクト内sandboxに限定する。
+    export BATS_TMPDIR="${PROJECT_ROOT_REAL}/tmp"
+    mkdir -p "$BATS_TMPDIR"
+    TEST_TMP="$(mktemp -d "${BATS_TMPDIR}/test_cli_adapter.XXXXXX")"
+    TEST_TMP_REAL="$(realpath "$TEST_TMP")"
+
+    case "$TEST_TMP_REAL" in
+        "${PROJECT_ROOT_REAL}/tmp/test_cli_adapter."*) ;;
+        *)
+            printf 'Refusing unsafe test directory: %s\n' "$TEST_TMP_REAL" >&2
+            return 1
+            ;;
+    esac
 
     # デフォルトsettings（cliセクションなし = 後方互換テスト）
     cat > "${TEST_TMP}/settings_none.yaml" << 'YAML'
@@ -218,7 +230,17 @@ YAML
 
 teardown() {
     unset PERMISSION_FLAG
-    rm -rf "$TEST_TMP"
+
+    if [[ -n "${TEST_TMP:-}" ]]; then
+        TEST_TMP_REAL="$(realpath "$TEST_TMP")" || return 1
+        case "$TEST_TMP_REAL" in
+            "${PROJECT_ROOT_REAL}/tmp/test_cli_adapter."*) rm -rf -- "$TEST_TMP_REAL" ;;
+            *)
+                printf 'Refusing unsafe test cleanup: %s\n' "$TEST_TMP_REAL" >&2
+                return 1
+                ;;
+        esac
+    fi
 }
 
 # ヘルパー: 特定のsettings.yamlでcli_adapterをロード
@@ -422,6 +444,20 @@ YAML
     result=$(build_cli_command "ashigaru5")
     [ "$result" = "codex --model gpt-5 -c model_reasoning_effort=xhigh --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen" ]
     [[ "$result" != *"Session Start"* ]]
+}
+
+@test "build_cli_command: codex + ultra effort → model_reasoning_effort=ultra" {
+    cat > "${TEST_TMP}/settings_codex_ultra.yaml" << 'YAML'
+cli:
+  agents:
+    gunshi:
+      type: codex
+      model: gpt-5.6-terra
+      effort: ultra
+YAML
+    load_adapter_with "${TEST_TMP}/settings_codex_ultra.yaml"
+    result=$(build_cli_command "gunshi")
+    [ "$result" = "codex --model gpt-5.6-terra -c model_reasoning_effort=ultra --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen" ]
 }
 
 @test "build_cli_command: copilot → copilot --yolo" {

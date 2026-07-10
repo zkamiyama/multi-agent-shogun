@@ -62,20 +62,32 @@ teardown() {
 }
 
 @test "zellij create pane falls back when requested source pane cannot be focused" {
-    if ! command -v zellij >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/zellij" ]; then
-        skip "zellij not installed"
-    fi
-    local session="shogun-bats-zellij-fallback-$$"
-    zellij attach --create-background "$session" >/dev/null
+    fake_zellij="$TEST_TMPDIR/zellij"
+    printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'printf "%s\\n" "$*" >> "$ZELLIJ_ARGS_LOG"' \
+        'case " $* " in' \
+        '  *" action new-pane "*) printf "42\\n" ;;' \
+        '  *" action list-panes "*) printf "%s\\n" "[{\"id\":42,\"is_plugin\":false,\"title\":\"ashigaru1\"}]" ;;' \
+        'esac' \
+        > "$fake_zellij"
+    chmod +x "$fake_zellij"
+
     run bash -c "
         export MUX_BACKEND=zellij
+        export ZELLIJ_BIN='$fake_zellij'
+        export ZELLIJ_ARGS_LOG='$TEST_TMPDIR/zellij_args.log'
         export MUX_STATE_FILE='$TEST_TMPDIR/mux_state.yaml'
         source '$PROJECT_ROOT/lib/mux_adapter.sh'
-        mux_create_pane '$session' ashigaru1 '$PROJECT_ROOT' 'printf ready; sleep 1' right 'zellij:$session:terminal_999999'
+        mux_create_pane fixture-session ashigaru1 '$PROJECT_ROOT' 'printf ready' right 'zellij:fixture-session:terminal_999999'
     "
-    zellij delete-session --force "$session" >/dev/null 2>&1 || true
     [ "$status" -eq 0 ]
-    [[ "$output" == *"zellij:${session}:terminal_"* ]]
+    [ "$output" = "zellij:fixture-session:42" ]
+    run bash -c "cat '$TEST_TMPDIR/zellij_args.log'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"action new-pane --name ashigaru1"* ]]
+    [[ "$output" != *"attach --create-background"* ]]
+    [[ "$output" != *"delete-session"* ]]
 }
 
 @test "zellij backend fails preflight when zellij is missing or succeeds when installed" {
@@ -124,6 +136,71 @@ teardown() {
     [ "$output" = "--config $TEST_TMPDIR/zellij-webshare.kdl attach --create-background shogun" ]
     grep -q 'web_sharing "on"' "$TEST_TMPDIR/zellij-webshare.kdl"
     grep -q 'web_server false' "$TEST_TMPDIR/zellij-webshare.kdl"
+}
+
+@test "zellij create session adds default layout only when requested" {
+    fake_zellij="$TEST_TMPDIR/zellij"
+    layout="$TEST_TMPDIR/multiagent-priority.kdl"
+    printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'printf "%s\\n" "$*" >> "$ZELLIJ_ARGS_LOG"' \
+        'exit 0' \
+        > "$fake_zellij"
+    printf 'layout {}\n' > "$layout"
+    chmod +x "$fake_zellij"
+
+    run bash -c "
+        export MUX_BACKEND=zellij
+        export ZELLIJ_BIN='$fake_zellij'
+        export ZELLIJ_ARGS_LOG='$TEST_TMPDIR/zellij_args.log'
+        export MUX_STATE_FILE='$TEST_TMPDIR/mux_state.yaml'
+        source '$PROJECT_ROOT/lib/mux_adapter.sh'
+        mux_create_session shogun main
+        mux_create_session multiagent agents '$layout'
+    "
+    [ "$status" -eq 0 ]
+    run bash -c "cat '$TEST_TMPDIR/zellij_args.log'"
+    [ "$status" -eq 0 ]
+    [ "$output" = $'--config '"$TEST_TMPDIR"$'/zellij-webshare.kdl attach --create-background shogun\n--config '"$TEST_TMPDIR"$'/zellij-webshare.kdl attach --create-background multiagent options --default-layout '"$layout" ]
+}
+
+@test "zellij layout roster retries empty materialization and rejects invalid rosters" {
+    fake_zellij="$TEST_TMPDIR/zellij"
+    roster_file="$TEST_TMPDIR/roster.json"
+    printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'cat "$ZELLIJ_ROSTER_FILE"' \
+        > "$fake_zellij"
+    chmod +x "$fake_zellij"
+
+    run bash -c "
+        export MUX_BACKEND=zellij
+        export ZELLIJ_BIN='$fake_zellij'
+        export ZELLIJ_ROSTER_FILE='$roster_file'
+        source '$PROJECT_ROOT/lib/mux_adapter.sh'
+        printf '[]\\n' > '$roster_file'
+        ( sleep 0.02; printf '%s\\n' '[{\"id\":1,\"title\":\"karo\"},{\"id\":2,\"title\":\"gunshi\"}]' > '$roster_file' ) &
+        mux_validate_layout_roster fixture-session karo gunshi
+    "
+    [ "$status" -eq 0 ]
+
+    for case_name in missing extra duplicate; do
+        case "$case_name" in
+            missing) roster='[{"id":1,"title":"karo"}]' ;;
+            extra) roster='[{"id":1,"title":"karo"},{"id":2,"title":"gunshi"},{"id":3,"title":"ashigaru1"}]' ;;
+            duplicate) roster='[{"id":1,"title":"karo"},{"id":2,"title":"karo"}]' ;;
+        esac
+        printf '%s\n' "$roster" > "$roster_file"
+        run bash -c "
+            export MUX_BACKEND=zellij
+            export ZELLIJ_BIN='$fake_zellij'
+            export ZELLIJ_ROSTER_FILE='$roster_file'
+            source '$PROJECT_ROOT/lib/mux_adapter.sh'
+            mux_validate_layout_roster fixture-session karo gunshi
+        "
+        [ "$status" -ne 0 ]
+        [[ "$output" == *"priority layout roster mismatch"* ]]
+    done
 }
 
 @test "zellij delete session verifies the session disappeared" {

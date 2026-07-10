@@ -178,17 +178,76 @@ mux_backend_has_session() {
 
 mux_backend_create_session() {
     local session="$1"
+    local window="${2:-main}"
+    local layout_path="${3:-}"
     mux_backend_preflight || return $?
+    if [ -n "$layout_path" ] && [ ! -r "$layout_path" ]; then
+        echo "[mux/zellij] layout is not readable: ${layout_path}" >&2
+        return 12
+    fi
     local web_sharing="${SHOGUN_ZELLIJ_WEB_SHARING:-on}"
     local web_config
     web_config=$(mux_zellij_write_web_config "$web_sharing") || return $?
     local out
     # Zellij 0.44.x does not apply --web-sharing through the attach/options
     # background path. Use a generated config and start Browser Access later.
-    if ! out=$("$ZELLIJ_BIN" --config "$web_config" attach --create-background "$session" 2>&1 >/dev/null); then
+    local args=(--config "$web_config" attach --create-background "$session")
+    if [ -n "$layout_path" ]; then
+        args+=(options --default-layout "$layout_path")
+    fi
+    if ! out=$("$ZELLIJ_BIN" "${args[@]}" 2>&1 >/dev/null); then
         echo "[mux/zellij] failed to create web-shareable session '${session}': ${out}" >&2
         return 12
     fi
+}
+
+mux_backend_validate_layout_roster() {
+    local session="$1"
+    shift
+    mux_backend_preflight || return $?
+    local attempts=50
+    local i
+
+    for i in $(seq 1 "$attempts"); do
+        if mux_zellij_cmd --session "$session" action list-panes --json --state 2>/dev/null \
+            | python3 -c '
+import json
+import sys
+
+expected = sys.argv[1:]
+try:
+    panes = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+
+titles = [str(p.get("title", "")) for p in panes if not p.get("is_plugin")]
+raise SystemExit(0 if len(titles) == len(expected) and set(titles) == set(expected) and len(set(titles)) == len(titles) else 1)
+' "$@"
+        then
+            return 0
+        fi
+        sleep 0.1
+    done
+
+    mux_zellij_cmd --session "$session" action list-panes --json --state 2>/dev/null \
+        | python3 -c '
+import json
+import sys
+
+expected = sys.argv[1:]
+try:
+    panes = json.load(sys.stdin)
+except Exception as exc:
+    raise SystemExit(f"[mux/zellij] cannot inspect layout roster: {exc}")
+
+titles = [str(p.get("title", "")) for p in panes if not p.get("is_plugin")]
+expected_csv = ",".join(expected)
+actual_csv = ",".join(titles)
+raise SystemExit(
+    "[mux/zellij] priority layout roster mismatch: "
+    f"expected={expected_csv} actual={actual_csv}"
+)
+' "$@"
 }
 
 mux_backend_delete_session() {

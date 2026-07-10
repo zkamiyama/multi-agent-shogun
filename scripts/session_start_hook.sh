@@ -124,7 +124,7 @@ ensure_watcher_supervisor() {
 ensure_watcher_supervisor
 
 case "$AGENT_ID" in
-    shogun|karo|gunshi)
+    shogun|karo|gunshi*)
         # command-layer agents: full Session Start (Step 1-5)
         cat <<EOF
 **CRITICAL: Session Start 手順を最優先で実行せよ**

@@ -28,6 +28,7 @@ done
 source "$SCRIPT_DIR/lib/agent_status.sh"
 source "$SCRIPT_DIR/lib/cli_adapter.sh"
 source "$SCRIPT_DIR/lib/mux_adapter.sh"
+source "$SCRIPT_DIR/lib/agent_registry.sh"
 
 PYTHON="${SCRIPT_DIR}/.venv/bin/python3"
 
@@ -42,10 +43,10 @@ CODEX_CONTEXT_CRIT=10
 CODEX_LIMIT_HITS_WARN=3
 
 # ─── Agent list (dynamic from settings.yaml) ───
-_ashigaru_ids_str=$(get_ashigaru_ids 2>/dev/null || echo "ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 ashigaru6 ashigaru7")
-ALL_AGENTS=("shogun" "karo")
-for _aid in $_ashigaru_ids_str; do ALL_AGENTS+=("$_aid"); done
-ALL_AGENTS+=("gunshi")
+ALL_AGENTS=()
+while IFS= read -r _agent_id; do
+    [ -n "$_agent_id" ] && ALL_AGENTS+=("$_agent_id")
+done < <(agent_registry_agents)
 
 # ═══════════════════════════════════════════════════════
 # Phase 1: Scan all mux panes for metadata

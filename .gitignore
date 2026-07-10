@@ -93,6 +93,10 @@
 !templates/
 !templates/**
 
+# Zellij layouts (next-session-only topology definitions)
+!layouts/
+!layouts/multiagent-priority.kdl
+
 # Context README
 !context/
 !context/README.md

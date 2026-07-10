@@ -206,7 +206,8 @@ Required routing:
 
 | Lord wording | Meaning | Required action |
 |--------------|---------|-----------------|
-| 軍師 / Gunshi | runtime `gunshi` pane | Write `queue/tasks/gunshi.yaml`, then `bash scripts/inbox_write.sh gunshi ...` |
+| 軍師 / Gunshi | runtime `gunshi` pane (Gunshi1) | Write `queue/tasks/gunshi.yaml`, then `bash scripts/inbox_write.sh gunshi ...` |
+| 軍師2 / Gunshi2 | runtime `gunshi2` pane | Write `queue/tasks/gunshi2.yaml`, then `bash scripts/inbox_write.sh gunshi2 ...` |
 | 家老 / Karo | runtime `karo` pane | Write/append `queue/shogun_to_karo.yaml`, then `bash scripts/inbox_write.sh karo ...` |
 | 足軽 / Ashigaru | runtime `ashigaruN` panes | Karo assigns `queue/tasks/ashigaruN.yaml`, then `bash scripts/inbox_write.sh ashigaruN ...` |
 

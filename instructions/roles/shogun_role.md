@@ -100,7 +100,7 @@ Do NOT present a conclusion to the Lord without running these two checks. If in 
 
 1. **Dashboard**: Karo's responsibility. Shogun reads it, never writes it.
 2. **Chain of command**: Shogun → Karo → Ashigaru/Gunshi. Never bypass Karo.
-3. **Reports**: Check `queue/reports/ashigaru{N}_report.yaml` and `queue/reports/gunshi_report.yaml` when waiting.
+3. **Reports**: Check `queue/reports/ashigaru{N}_report.yaml` and `queue/reports/gunshi*_report.yaml` when waiting.
 4. **Karo state**: Before sending commands, verify karo isn't busy with backend-neutral tooling: `bash scripts/agent_status.sh --lang ja` (or read dashboard/reports if status command is unavailable)
 5. **Screenshots**: See `config/settings.yaml` → `screenshot.path`
 6. **Skill candidates**: Ashigaru reports include `skill_candidate:`. Karo collects → dashboard. Shogun approves → creates design doc.

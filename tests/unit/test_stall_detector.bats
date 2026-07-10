@@ -55,6 +55,18 @@ scan() {
             bash "$DETECTOR" --once
 }
 
+# Same isolated fixture scan, but explicitly enables the Gunshi2 writer so its
+# task/state transaction can be tested without touching a live mux or agent.
+scan_with_gunshi2_writer() {
+    local now_iso="$1"
+    local pane_json="${2:-{}}"
+    run env STALL_ROOT="$STALL_ROOT" \
+            STALL_NOW="$(epoch "$now_iso")" \
+            STALL_PANE_STATES_OVERRIDE="$pane_json" \
+            STALL_TEST_ALLOW_GUNSHI2_WRITE=1 \
+            bash "$DETECTOR" --once
+}
+
 # alerts_lines — stall_alerts.yaml の各 alert を
 #   "<agent> <kind> <severity> <status> <count>" 1 行で出す
 alerts_lines() {
@@ -83,6 +95,256 @@ except FileNotFoundError:
 for a in (doc.get("alerts") or []):
     print(a.get("evidence") or "")
 PYEOF
+}
+
+rca_state() {
+    python3 - "$STALL_ROOT/queue/stall_detector_state.yaml" <<'PYEOF'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1])) or {}
+for key, value in (doc.get("rca_elapsed") or {}).items():
+    print("%s %s %s" % (key, value.get("checkpoint", {}).get("state"),
+                         value.get("escalation", {}).get("state")))
+PYEOF
+}
+
+rca_entry() {
+    python3 - "$STALL_ROOT/queue/stall_detector_state.yaml" "$1" <<'PYEOF'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1])) or {}
+print(yaml.safe_dump((doc.get("rca_elapsed") or {}).get(sys.argv[2]) or {}, sort_keys=True))
+PYEOF
+}
+
+# ═══════════════════════════════════════════════════════════════
+# Explicit RCA elapsed clock (all scans use isolated STALL_ROOT fixtures)
+# ═══════════════════════════════════════════════════════════════
+
+@test "RCA elapsed: 59m quiet, 60m checkpoint once, 119m no escalation, 120m one intent" {
+    load_fixture rca_elapsed
+    scan "2026-05-15T00:59:00" '{"ashigaru1":"busy"}'
+    [ "$status" -eq 0 ]
+    run rca_state
+    [ "${lines[0]}" = "direct_lord_rca_shortcut_20260710|rca_direct_01 pending pending" ]
+    scan "2026-05-15T01:00:00" '{"ashigaru1":"busy"}'
+    [[ "$output" == *"rca_checkpoint_due"* ]]
+    scan "2026-05-15T01:59:00" '{"ashigaru1":"busy"}'
+    [[ "$output" != *"rca_elapsed_120m"* ]]
+    scan "2026-05-15T02:00:00" '{"ashigaru1":"busy"}'
+    [[ "$output" == *"rca_elapsed_120m"* ]]
+    scan "2026-05-15T02:01:00" '{"ashigaru1":"busy"}'
+    [[ "$output" != *"rca_elapsed_120m"* ]]
+}
+
+@test "RCA elapsed: matching outcome suppresses only its own family" {
+    load_fixture rca_elapsed
+    cat >> "$STALL_ROOT/queue/reports/ashigaru1_report.yaml" <<'EOF'
+rca_events:
+  - event: outcome
+    parent_cmd: direct_lord_rca_shortcut_20260710
+    family_id: rca_direct_01
+    outcome: completed
+    timestamp: "2026-05-15T01:30:00+09:00"
+EOF
+    scan "2026-05-15T02:00:00" '{"ashigaru1":"busy"}'
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"rca_elapsed_120m"* ]]
+    run rca_state
+    [[ "${lines[0]}" == *"suppressed_terminal" ]]
+}
+
+@test "RCA elapsed: different family terminal does not suppress and markerless task stays legacy" {
+    load_fixture rca_elapsed
+    cat >> "$STALL_ROOT/queue/reports/ashigaru1_report.yaml" <<'EOF'
+rca_events:
+  - event: outcome
+    parent_cmd: direct_lord_rca_shortcut_20260710
+    family_id: other_family
+    outcome: failed
+EOF
+    cat > "$STALL_ROOT/queue/tasks/ashigaru2.yaml" <<'EOF'
+task:
+  task_id: markerless_build
+  parent_cmd: cmd_legacy
+  status: assigned
+  type: build
+  timestamp: "2026-05-15T00:00:00+09:00"
+EOF
+    scan "2026-05-15T02:00:00" '{"ashigaru1":"busy","ashigaru2":"busy"}'
+    [[ "$output" == *"rca_elapsed_120m"* ]]
+    [[ "$output" != *"cmd_legacy\trca_elapsed_120m"* ]]
+}
+
+@test "RCA elapsed: occupied Gunshi2 slot remains byte-identical then dispatches once when free" {
+    load_fixture rca_elapsed
+    cat > "$STALL_ROOT/queue/tasks/gunshi2.yaml" <<'EOF'
+task:
+  task_id: unrelated_gunshi2_work
+  parent_cmd: cmd_other
+  status: assigned
+EOF
+    local before after
+    before="$(sha256sum "$STALL_ROOT/queue/tasks/gunshi2.yaml")"
+    scan "2026-05-15T02:00:00" '{"ashigaru1":"busy"}'
+    [ "$status" -eq 0 ]
+    after="$(sha256sum "$STALL_ROOT/queue/tasks/gunshi2.yaml")"
+    [ "$before" = "$after" ]
+    run rca_state
+    [[ "${lines[0]}" == *"pending_gunshi2_slot" ]]
+    sed -i 's/status: assigned/status: done/' "$STALL_ROOT/queue/tasks/gunshi2.yaml"
+    scan "2026-05-15T02:01:00" '{"ashigaru1":"busy"}'
+    [[ "$output" == *"rca_elapsed_120m"* ]]
+    scan "2026-05-15T02:02:00" '{"ashigaru1":"busy"}'
+    [[ "$output" != *"rca_elapsed_120m"* ]]
+}
+
+@test "RCA elapsed: parent cooldown preserves another family, invalid thresholds fail closed, and terminal wins" {
+    load_fixture rca_elapsed_edgecases
+    scan "2026-05-15T02:00:00" '{"ashigaru1":"busy","ashigaru2":"busy"}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"RCA threshold invalid"* ]]
+    run rca_entry "cmd_parent_cooldown|family_waiting"
+    [[ "$output" == *"pending_parent_cooldown"* ]]
+    run rca_entry "cmd_invalid_thresholds|family_invalid"
+    [[ "$output" == *"suppressed_invalid_threshold"* ]]
+    [[ "$output" == *"invalid_fail_closed"* ]]
+    cat >> "$STALL_ROOT/queue/reports/ashigaru1_report.yaml" <<'EOF'
+rca_events:
+  - event: outcome
+    parent_cmd: cmd_parent_cooldown
+    family_id: family_waiting
+    outcome: completed
+    timestamp: "2026-05-15T02:01:00+09:00"
+EOF
+    scan "2026-05-15T02:01:00" '{"ashigaru1":"busy","ashigaru2":"busy"}'
+    run rca_entry "cmd_parent_cooldown|family_waiting"
+    [[ "$output" == *"suppressed_terminal"* ]]
+}
+
+@test "RCA elapsed: expired parent cooldown dispatches and P0 bypasses it" {
+    load_fixture rca_elapsed_edgecases
+    scan "2026-05-15T07:31:00" '{"ashigaru1":"busy","ashigaru2":"busy"}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"rca_elapsed_120m"* ]]
+
+    load_fixture rca_elapsed_edgecases
+    cp "$FIXTURES/rca_elapsed_edgecases/queue/stall_detector_state.yaml" \
+       "$STALL_ROOT/queue/stall_detector_state.yaml"
+    sed -i "/family_id: family_waiting/a\\    escalation_severity: P0" "$STALL_ROOT/queue/tasks/ashigaru1.yaml"
+    scan "2026-05-15T02:00:00" '{"ashigaru1":"busy","ashigaru2":"busy"}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"rca_elapsed_120m"* ]]
+    run rca_entry "cmd_parent_cooldown|family_waiting"
+    [[ "$output" == *"intent_emitted"* ]]
+}
+
+@test "RCA writer: A dispatch cools raw parent, B waits then dispatches, and P0 bypass keeps P0 priority" {
+    load_fixture rca_elapsed
+    cat > "$STALL_ROOT/queue/tasks/ashigaru2.yaml" <<'EOF'
+task:
+  task_id: rca_family_b
+  parent_cmd: direct_lord_rca_shortcut_20260710
+  status: assigned
+  rca_tracking:
+    enabled: true
+    family_id: family_b
+    started_at: "2026-05-15T00:00:00+09:00"
+EOF
+    scan_with_gunshi2_writer "2026-05-15T02:00:00" '{"ashigaru1":"busy","ashigaru2":"busy"}'
+    [ "$status" -eq 0 ]
+    # The isolated writer is allowed to change only STALL_ROOT.  Its explicit
+    # suppression log distinguishes this from the real-agent inbox branch.
+    [[ "$output" == *"inbox suppressed"* ]]
+    scan_with_gunshi2_writer "2026-05-15T02:01:00" '{"ashigaru1":"busy","ashigaru2":"busy"}'
+    [ "$status" -eq 0 ]
+    run rca_entry "direct_lord_rca_shortcut_20260710|family_b"
+    [[ "$output" == *"pending_parent_cooldown"* ]]
+    run python3 - "$STALL_ROOT/queue/stall_detector_state.yaml" <<'PYEOF'
+import sys, yaml
+record = (yaml.safe_load(open(sys.argv[1])) or {}).get("rca_parent_cooldowns", {}).get("direct_lord_rca_shortcut_20260710") or {}
+assert record.get("family_id") == "rca_direct_01"
+assert record.get("severity") == "P1"
+assert record.get("dispatched_at") and record.get("expires_at")
+PYEOF
+    [ "$status" -eq 0 ]
+    sed -i 's/status: assigned/status: done/' "$STALL_ROOT/queue/tasks/gunshi2.yaml"
+    scan_with_gunshi2_writer "2026-05-15T08:01:00" '{"ashigaru1":"busy","ashigaru2":"busy"}'
+    [ "$status" -eq 0 ]
+    run rca_entry "direct_lord_rca_shortcut_20260710|family_b"
+    [[ "$output" == *"dispatched"* ]]
+    sed -i 's/status: assigned/status: done/' "$STALL_ROOT/queue/tasks/gunshi2.yaml"
+    cat > "$STALL_ROOT/queue/tasks/ashigaru3.yaml" <<'EOF'
+task:
+  task_id: rca_family_p0
+  parent_cmd: direct_lord_rca_shortcut_20260710
+  status: assigned
+  rca_tracking:
+    enabled: true
+    family_id: family_p0
+    started_at: "2026-05-15T00:00:00+09:00"
+    escalation_severity: P0
+EOF
+    scan_with_gunshi2_writer "2026-05-15T08:02:00" '{"ashigaru1":"busy","ashigaru2":"busy","ashigaru3":"busy"}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"inbox suppressed"* ]]
+    run python3 - "$STALL_ROOT/queue/tasks/gunshi2.yaml" <<'PYEOF'
+import sys, yaml
+task = (yaml.safe_load(open(sys.argv[1])) or {}).get("task") or {}
+assert task.get("priority") == "P0"
+assert (task.get("trigger") or {}).get("severity") == "P0"
+PYEOF
+    [ "$status" -eq 0 ]
+}
+
+@test "RCA elapsed: clock ignores busy, worktree and ordinary report progress after checkpoint" {
+    load_fixture rca_elapsed
+    mkdir -p "$STALL_ROOT/worktree"
+    sed -i "/type: implementation/a\\  worktree: $STALL_ROOT/worktree" "$STALL_ROOT/queue/tasks/ashigaru1.yaml"
+    scan "2026-05-15T00:59:00" '{"ashigaru1":"busy"}'
+    [[ "$output" != *"rca_checkpoint_due"* ]]
+    scan "2026-05-15T01:00:00" '{"ashigaru1":"busy"}'
+    [[ "$output" == *"rca_checkpoint_due"* ]]
+    touch "$STALL_ROOT/worktree/progress"
+    cat > "$STALL_ROOT/queue/reports/ashigaru1_report.yaml" <<'EOF'
+report:
+  task_id: unrelated_progress
+  status: in_progress
+  timestamp: "2026-05-15T01:30:00+09:00"
+EOF
+    scan "2026-05-15T02:00:00" '{"ashigaru1":"busy"}'
+    [[ "$output" == *"rca_elapsed_120m"* ]]
+}
+
+@test "Gunshi2 capacity notices are deduplicated for RCA and generic intents" {
+    load_fixture rca_elapsed
+    cat > "$STALL_ROOT/queue/tasks/gunshi2.yaml" <<'EOF'
+task:
+  task_id: unrelated_gunshi2_work
+  parent_cmd: cmd_other
+  status: assigned
+EOF
+    cat > "$STALL_ROOT/queue/tasks/ashigaru2.yaml" <<'EOF'
+task:
+  task_id: generic_stall
+  parent_cmd: cmd_generic
+  status: assigned
+  type: implementation
+  timestamp: "2026-05-15T00:00:00+09:00"
+EOF
+    scan "2026-05-15T02:00:00" '{"ashigaru1":"busy","ashigaru2":"idle"}'
+    [[ "$output" == *"rca_gunshi2_capacity"* ]]
+    scan "2026-05-15T02:01:00" '{"ashigaru1":"busy","ashigaru2":"idle"}'
+    [[ "$output" != *"rca_gunshi2_capacity"* ]]
+    [[ "$output" == *"gunshi2_capacity"* ]]
+    scan "2026-05-15T02:02:00" '{"ashigaru1":"busy","ashigaru2":"idle"}'
+    [[ "$output" != *"gunshi2_capacity"* ]]
+    run python3 - "$STALL_ROOT/queue/stall_detector_state.yaml" <<'PYEOF'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1])) or {}
+notices = doc.get("gunshi2_capacity_notices") or {}
+assert notices["rca:direct_lord_rca_shortcut_20260710:rca_direct_01"]["notified_at"]
+assert notices["generic:cmd_generic:assigned_no_progress"]["notified_at"]
+PYEOF
+    [ "$status" -eq 0 ]
 }
 
 # ═══════════════════════════════════════════════════════════════

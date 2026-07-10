@@ -668,7 +668,7 @@ cli:
   agents:
     ashigaru1:
       type: codex          # codex / claude / copilot / kimi / opencode / antigravity
-      model: gpt-5.5
+      model: gpt-5.6-terra-midium
       effort: medium       # Codex reasoning effort: low / medium / high / xhigh
     ashigaru2:
       type: claude

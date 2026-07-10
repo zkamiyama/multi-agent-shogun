@@ -57,3 +57,21 @@ assert layout < browser < start < web_url < next_steps
 PY
     [ "$status" -eq 0 ]
 }
+
+@test "zellij deployment gives only multiagent the priority KDL and resolves its live titles" {
+    run python3 - "$DEPARTURE_SCRIPT" <<'PY'
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).read_text()
+assert 'mux_create_session shogun main || exit $?' in source
+assert 'mux_create_session multiagent agents "$SCRIPT_DIR/layouts/multiagent-priority.kdl" || exit $?' in source
+assert 'mux_validate_layout_roster multiagent "${multi_agents[@]}"' in source
+assert 'target=$(mux_find_pane_by_agent "$agent")' in source
+start = source.index('start_zellij_deployment()')
+end = source.index('\n# ═', start)
+zellij_block = source[start:end]
+assert 'mux_create_pane multiagent' not in zellij_block
+PY
+    [ "$status" -eq 0 ]
+}

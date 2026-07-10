@@ -1,0 +1,20 @@
+layout {
+    tab name="agents" {
+        pane split_direction="horizontal" {
+            pane size="55%" split_direction="vertical" {
+                pane name="karo"
+                pane name="gunshi"
+                pane name="gunshi2"
+            }
+            pane size="45%" split_direction="vertical" {
+                pane name="ashigaru1"
+                pane name="ashigaru2"
+                pane name="ashigaru3"
+                pane name="ashigaru4"
+                pane name="ashigaru5"
+                pane name="ashigaru6"
+                pane name="ashigaru7"
+            }
+        }
+    }
+}

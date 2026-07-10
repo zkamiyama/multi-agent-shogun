@@ -63,7 +63,7 @@ join_lines() {
     load_registry_with "$settings"
 
     result=$(agent_registry_multiagent_agents | join_lines)
-    [ "$result" = "karo ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 ashigaru6 ashigaru7 gunshi" ]
+    [ "$result" = "karo ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 ashigaru6 ashigaru7 gunshi gunshi2" ]
 }
 
 @test "agent_registry: pane mapping follows configured order and pane base" {
@@ -104,7 +104,7 @@ join_lines() {
     gunshi2:
       type: codex'
 
-    run env AGENT_REGISTRY_SETTINGS="$settings" SHOGUN_PANE_BASE=1 \
+    run env MUX_BACKEND=tmux AGENT_REGISTRY_SETTINGS="$settings" SHOGUN_PANE_BASE=1 \
         bash "$PROJECT_ROOT/scripts/watcher_supervisor.sh" --print-watchers
 
     [ "$status" -eq 0 ]

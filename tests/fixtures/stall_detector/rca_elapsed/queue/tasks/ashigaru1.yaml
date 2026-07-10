@@ -1,0 +1,10 @@
+task:
+  task_id: rca_probe_01
+  parent_cmd: direct_lord_rca_shortcut_20260710
+  status: assigned
+  type: implementation
+  timestamp: "2026-05-15T00:00:00+09:00"
+  rca_tracking:
+    enabled: true
+    family_id: rca_direct_01
+    started_at: "2026-05-15T00:00:00+09:00"

@@ -512,7 +512,7 @@ PYEOF
 
 @test "codex-clear: codex-ashigaru.md protocol uses CLI-neutral context reset" {
     # protocol.mdのclear_command行がCLI中立表現になっていること
-    grep -q "context reset command via send-keys" "$OUTPUT_DIR/codex-ashigaru.md"
+    grep -q "sends context reset command" "$OUTPUT_DIR/codex-ashigaru.md"
 }
 
 @test "codex-clear: codex-karo.md has no bare '/clear' in redo protocol" {
@@ -522,11 +522,11 @@ PYEOF
 }
 
 @test "codex-clear: codex-gunshi.md protocol uses CLI-neutral context reset" {
-    grep -q "context reset command via send-keys" "$OUTPUT_DIR/codex-gunshi.md"
+    grep -q "sends context reset command" "$OUTPUT_DIR/codex-gunshi.md"
 }
 
 @test "codex-clear: codex-shogun.md protocol uses CLI-neutral context reset" {
-    grep -q "context reset command via send-keys" "$OUTPUT_DIR/codex-shogun.md"
+    grep -q "sends context reset command" "$OUTPUT_DIR/codex-shogun.md"
 }
 
 # =============================================================================

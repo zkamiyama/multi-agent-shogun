@@ -1,0 +1,10 @@
+task:
+  task_id: rca_waiting_family
+  parent_cmd: cmd_parent_cooldown
+  status: assigned
+  type: implementation
+  timestamp: "2026-05-15T00:00:00+09:00"
+  rca_tracking:
+    enabled: true
+    family_id: family_waiting
+    started_at: "2026-05-15T00:00:00+09:00"

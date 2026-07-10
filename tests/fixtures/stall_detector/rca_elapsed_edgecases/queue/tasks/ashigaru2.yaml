@@ -1,0 +1,12 @@
+task:
+  task_id: rca_invalid_family
+  parent_cmd: cmd_invalid_thresholds
+  status: assigned
+  type: implementation
+  timestamp: "2026-05-15T00:00:00+09:00"
+  rca_tracking:
+    enabled: true
+    family_id: family_invalid
+    started_at: "2026-05-15T00:00:00+09:00"
+    checkpoint_after_min: 90.5
+    escalate_after_min: 60

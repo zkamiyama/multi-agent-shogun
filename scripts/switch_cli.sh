@@ -59,7 +59,7 @@ usage() {
     echo "  agent_id   Agent configured in config/settings.yaml (e.g. karo, ashigaru1, gunshi)"
     echo "  --type     claude | codex | copilot | kimi | opencode | cursor"
     echo "  --model    claude-sonnet-4-6 | claude-opus-4-8 | gpt-5.3-codex | openai/gpt-5.4-mini | etc."
-    echo "  --effort   Claude effort level: low | medium | high | xhigh | max"
+    echo "  --effort   Reasoning effort level: low | medium | high | xhigh | max | ultra"
     echo "  --type     claude | codex | copilot | kimi | opencode | antigravity"
     echo "  --model    claude-sonnet-4-6 | claude-opus-4-6 | gpt-5.3-codex | openai/gpt-5.4-mini | etc."
     echo "  --variant  OpenCode model variant such as xhigh, high, max, minimal"
@@ -483,8 +483,8 @@ if [[ -n "$NEW_TYPE" ]]; then
     NEW_TYPE=$(_cli_adapter_normalize_cli_type "$NEW_TYPE")
 fi
 
-if [[ -n "$NEW_EFFORT" && ! "$NEW_EFFORT" =~ ^(low|medium|high|xhigh|max)$ ]]; then
-    log "ERROR: Invalid effort: ${NEW_EFFORT}. Allowed: low, medium, high, xhigh, max"
+if [[ -n "$NEW_EFFORT" && ! "$NEW_EFFORT" =~ ^(low|medium|high|xhigh|max|ultra)$ ]]; then
+    log "ERROR: Invalid effort: ${NEW_EFFORT}. Allowed: low, medium, high, xhigh, max, ultra"
     exit 1
 fi
 

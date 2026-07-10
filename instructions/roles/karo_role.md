@@ -214,7 +214,7 @@ These are L1-L2 traffic-control checks. If correctness, risk, adoption, or cause
 
 ### Complex QC → Delegate to Gunshi
 
-Route these to Gunshi via `queue/tasks/gunshi.yaml`:
+Route these to Gunshi1 via `queue/tasks/gunshi.yaml`. Long-running or high-interaction escalation is routed to Gunshi2 via `queue/tasks/gunshi2.yaml`:
 
 | Check | Bloom Level | Why Gunshi |
 |-------|-------------|------------|
@@ -223,6 +223,64 @@ Route these to Gunshi via `queue/tasks/gunshi.yaml`:
 | Architecture analysis | L5-L6 | Multi-factor evaluation |
 | Evidence/adoption review | L5 Evaluate | Prevents Karo from becoming a worker |
 | Deploy blocker vs non-blocker classification | L5 Evaluate | Requires quality judgment |
+
+### Long-Running Escalation → Gunshi2
+
+Gunshi2 is the dedicated escalation strategist for work that is taking too
+long, producing too many back-and-forth reports, or repeatedly failing to
+converge. Use Gunshi2 for guidance once, then resume normal Karo traffic
+control using the recommended plan.
+
+Escalate to Gunshi2 when any of these are true for a `parent_cmd` or task
+family:
+
+| Trigger | Initial Threshold | Required Karo Action |
+|---------|-------------------|----------------------|
+| Assigned task has no meaningful progress | `assigned_no_progress` reaches P1 or 120m | Write a Gunshi2 L6 escalation task |
+| Same task family keeps cycling | 3 or more redo/reprobe attempts | Ask Gunshi2 for root-cause hypothesis and stop/continue criteria |
+| Parent cmd has excessive coordination | 8 or more report/inbox roundtrips in 24h | Ask Gunshi2 to simplify the plan or propose a smaller next probe |
+| Stall detector raises P0/P1 and normal wakeups do not resolve it | first unresolved P1/P0 after Karo action | Ask Gunshi2 for recovery strategy |
+
+Protocol:
+
+1. Write `queue/tasks/gunshi2.yaml` with `agent: gunshi2`,
+   `type: strategic_escalation`, `bloom_level: L6`, the parent cmd, trigger
+   evidence, current state, failed attempts, and the concrete decision needed.
+2. Notify Gunshi2 with
+   `bash scripts/inbox_write.sh gunshi2 "<summary>" task_assigned karo`.
+3. Do not assign another broad redo while the Gunshi2 escalation is pending
+   unless it is a narrow safety/unblock step.
+4. When Gunshi2 reports, convert the guidance into concrete Ashigaru/Gunshi1
+   tasks, or record a Lord decision item in `dashboard.md` 🚨 if the advice
+   requires scope, cost, or risk approval.
+
+`scripts/stall_detector.sh` may also create Gunshi2 escalation tasks
+automatically for long-running/high-interaction work. If you receive the
+resulting `stall_alert`, treat it as an active escalation path and follow
+through instead of marking the inbox item read and going idle.
+
+### Explicit RCA elapsed-time escalation
+
+For an investigation that must reach a strategic review even while its pane is
+busy, put this explicit marker on the assigned task; do not infer it from a
+`blocked_by`, task type, or wording:
+
+```yaml
+rca_tracking:
+  enabled: true
+  family_id: rca_<stable_family_id>
+  started_at: "<ISO-8601 timestamp>"
+```
+
+Keep `family_id` and `started_at` unchanged across a redo in the same RCA
+family. The detector sends Karo one P3 checkpoint at 60 minutes and creates one
+P1 Gunshi2 intent at 120 minutes; normal reports, worktree changes, and a busy
+pane do not reset that clock. Record the outcome in the responsible report as a
+top-level `rca_events` item with the same raw `parent_cmd` and `family_id`:
+`outcome: completed|failed|blocked|cancelled`. A different family never closes
+the clock. If Gunshi2 is assigned to another case, leave its task untouched;
+the detector retains `pending_gunshi2_slot` and Karo must release or re-prioritize
+capacity before it dispatches.
 
 ### No QC for Ashigaru
 

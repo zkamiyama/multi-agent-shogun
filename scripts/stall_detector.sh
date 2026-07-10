@@ -43,6 +43,13 @@ IS_REAL_ROOT=0
 if [ "$ROOT" = "$SCRIPT_DIR" ]; then
     IS_REAL_ROOT=1
 fi
+# Test roots never notify a live agent.  This explicit opt-in permits Bats to
+# exercise the otherwise real-root-only Gunshi2 task writer against its
+# isolated fixture tree.
+CAN_WRITE_GUNSHI2=0
+if [ "$IS_REAL_ROOT" -eq 1 ] || [ "${STALL_TEST_ALLOW_GUNSHI2_WRITE:-0}" = "1" ]; then
+    CAN_WRITE_GUNSHI2=1
+fi
 
 LOG_DIR="${ROOT}/logs"
 LOG_FILE="${LOG_DIR}/stall_detector.log"
@@ -58,7 +65,7 @@ fi
 
 # ── 監視対象 agent → tmux pane (watcher_supervisor.sh と同じ割当) ──
 # shogun は殿が操作する pane ゆえ stall 監視対象外。
-AGENTS=(karo ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 ashigaru6 ashigaru7 gunshi)
+AGENTS=(karo ashigaru1 ashigaru2 ashigaru3 ashigaru4 ashigaru5 ashigaru6 ashigaru7 gunshi gunshi2)
 declare -A AGENT_PANE=(
     [karo]="multiagent:agents.0"
     [ashigaru1]="multiagent:agents.1"
@@ -69,6 +76,7 @@ declare -A AGENT_PANE=(
     [ashigaru6]="multiagent:agents.6"
     [ashigaru7]="multiagent:agents.7"
     [gunshi]="multiagent:agents.8"
+    [gunshi2]="multiagent:agents.9"
 )
 
 SCAN_INTERVAL_SEC="${STALL_SCAN_INTERVAL_SEC:-60}"
@@ -171,6 +179,7 @@ run_scan() {
     # stdout に行指向で結果を返す:
     #   SUMMARY<TAB><scan 要約>
     #   NOTIFY<TAB><severity><TAB><karo へ送る要約>
+    #   GUNSHI2<TAB><parent_cmd><TAB><severity><TAB><kind><TAB><agent><TAB><task_id><TAB><summary>
     #   WARN<TAB><parse warning 等>
     local scan_out
     set +e
@@ -180,7 +189,12 @@ run_scan() {
         STALL_NOW="$now_override" \
         STALL_STATE_FILE="$STATE_FILE" \
         STALL_ALERTS_FILE="$ALERTS_FILE" \
+        STALL_IS_REAL_ROOT="$IS_REAL_ROOT" \
+        STALL_CAN_WRITE_GUNSHI2="$CAN_WRITE_GUNSHI2" \
         STALL_SCAN_INTERVAL_SEC="$SCAN_INTERVAL_SEC" \
+        GUNSHI2_ROUNDTRIP_THRESHOLD="${GUNSHI2_ROUNDTRIP_THRESHOLD:-8}" \
+        GUNSHI2_REDO_THRESHOLD="${GUNSHI2_REDO_THRESHOLD:-3}" \
+        GUNSHI2_ESCALATION_COOLDOWN_MIN="${GUNSHI2_ESCALATION_COOLDOWN_MIN:-360}" \
         "$PYTHON" - <<'PYEOF'
 import datetime
 import json
@@ -198,9 +212,14 @@ except Exception as e:  # pragma: no cover
     sys.exit(0)
 
 ROOT = os.environ["STALL_ROOT"]
+IS_REAL_ROOT = os.environ.get("STALL_IS_REAL_ROOT", "0") == "1"
+CAN_WRITE_GUNSHI2 = os.environ.get("STALL_CAN_WRITE_GUNSHI2", "0") == "1"
 STATE_FILE = os.environ["STALL_STATE_FILE"]
 ALERTS_FILE = os.environ["STALL_ALERTS_FILE"]
 SCAN_INTERVAL_SEC = int(os.environ.get("STALL_SCAN_INTERVAL_SEC", "60") or "60")
+GUNSHI2_ROUNDTRIP_THRESHOLD = int(os.environ.get("GUNSHI2_ROUNDTRIP_THRESHOLD", "8") or "8")
+GUNSHI2_REDO_THRESHOLD = int(os.environ.get("GUNSHI2_REDO_THRESHOLD", "3") or "3")
+GUNSHI2_ESCALATION_COOLDOWN_MIN = int(os.environ.get("GUNSHI2_ESCALATION_COOLDOWN_MIN", "360") or "360")
 
 try:
     PANE_STATES = json.loads(os.environ.get("STALL_PANE_STATES", "{}") or "{}")
@@ -231,7 +250,7 @@ REPEAT_COOLDOWN_MIN = 30      # 再通知 cooldown (軍師: blocked 30m repeat c
 BUSY_CEILING_MIN = 180        # pane busy でも 3h 超なら informational に downgrade
 
 AGENTS = ["karo", "ashigaru1", "ashigaru2", "ashigaru3", "ashigaru4",
-          "ashigaru5", "ashigaru6", "ashigaru7", "gunshi"]
+          "ashigaru5", "ashigaru6", "ashigaru7", "gunshi", "gunshi2"]
 ASHIGARU = [a for a in AGENTS if a.startswith("ashigaru")]
 
 # report status の正規化分類 (false_positive_controls #4: detector 内部分類のみ。
@@ -595,7 +614,7 @@ def task_type_threshold(agent, task):
     """assigned_no_progress の閾値 (分) を task type / bloom から決める。"""
     ttype = status_norm(task.get("type"))
     bloom = status_norm(task.get("bloom_level"))
-    if agent == "gunshi" and bloom in ("l5", "l6"):
+    if agent.startswith("gunshi") and bloom in ("l5", "l6"):
         return ASSIGNED_GUNSHI_MIN
     if any(k in ttype for k in
            ("build", "test", "full_simulate", "simulate", "e2e")):
@@ -699,10 +718,48 @@ if not isinstance(state, dict):
 state.setdefault("pane_idle_streak", {})
 state.setdefault("scan_count", 0)
 state.setdefault("worktree_progress", {})
+state.setdefault("gunshi2_escalations", {})
+state.setdefault("gunshi2_capacity_notices", {})
+state.setdefault("rca_parent_cooldowns", {})
+state.setdefault("rca_elapsed", {})
 if not isinstance(state.get("pane_idle_streak"), dict):
     state["pane_idle_streak"] = {}
 if not isinstance(state.get("worktree_progress"), dict):
     state["worktree_progress"] = {}
+if not isinstance(state.get("gunshi2_escalations"), dict):
+    state["gunshi2_escalations"] = {}
+if not isinstance(state.get("gunshi2_capacity_notices"), dict):
+    state["gunshi2_capacity_notices"] = {}
+if not isinstance(state.get("rca_parent_cooldowns"), dict):
+    state["rca_parent_cooldowns"] = {}
+if not isinstance(state.get("rca_elapsed"), dict):
+    state["rca_elapsed"] = {}
+
+
+def should_emit_gunshi2_capacity_notice(intent, severity):
+    """Deduplicate capacity notices without discarding their pending intent.
+
+    P0 is deliberately never delayed by a repeat cooldown.  P1/P2 notices are
+    repeated only after the normal detector cooldown and leave an audit record
+    in state so restarts do not re-notify every scan.
+    """
+    notices = state["gunshi2_capacity_notices"]
+    notice = notices.get(intent)
+    if not isinstance(notice, dict):
+        notice = {}
+    previous = parse_ts(notice.get("notified_at"))
+    repeat_after = int(notice.get("repeat_after_min", REPEAT_COOLDOWN_MIN) or REPEAT_COOLDOWN_MIN)
+    if severity != "P0" and previous is not None:
+        age = (NOW - previous).total_seconds() / 60.0
+        if age < repeat_after:
+            return False
+    notice.update({
+        "notified_at": now_iso,
+        "repeat_after_min": REPEAT_COOLDOWN_MIN,
+        "severity": severity,
+    })
+    notices[intent] = notice
+    return True
 
 alerts_doc = load_yaml_safe(ALERTS_FILE)
 if not isinstance(alerts_doc, dict):
@@ -748,7 +805,17 @@ now_iso = iso(NOW)
 current = {}  # key -> candidate dict
 
 
-def add_candidate(agent, task_id, kind, source_ts, severity, evidence):
+def parent_cmd_from_blob(*values):
+    for value in values:
+        if value is None:
+            continue
+        m = re.search(r"\bcmd_[A-Za-z0-9_-]+\b", str(value))
+        if m:
+            return m.group(0)
+    return None
+
+
+def add_candidate(agent, task_id, kind, source_ts, severity, evidence, parent_cmd=None):
     key = f"{agent}:{task_id}:{kind}:{source_ts}"
     current[key] = {
         "key": key,
@@ -757,7 +824,49 @@ def add_candidate(agent, task_id, kind, source_ts, severity, evidence):
         "kind": kind,
         "severity": severity,
         "evidence": evidence,
+        "parent_cmd": parent_cmd,
     }
+
+
+RCA_TERMINAL_OUTCOMES = {"completed", "failed", "blocked", "cancelled"}
+
+
+def iter_rca_events():
+    """Read only explicit top-level rca_events records from report YAML files.
+
+    The ordinary report parser deliberately remains unchanged: generic report status,
+    blocked_by, and qc_updates must never stop an RCA family clock.
+    """
+    reports_dir = os.path.join(ROOT, "queue", "reports")
+    try:
+        names = os.listdir(reports_dir)
+    except FileNotFoundError:
+        return
+    for name in names:
+        if not name.endswith((".yaml", ".yml")):
+            continue
+        path = os.path.join(reports_dir, name)
+        doc = load_yaml_safe(path)
+        if not isinstance(doc, dict):
+            continue
+        events = doc.get("rca_events")
+        if not isinstance(events, list):
+            continue
+        for event in events:
+            if isinstance(event, dict):
+                yield event
+
+
+def matching_rca_terminal(parent_cmd, family_id):
+    for event in iter_rca_events():
+        if (str(event.get("event") or "").strip().lower() != "outcome"
+                or str(event.get("parent_cmd") or "") != parent_cmd
+                or str(event.get("family_id") or "") != family_id):
+            continue
+        outcome = str(event.get("outcome") or "").strip().lower()
+        if outcome in RCA_TERMINAL_OUTCOMES:
+            return outcome, parse_ts(event.get("timestamp"))
+    return None, None
 
 
 def latest_task_progress(agent):
@@ -882,10 +991,14 @@ for agent in AGENTS:
           f"no task/report/status progress after message timestamp {iso(msg_ts)} "
           f"(latest_progress={latest_desc}); dedupe_meta: {meta}。")
     add_candidate(agent, task_id, "agent_unread_unprocessed",
-                  iso(msg_ts), severity, ev)
+                  iso(msg_ts), severity, ev,
+                  parent_cmd=parent_cmd_from_blob(
+                      oldest.get("parent_cmd"), oldest.get("dedup_key"),
+                      oldest.get("message"), oldest.get("id"), task_id, ev,
+                  ))
 
 
-for agent in ASHIGARU + ["gunshi"]:
+for agent in ASHIGARU + [a for a in AGENTS if a.startswith("gunshi")]:
     task = load_task(agent)
     rep = load_report_latest(agent)
     task_status = status_norm(task.get("status")) if task else None
@@ -926,7 +1039,12 @@ for agent in ASHIGARU + ["gunshi"]:
                       f"task '{task_id}' status={task_status}。"
                       f"report 担当 task='{rep.get('task_id')}'。")
                 add_candidate(agent, task_id, "blocked_report_unresolved",
-                              src, sev, ev)
+                              src, sev, ev,
+                              parent_cmd=parent_cmd_from_blob(
+                                  task.get("parent_cmd") if task else None,
+                                  rep.get("parent_cmd") if rep else None,
+                                  task_id, rep.get("task_id") if rep else None, ev,
+                              ))
 
     # assigned 系 (assigned_no_progress / idle_with_active_task) は
     # task status=assigned が前提。
@@ -1020,7 +1138,10 @@ for agent in ASHIGARU + ["gunshi"]:
                       f"{BUSY_CEILING_MIN}m ceiling 超過 — 進捗 (worktree/report) 不在ゆえ "
                       f"informational。")
                 add_candidate(agent, task_id, "assigned_no_progress",
-                              src, "P3", ev)
+                              src, "P3", ev,
+                              parent_cmd=parent_cmd_from_blob(
+                                  task.get("parent_cmd"), task_id, ev,
+                              ))
         elif idle_streak(agent) >= 2 and mins_since_progress >= threshold:
             sev = "P1" if mins_since_progress >= ASSIGNED_P1_MIN else "P2"
             src = iso(task_ts) if task_ts else "unknown"
@@ -1030,7 +1151,10 @@ for agent in ASHIGARU + ["gunshi"]:
                   f"worktree HEAD/mtime 不変 / task ts 以後 report 更新なし / "
                   f"inbox unread 0 / pane idle {idle_streak(agent)} 連続。")
             add_candidate(agent, task_id, "assigned_no_progress",
-                          src, sev, ev)
+                          src, sev, ev,
+                          parent_cmd=parent_cmd_from_blob(
+                              task.get("parent_cmd"), task_id, ev,
+                          ))
 
     # ── kind: idle_with_active_task ──
     # pane idle + task assigned + latest report が terminal でない + worktree/report
@@ -1050,13 +1174,157 @@ for agent in ASHIGARU + ["gunshi"]:
               f"task ts 以後 report 更新なし、latest report "
               f"status='{rep.get('status') if rep else 'none'}' (非 terminal)、"
               f"inbox unread 0。")
-        add_candidate(agent, task_id, "idle_with_active_task", src, "P2", ev)
+        add_candidate(agent, task_id, "idle_with_active_task", src, "P2", ev,
+                      parent_cmd=parent_cmd_from_blob(
+                          task.get("parent_cmd"), task_id, ev,
+                      ))
+
+
+# ── Explicit RCA elapsed clock ────────────────────────────────
+# This pass intentionally does not look at pane state, worktree signatures, or
+# ordinary report progress.  Those are useful for generic stalls but would let
+# a busy investigation postpone its promised RCA escalation forever.
+for agent in ASHIGARU + [a for a in AGENTS if a.startswith("gunshi")]:
+    task = load_task(agent)
+    if not isinstance(task, dict) or status_norm(task.get("status")) != "assigned":
+        continue
+    tracking = task.get("rca_tracking")
+    if not isinstance(tracking, dict) or tracking.get("enabled") is not True:
+        continue
+    parent = task.get("parent_cmd")
+    family = tracking.get("family_id")
+    started = parse_ts(tracking.get("started_at"))
+    # Schema is deliberately fail-closed.  A malformed opt-in never becomes a
+    # surprise escalation, and legacy tasks with no marker remain untouched.
+    if (not isinstance(parent, str) or not parent.strip()
+            or not isinstance(family, str) or not family.strip()
+            or started is None):
+        WARNINGS.append(f"RCA marker invalid for {agent}:{task.get('task_id')}")
+        continue
+    parent = parent.strip()
+    family = family.strip()
+    key = f"{parent}|{family}"
+    entry = state["rca_elapsed"].get(key)
+    if not isinstance(entry, dict):
+        entry = {}
+    prior_started = parse_ts(entry.get("started_at"))
+    # started_at is immutable across redos: preserve the earliest observed
+    # timestamp even if a later task accidentally tries to reset it.
+    effective_started = min([d for d in (started, prior_started) if d is not None])
+    entry.update({
+        "parent_cmd": parent,
+        "family_id": family,
+        "started_at": iso(effective_started),
+        "source_agent": agent,
+        "source_task_id": task.get("task_id"),
+    })
+    entry.setdefault("checkpoint", {"state": "pending", "notified_at": None})
+    entry.setdefault("escalation", {"state": "pending", "due_at": None,
+                                      "dispatched_at": None, "gunshi2_task_id": None})
+    if not isinstance(entry["checkpoint"], dict): entry["checkpoint"] = {"state": "pending", "notified_at": None}
+    if not isinstance(entry["escalation"], dict): entry["escalation"] = {"state": "pending", "due_at": None, "dispatched_at": None, "gunshi2_task_id": None}
+    state["rca_elapsed"][key] = entry
+
+    terminal, terminal_ts = matching_rca_terminal(parent, family)
+    if terminal:
+        entry["terminal"] = {"outcome": terminal, "timestamp": iso(terminal_ts) if terminal_ts else None}
+        entry["escalation"]["state"] = "suppressed_terminal"
+        continue
+    elapsed = minutes_since(effective_started)
+    if elapsed is None or elapsed < 0:
+        continue
+    # Explicitly reject floats, negative values, and reversed clocks.  Do not
+    # coerce with int(): int(60.5) silently changes the promised deadline.
+    checkpoint_after = tracking.get("checkpoint_after_min", 60)
+    escalate_after = tracking.get("escalate_after_min", 120)
+    valid_thresholds = (
+        type(checkpoint_after) is int and type(escalate_after) is int
+        and checkpoint_after >= 0 and escalate_after >= 0
+        and checkpoint_after <= escalate_after
+    )
+    if not valid_thresholds:
+        entry["threshold_validation"] = {
+            "state": "invalid_fail_closed",
+            "checkpoint_after_min": checkpoint_after,
+            "escalate_after_min": escalate_after,
+            "detected_at": now_iso,
+        }
+        entry["checkpoint"]["state"] = "suppressed_invalid_threshold"
+        entry["escalation"]["state"] = "suppressed_invalid_threshold"
+        WARNINGS.append(
+            f"RCA threshold invalid for {agent}:{task.get('task_id')} "
+            f"family={family}: checkpoint_after_min={checkpoint_after!r}, "
+            f"escalate_after_min={escalate_after!r} (fail-closed)"
+        )
+        continue
+    if elapsed >= checkpoint_after and entry["checkpoint"].get("state") == "pending":
+        entry["checkpoint"] = {"state": "notified", "notified_at": now_iso}
+        emit("NOTIFY", "P3", (f"[P3] rca_checkpoint_due — {agent}:{task.get('task_id')} "
+                                f"family={family} parent_cmd={parent}; elapsed={int(elapsed)}m。"))
+    if elapsed < escalate_after:
+        continue
+    esc = entry["escalation"]
+    if esc.get("state") in ("dispatched", "intent_emitted", "suppressed_terminal"):
+        continue
+    esc["due_at"] = esc.get("due_at") or now_iso
+    # Both generic and RCA dispatches impose a parent-level cooldown.  Keep a
+    # different RCA family pending until it expires; a terminal result above
+    # always wins, and P0 deliberately bypasses this suppression.
+    rca_severity = tracking.get("escalation_severity", "P1")
+    if rca_severity not in ("P0", "P1"):
+        rca_severity = "P1"
+    cooldowns = []
+    generic_notice = state["gunshi2_escalations"].get(parent)
+    generic_last = parse_ts(generic_notice.get("last_notified")) if isinstance(generic_notice, dict) else None
+    if generic_last is not None:
+        cooldowns.append((generic_last + datetime.timedelta(minutes=GUNSHI2_ESCALATION_COOLDOWN_MIN),
+                          generic_last, "generic_parent_cooldown", generic_notice))
+    rca_notice = state["rca_parent_cooldowns"].get(parent)
+    if isinstance(rca_notice, dict):
+        rca_expires = parse_ts(rca_notice.get("expires_at"))
+        rca_dispatched = parse_ts(rca_notice.get("dispatched_at"))
+        if rca_expires is not None and rca_expires > NOW:
+            cooldowns.append((rca_expires, rca_dispatched, "rca_parent_cooldown", rca_notice))
+    active_cooldowns = [item for item in cooldowns if item[0] > NOW]
+    if rca_severity != "P0" and active_cooldowns:
+        expires_at, dispatched_at, reason, record = max(active_cooldowns, key=lambda item: item[0])
+        esc["state"] = "pending_parent_cooldown"
+        esc["parent_cooldown"] = {
+            "dispatched_at": iso(dispatched_at) if dispatched_at else None,
+            "expires_at": iso(expires_at),
+            "reason": reason,
+            "family_id": record.get("family_id") if isinstance(record, dict) else None,
+        }
+        continue
+    # A different assigned Gunshi2 task is capacity, not permission to replace
+    # it.  Keep the intent in detector state for a later scan.
+    g2_task = load_task("gunshi2")
+    if (isinstance(g2_task, dict) and status_norm(g2_task.get("status")) == "assigned"
+            and (str(g2_task.get("parent_cmd") or "") != parent
+                 or str((g2_task.get("rca_context") or {}).get("family_id") or "") != family)):
+        esc["state"] = "pending_gunshi2_slot"
+        if should_emit_gunshi2_capacity_notice(f"rca:{parent}:{family}", rca_severity):
+            esc["notified_at"] = now_iso
+            esc["repeat_after_min"] = REPEAT_COOLDOWN_MIN
+            emit("NOTIFY", rca_severity, (f"[{rca_severity}] rca_gunshi2_capacity — family={family} parent_cmd={parent} "
+                                    f"is due after {int(elapsed)}m; Gunshi2 slot is assigned to another case。"))
+        continue
+    # Test roots record emitted intent for deterministic no-duplicate tests.
+    # A real root remains due until the outer writer has atomically installed
+    # the Gunshi2 task and then marks this entry dispatched.
+    esc["state"] = "due" if CAN_WRITE_GUNSHI2 else "intent_emitted"
+    summary = (f"RCA elapsed {int(elapsed)}m; family={family}; started_at={iso(effective_started)}; "
+               f"source={agent}:{task.get('task_id')}. Separate facts from hypotheses and propose up to three safe probes.")
+    emit("GUNSHI2", parent, rca_severity, "rca_elapsed_120m", agent,
+         task.get("task_id") or "unknown", summary)
 
 
 # false_positive_controls #5: Karo には agent ごとに 1 actionable alert を出す。
 # 同一 agent に複数 kind が立った場合 (例: blocked report を抱えたまま unread)、
 # severity を最優先し、同 severity なら kind priority で 1 件に絞る。
 CANDIDATE_SEV_RANK = {"P3": 0, "P2": 1, "P1": 2, "P0": 3}
+PRIMARY_KINDS = ("agent_unread_unprocessed", "blocked_report_unresolved",
+                 "assigned_no_progress", "idle_with_active_task")
 KIND_PRIORITY = {
     "blocked_report_unresolved": 4,
     "agent_unread_unprocessed": 3,
@@ -1074,6 +1342,171 @@ for _key, _cand in current.items():
         _best_by_agent[_agent] = (_prio, _key)
 _keep_keys = {k for _, k in _best_by_agent.values()}
 current = {k: v for k, v in current.items() if k in _keep_keys}
+
+
+def iter_yaml_files(*parts):
+    base = os.path.join(ROOT, *parts)
+    try:
+        names = os.listdir(base)
+    except FileNotFoundError:
+        return
+    for name in names:
+        if name.endswith((".yaml", ".yml")):
+            yield os.path.join(base, name)
+
+
+def extract_cmds(value):
+    if value is None:
+        return []
+    return re.findall(r"\bcmd_[A-Za-z0-9_-]+\b", str(value))
+
+
+def collect_recent_parent_cmd_metrics():
+    """24h内のinbox/report/task痕跡から parent_cmd のやり取り量を概算する。"""
+    cutoff = NOW - datetime.timedelta(hours=24)
+    metrics = {}
+
+    def ensure(cmd):
+        metrics.setdefault(cmd, {"interactions": 0, "redos": 0, "sources": []})
+        return metrics[cmd]
+
+    def count_blob(blob, ts=None, source="unknown"):
+        if ts is not None and ts < cutoff:
+            return
+        cmds = extract_cmds(blob)
+        if not cmds:
+            return
+        blob_s = str(blob)
+        redo_hit = bool(re.search(r"\b(redo|reprobe|retry|rerun|再実行|手戻り)\b", blob_s, re.I))
+        for cmd in set(cmds):
+            item = ensure(cmd)
+            item["interactions"] += 1
+            if redo_hit:
+                item["redos"] += 1
+            if len(item["sources"]) < 6:
+                item["sources"].append(source)
+
+    for path in iter_yaml_files("queue", "inbox") or []:
+        data = load_yaml_safe(path)
+        msgs = data.get("messages") if isinstance(data, dict) else []
+        if not isinstance(msgs, list):
+            continue
+        agent = os.path.basename(path).rsplit(".", 1)[0]
+        for msg in msgs:
+            if not isinstance(msg, dict):
+                continue
+            ts = parse_ts(msg.get("timestamp"))
+            blob = " ".join(str(msg.get(k, "")) for k in (
+                "id", "type", "from", "message", "dedup_key", "parent_cmd",
+            ))
+            count_blob(blob, ts=ts, source=f"inbox/{agent}")
+
+    for path in iter_yaml_files("queue", "tasks") or []:
+        data = load_yaml_safe(path)
+        task = data.get("task", data) if isinstance(data, dict) else {}
+        if not isinstance(task, dict):
+            continue
+        ts = parse_ts(task.get("timestamp"))
+        blob = " ".join(str(task.get(k, "")) for k in (
+            "task_id", "parent_cmd", "description", "redo_of", "reprobe_of",
+        ))
+        count_blob(blob, ts=ts, source=f"task/{os.path.basename(path)}")
+
+    for path in iter_yaml_files("queue", "reports") or []:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except Exception:
+            continue
+        for entry in iter_report_entries_from_text(text):
+            ts = parse_ts(entry.get("timestamp"))
+            blob = " ".join(str(entry.get(k, "")) for k in (
+                "task_id", "parent_cmd", "status", "summary", "result", "redo_of",
+            ))
+            count_blob(blob, ts=ts, source=f"report/{os.path.basename(path)}")
+        # malformed report fallback: count file once if it mentions a cmd and is recent by mtime.
+        try:
+            mtime_dt = datetime.datetime.fromtimestamp(os.path.getmtime(path), LOCAL_TZ)
+        except OSError:
+            mtime_dt = None
+        count_blob(text, ts=mtime_dt, source=f"report_text/{os.path.basename(path)}")
+
+    return metrics
+
+
+def gunshi2_should_escalate(parent_cmd, severity, kind):
+    if not parent_cmd:
+        return False
+    escalations = state["gunshi2_escalations"]
+    existing = escalations.get(parent_cmd)
+    if isinstance(existing, dict):
+        last = parse_ts(existing.get("last_notified"))
+        if last is not None:
+            age = (NOW - last).total_seconds() / 60.0
+            if age < GUNSHI2_ESCALATION_COOLDOWN_MIN:
+                return False
+    task = load_task("gunshi2")
+    if isinstance(task, dict):
+        if status_norm(task.get("status")) == "assigned" and task.get("parent_cmd") == parent_cmd:
+            return False
+        if status_norm(task.get("status")) == "assigned":
+            if should_emit_gunshi2_capacity_notice(f"generic:{parent_cmd}:{kind}", "P1"):
+                emit("NOTIFY", "P1", (f"[P1] gunshi2_capacity — parent_cmd={parent_cmd} の "
+                                        f"{kind} escalation は保留。Gunshi2 は "
+                                        f"{task.get('parent_cmd')} を実行中で上書きしない。"))
+            return False
+    if severity in ("P0", "P1") and kind in PRIMARY_KINDS:
+        return True
+    return False
+
+
+parent_metrics = collect_recent_parent_cmd_metrics()
+gunshi2_requests = {}
+for _key, _cand in current.items():
+    parent = _cand.get("parent_cmd") or parent_cmd_from_blob(
+        _cand.get("task_id"), _cand.get("evidence"),
+    )
+    if not parent:
+        continue
+    if gunshi2_should_escalate(parent, _cand.get("severity"), _cand.get("kind")):
+        gunshi2_requests[parent] = {
+            "severity": _cand.get("severity", "P2"),
+            "kind": _cand.get("kind", "stall"),
+            "agent": _cand.get("agent", "unknown"),
+            "task_id": _cand.get("task_id", "unknown"),
+            "summary": _cand.get("evidence", ""),
+        }
+
+for parent, metric in parent_metrics.items():
+    interactions = int(metric.get("interactions", 0) or 0)
+    redos = int(metric.get("redos", 0) or 0)
+    if interactions < GUNSHI2_ROUNDTRIP_THRESHOLD and redos < GUNSHI2_REDO_THRESHOLD:
+        continue
+    if not gunshi2_should_escalate(parent, "P1", "long_interaction_count"):
+        continue
+    sources = ", ".join(metric.get("sources", [])[:6])
+    gunshi2_requests.setdefault(parent, {
+        "severity": "P1",
+        "kind": "long_interaction_count",
+        "agent": "multi-agent-shogun",
+        "task_id": parent,
+        "summary": (
+            f"parent_cmd={parent} の24h内やり取りが多すぎる可能性。"
+            f"interactions={interactions} threshold={GUNSHI2_ROUNDTRIP_THRESHOLD}, "
+            f"redos={redos} threshold={GUNSHI2_REDO_THRESHOLD}, sources={sources}。"
+        ),
+    })
+
+for parent, req in gunshi2_requests.items():
+    state["gunshi2_escalations"][parent] = {
+        "last_notified": now_iso,
+        "severity": req["severity"],
+        "kind": req["kind"],
+        "agent": req["agent"],
+        "task_id": req["task_id"],
+    }
+    summary = str(req["summary"]).replace("\t", " ").replace("\n", " ")
+    emit("GUNSHI2", parent, req["severity"], req["kind"], req["agent"], req["task_id"], summary)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1097,9 +1530,6 @@ def should_notify(alert, new_severity):
         return True
     return False
 
-
-PRIMARY_KINDS = ("agent_unread_unprocessed", "blocked_report_unresolved",
-                 "assigned_no_progress", "idle_with_active_task")
 
 for key, cand in current.items():
     existing = alerts_by_key.get(key)
@@ -1278,6 +1708,182 @@ PYEOF
             WARN)
                 log "WARN: $rest"
                 ;;
+            GUNSHI2)
+                local parent_cmd g2_severity g2_kind g2_agent g2_task g2_summary
+                IFS=$'\t' read -r parent_cmd g2_severity g2_kind g2_agent g2_task g2_summary <<< "$rest"
+                if [ "$CAN_WRITE_GUNSHI2" -eq 1 ]; then
+                    local g2_write_rc=0
+                    "$PYTHON" - "$ROOT" "$parent_cmd" "$g2_severity" "$g2_kind" "$g2_agent" "$g2_task" "$g2_summary" <<'PYEOF' || g2_write_rc=$?
+import datetime
+import fcntl
+import os
+import re
+import sys
+
+import yaml
+
+root, parent_cmd, severity, kind, agent, task_id, summary = sys.argv[1:8]
+path = os.path.join(root, "queue", "tasks", "gunshi2.yaml")
+state_path = os.path.join(root, "queue", "stall_detector_state.yaml")
+test_now = os.environ.get("STALL_NOW")
+if test_now:
+    dispatched_now = datetime.datetime.fromtimestamp(int(test_now), datetime.datetime.now().astimezone().tzinfo).replace(microsecond=0)
+else:
+    dispatched_now = datetime.datetime.now().astimezone().replace(microsecond=0)
+now = dispatched_now.isoformat()
+
+os.makedirs(os.path.dirname(path), exist_ok=True)
+# Serialize read/check/write with every detector dispatch. Atomic rename alone
+# cannot prevent two scans from both deciding an empty slot is available.
+lock = open(path + ".lock", "a+", encoding="utf-8")
+fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+
+existing = {}
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        existing = yaml.safe_load(f) or {}
+except FileNotFoundError:
+    existing = {}
+
+task = existing.get("task") if isinstance(existing, dict) else {}
+# Never replace an assigned Gunshi2 task.  The caller treats rc=2 as capacity
+# and leaves its intent pending rather than claiming a successful dispatch.
+if isinstance(task, dict) and task.get("status") == "assigned":
+    sys.exit(2)
+
+rca_context = None
+if kind == "rca_elapsed_120m":
+    m = re.search(r"family=([^; ]+); started_at=([^; ]+)", summary)
+    if m:
+        rca_context = {"family_id": m.group(1), "started_at": m.group(2)}
+
+doc = {
+    "task": {
+        "task_id": f"gunshi2_escalation_{parent_cmd}_{dispatched_now.strftime('%Y%m%d%H%M%S')}",
+        "parent_cmd": parent_cmd,
+        "status": "assigned",
+        "agent": "gunshi2",
+        "type": "strategic_escalation",
+        "bloom_level": "L6",
+        # P0 RCA bypass must remain P0 in the task handed to Gunshi2.
+        "priority": severity if kind == "rca_elapsed_120m" and severity == "P0" else "P1",
+        "timestamp": now,
+        "description": (
+            "長期化またはやり取り過多の作業について、現状整理・根本原因仮説・"
+            "打開策・委譲/中止/縮小判断を一度だけ上奏せよ。"
+        ),
+        "trigger": {
+            "severity": severity,
+            "kind": kind,
+            "agent": agent,
+            "task_id": task_id,
+            "summary": summary,
+        },
+        "acceptance_criteria": [
+            "詰まりの原因を事実・推測に分けて整理している",
+            "次の一手を3案以内に絞り、推奨案と理由を明記している",
+            "Karoがそのまま再配分できる粒度の実行手順を提示している",
+        ],
+    }
+}
+if rca_context is not None:
+    doc["task"]["rca_context"] = rca_context
+
+tmp = f"{path}.tmp.{os.getpid()}"
+with open(tmp, "w", encoding="utf-8") as f:
+    yaml.safe_dump(doc, f, allow_unicode=True, sort_keys=False)
+os.replace(tmp, path)
+# The task is now durable.  Record the RCA-specific raw-parent cooldown before
+# releasing the dispatch lock, so another family cannot race a fresh dispatch.
+if rca_context is not None:
+    state_lock = open(state_path + ".lock", "a+", encoding="utf-8")
+    fcntl.flock(state_lock.fileno(), fcntl.LOCK_EX)
+    try:
+        try:
+            with open(state_path, encoding="utf-8") as f:
+                state = yaml.safe_load(f) or {}
+        except FileNotFoundError:
+            state = {}
+        cooldowns = state.setdefault("rca_parent_cooldowns", {})
+        dispatched = dispatched_now
+        expires = dispatched + datetime.timedelta(
+            minutes=int(os.environ.get("GUNSHI2_ESCALATION_COOLDOWN_MIN", "360") or "360"))
+        cooldowns[parent_cmd] = {
+            "family_id": rca_context["family_id"],
+            "severity": severity,
+            "dispatched_at": dispatched.isoformat(),
+            "expires_at": expires.isoformat(),
+        }
+        state_tmp = f"{state_path}.tmp.rca-parent.{os.getpid()}"
+        with open(state_tmp, "w", encoding="utf-8") as f:
+            yaml.safe_dump(state, f, allow_unicode=True, sort_keys=False)
+        os.replace(state_tmp, state_path)
+    finally:
+        fcntl.flock(state_lock.fileno(), fcntl.LOCK_UN)
+        state_lock.close()
+fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+lock.close()
+PYEOF
+                    if [ "$g2_write_rc" -eq 0 ]; then
+                        if [ "$g2_kind" = "rca_elapsed_120m" ]; then
+                            "$PYTHON" - "$STATE_FILE" "$ROOT" "$parent_cmd" "$g2_summary" <<'PYEOF' || true
+import os, re, sys, yaml
+path, root, parent, summary = sys.argv[1:5]
+m = re.search(r"family=([^; ]+)", summary)
+if not m:
+    raise SystemExit(0)
+family = m.group(1)
+try:
+    with open(path, encoding="utf-8") as f:
+        state = yaml.safe_load(f) or {}
+except FileNotFoundError:
+    state = {}
+entry = (state.get("rca_elapsed") or {}).get(f"{parent}|{family}")
+if isinstance(entry, dict):
+    esc = entry.setdefault("escalation", {})
+    try:
+        with open(os.path.join(root, "queue", "tasks", "gunshi2.yaml"), encoding="utf-8") as f:
+            task_id = ((yaml.safe_load(f) or {}).get("task") or {}).get("task_id")
+    except Exception:
+        task_id = None
+    esc["state"] = "dispatched"
+    esc["dispatched_at"] = __import__("datetime").datetime.now().astimezone().replace(microsecond=0).isoformat()
+    esc["gunshi2_task_id"] = task_id
+    tmp = f"{path}.tmp.rca.{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as f:
+        yaml.safe_dump(state, f, allow_unicode=True, sort_keys=False)
+    os.replace(tmp, path)
+PYEOF
+                        fi
+                        local g2_msg
+                        g2_msg="[stall_detector gunshi2 escalation] ${parent_cmd}: ${g2_kind}/${g2_severity} を検知。queue/tasks/gunshi2.yaml を読み、打開策を一度上奏せよ。trigger=${g2_agent}:${g2_task}"
+                        # Fixture writers may exercise task/state persistence,
+                        # but no test root may ever notify a real agent inbox.
+                        if [ "$IS_REAL_ROOT" -eq 1 ]; then
+                            if bash "${SCRIPT_DIR}/scripts/inbox_write.sh" \
+                                gunshi2 "$g2_msg" task_assigned stall_detector >/dev/null 2>&1; then
+                                log "GUNSHI2 escalation assigned ($parent_cmd $g2_kind $g2_severity)"
+                            else
+                                log "ERROR: inbox_write.sh gunshi2 failed for $parent_cmd"
+                            fi
+                        else
+                            log "GUNSHI2 fixture writer assigned (inbox suppressed: $parent_cmd $g2_kind $g2_severity)"
+                        fi
+                    elif [ "$g2_write_rc" -eq 2 ]; then
+                        local capacity_msg
+                        capacity_msg="[P1] gunshi2_capacity — ${parent_cmd} ${g2_kind} は保留。既存 queue/tasks/gunshi2.yaml が assigned のため上書きせず。"
+                        if [ "$IS_REAL_ROOT" -eq 1 ]; then
+                            bash "${SCRIPT_DIR}/scripts/inbox_write.sh" \
+                                karo "$capacity_msg" stall_alert stall_detector >/dev/null 2>&1 || true
+                        fi
+                        log "GUNSHI2 capacity occupied; preserved existing task ($parent_cmd)"
+                    else
+                        log "ERROR: failed to write gunshi2 task for $parent_cmd (rc=$g2_write_rc)"
+                    fi
+                else
+                    log "GUNSHI2 (test-mode, task write suppressed): $rest"
+                fi
+                ;;
             NOTIFY)
                 # rest = "<severity>\t<summary>"
                 local severity summary
@@ -1346,6 +1952,7 @@ last_error: null
 scan_count: 0
 pane_idle_streak: {}
 worktree_progress: {}
+gunshi2_escalations: {}
 EOF
         log "initialized $STATE_FILE"
     fi

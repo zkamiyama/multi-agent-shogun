@@ -827,7 +827,7 @@ send_context_reset() {
     # Only ashigaru should receive automatic context resets (clear stale task context).
     # Shogun (human-controlled), Karo (coordinator state), Gunshi (strategic state)
     # all maintain complex running context that should not be wiped automatically.
-    if [ "$AGENT_ID" = "shogun" ] || [ "$AGENT_ID" = "karo" ] || [ "$AGENT_ID" = "gunshi" ]; then
+    if [ "$AGENT_ID" = "shogun" ] || [ "$AGENT_ID" = "karo" ] || [[ "$AGENT_ID" =~ ^gunshi[0-9]*$ ]]; then
         echo "[$(date)] [SKIP] $AGENT_ID: suppressing context reset (command-layer agent)" >&2
         return 0
     fi
@@ -989,11 +989,11 @@ skip_if_active_pane_has_client() {
 }
 
 agent_can_receive_clean_idle_plain_nudge() {
-    [[ "$AGENT_ID" == "karo" || "$AGENT_ID" == "gunshi" || "$AGENT_ID" =~ ^ashigaru[1-7]$ ]]
+    [[ "$AGENT_ID" == "karo" || "$AGENT_ID" =~ ^gunshi[0-9]*$ || "$AGENT_ID" =~ ^ashigaru[1-7]$ ]]
 }
 
 command_layer_agent_can_receive_destructive_recovery() {
-    [[ "$AGENT_ID" == "karo" || "$AGENT_ID" == "gunshi" ]]
+    [[ "$AGENT_ID" == "karo" || "$AGENT_ID" =~ ^gunshi[0-9]*$ ]]
 }
 
 destructive_recovery_already_sent_for_batch() {
@@ -1472,7 +1472,7 @@ for s in data.get('specials', []):
                     echo "[$(date)] [SKIP] ESCALATION Phase 3: shogun suppressed (human-controlled, ${age}s). Using plain nudge policy." >&2
                     FIRST_UNREAD_SEEN=$now  # Reset timer
                     send_wakeup "$normal_count"
-                elif [[ "$effective_cli" == "codex" && "$AGENT_ID" != "karo" && "$AGENT_ID" != "gunshi" ]]; then
+                elif [[ "$effective_cli" == "codex" && "$AGENT_ID" != "karo" && ! "$AGENT_ID" =~ ^gunshi[0-9]*$ ]]; then
                     # Codex /clear -> /new cuts the conversation. Keep it disabled
                     # outside command-layer recovery, where cmd_009 explicitly needs it.
                     echo "[$(date)] ESCALATION Phase 3: $AGENT_ID unresponsive for ${age}s, but cli=codex — skipping /clear." >&2

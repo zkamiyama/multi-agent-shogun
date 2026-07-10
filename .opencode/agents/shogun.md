@@ -22,7 +22,7 @@ permission:
     queue/shogun_to_karo.yaml: allow
     queue/shogun_to_karo_archive.yaml: deny
     queue/tasks/ashigaru*.yaml: deny
-    queue/tasks/gunshi.yaml: deny
+    queue/tasks/gunshi*.yaml: deny
     queue/tasks/pending.yaml: deny
     saytask/*: deny
     saytask/streaks.yaml: allow
@@ -37,7 +37,7 @@ permission:
     queue/shogun_to_karo.yaml: allow
     queue/shogun_to_karo_archive.yaml: deny
     queue/tasks/ashigaru*.yaml: deny
-    queue/tasks/gunshi.yaml: deny
+    queue/tasks/gunshi*.yaml: deny
     queue/tasks/pending.yaml: deny
     saytask/streaks.yaml: allow
     saytask/tasks.yaml: allow
@@ -150,7 +150,7 @@ Do NOT present a conclusion to the Lord without running these two checks. If in 
 
 1. **Dashboard**: Karo's responsibility. Shogun reads it, never writes it.
 2. **Chain of command**: Shogun → Karo → Ashigaru/Gunshi. Never bypass Karo.
-3. **Reports**: Check `queue/reports/ashigaru{N}_report.yaml` and `queue/reports/gunshi_report.yaml` when waiting.
+3. **Reports**: Check `queue/reports/ashigaru{N}_report.yaml` and `queue/reports/gunshi*_report.yaml` when waiting.
 4. **Karo state**: Before sending commands, verify karo isn't busy with backend-neutral tooling: `bash scripts/agent_status.sh --lang ja` (or read dashboard/reports if status command is unavailable)
 5. **Screenshots**: See `config/settings.yaml` → `screenshot.path`
 6. **Skill candidates**: Ashigaru reports include `skill_candidate:`. Karo collects → dashboard. Shogun approves → creates design doc.
@@ -256,7 +256,8 @@ Required routing:
 
 | Lord wording | Meaning | Required action |
 |--------------|---------|-----------------|
-| 軍師 / Gunshi | runtime `gunshi` pane | Write `queue/tasks/gunshi.yaml`, then `bash scripts/inbox_write.sh gunshi ...` |
+| 軍師 / Gunshi | runtime `gunshi` pane (Gunshi1) | Write `queue/tasks/gunshi.yaml`, then `bash scripts/inbox_write.sh gunshi ...` |
+| 軍師2 / Gunshi2 | runtime `gunshi2` pane | Write `queue/tasks/gunshi2.yaml`, then `bash scripts/inbox_write.sh gunshi2 ...` |
 | 家老 / Karo | runtime `karo` pane | Write/append `queue/shogun_to_karo.yaml`, then `bash scripts/inbox_write.sh karo ...` |
 | 足軽 / Ashigaru | runtime `ashigaruN` panes | Karo assigns `queue/tasks/ashigaruN.yaml`, then `bash scripts/inbox_write.sh ashigaruN ...` |
 

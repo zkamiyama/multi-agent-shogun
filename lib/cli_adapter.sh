@@ -8,7 +8,7 @@
 #   get_instruction_file(agent_id [,cli_type]) → 指示書パス
 #   validate_cli_availability(cli_type)     → 0=OK, 1=NG
 #   get_agent_model(agent_id)               → "opus" | "sonnet" | "haiku" | "k2.5"
-#   get_agent_effort(agent_id)              → "low" | "medium" | "high" | "xhigh" | "max" | ""
+#   get_agent_effort(agent_id)              → "low" | "medium" | "high" | "xhigh" | "max" | "ultra" | ""
 #   get_startup_prompt(agent_id)            → 初期プロンプト文字列 or ""
 #   get_startup_prompt_arg(agent_id)        → 起動コマンド向けプロンプト引数 or ""
 
@@ -269,9 +269,7 @@ build_cli_command() {
                 cmd="$cmd --model $model"
             fi
             if [[ -n "$effort" ]]; then
-                local codex_effort="$effort"
-                [[ "$codex_effort" == "max" ]] && codex_effort="xhigh"
-                cmd="$cmd -c model_reasoning_effort=$codex_effort"
+                cmd="$cmd -c model_reasoning_effort=$effort"
             fi
             cmd="$cmd --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen"
             ;;
@@ -350,7 +348,7 @@ get_instruction_file() {
     case "$agent_id" in
         shogun)    role="shogun" ;;
         karo)      role="karo" ;;
-        gunshi)    role="gunshi" ;;
+        gunshi*)   role="gunshi" ;;
         ashigaru*) role="ashigaru" ;;
         *)
             echo "" >&2
@@ -466,7 +464,7 @@ get_agent_model() {
         cursor)
             # Cursor Agent CLI用デフォルトモデル（モデル名はパススルー）
             case "$agent_id" in
-                shogun|gunshi)  echo "claude-sonnet-4-6" ;;
+                shogun|gunshi*) echo "claude-sonnet-4-6" ;;
                 *)              echo "claude-sonnet-4-6" ;;
             esac
             ;;
@@ -483,7 +481,7 @@ get_agent_model() {
             case "$agent_id" in
                 shogun)         echo "opus" ;;
                 karo)           echo "sonnet" ;;
-                gunshi)         echo "opus" ;;
+                gunshi*)        echo "opus" ;;
                 ashigaru*)      echo "sonnet" ;;
                 *)              echo "sonnet" ;;
             esac
@@ -504,7 +502,7 @@ get_agent_effort() {
     fi
 
     case "$effort_from_yaml" in
-        low|medium|high|xhigh|max)
+        low|medium|high|xhigh|max|ultra)
             echo "$effort_from_yaml"
             ;;
         "")

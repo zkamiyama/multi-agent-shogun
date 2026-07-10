@@ -150,6 +150,10 @@ mux_find_pane_by_agent() {
     mux_backend_find_pane_by_agent "$@"
 }
 
+mux_validate_layout_roster() {
+    mux_backend_validate_layout_roster "$@"
+}
+
 mux_show_global_option() {
     mux_backend_show_global_option "$@"
 }
