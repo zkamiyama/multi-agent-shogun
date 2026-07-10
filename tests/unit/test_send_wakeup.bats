@@ -706,7 +706,7 @@ YAML
     ! grep -q "send-keys.*C-c" "$MOCK_LOG"
 }
 
-@test "T-ACTIVE-006: gunshi active-attached idle unread gets plain nudge only" {
+@test "T-ACTIVE-006: gunshi active-attached idle unread sends no automatic keystrokes" {
     run bash -c '
         MOCK_PANE_CLI="claude"
         MOCK_PANE_ACTIVE="1"
@@ -718,14 +718,29 @@ YAML
         touch "$TEST_TMPDIR/shogun_idle_gunshi"
         FIRST_UNREAD_SEEN=$(($(date +%s) - 90))
         send_wakeup 2
+        send_context_reset
+        send_cli_command "/model gpt-5.6-luna" || true
     '
     [ "$status" -eq 0 ]
-    echo "$output" | grep -q "active-attached idle unread"
+    echo "$output" | grep -q "active with attached client"
+    ! grep -q "send-keys" "$MOCK_LOG"
+}
+
+@test "T-ACTIVE-006b: gunshi non-attached idle unread keeps normal nudge delivery" {
+    run bash -c '
+        MOCK_PANE_CLI="codex"
+        MOCK_PANE_ACTIVE="1"
+        MOCK_LIST_CLIENTS=""
+        MOCK_CAPTURE_PANE="›"
+        source "'"$TEST_HARNESS"'"
+        AGENT_ID="gunshi"
+        CLI_TYPE="codex"
+        touch "$TEST_TMPDIR/shogun_idle_gunshi"
+        send_wakeup 2
+    '
+    [ "$status" -eq 0 ]
     grep -q "send-keys .*test:0.0 inbox2" "$MOCK_LOG"
     grep -q "send-keys -t test:0.0 Enter" "$MOCK_LOG"
-    ! grep -q "send-keys.*C-u" "$MOCK_LOG"
-    ! grep -q "send-keys.*Escape" "$MOCK_LOG"
-    ! grep -q "send-keys.*C-c" "$MOCK_LOG"
 }
 
 @test "T-ACTIVE-006b: ashigaru active-attached idle unread gets plain nudge only" {

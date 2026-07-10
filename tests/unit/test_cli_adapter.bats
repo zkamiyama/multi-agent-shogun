@@ -460,6 +460,22 @@ YAML
     [ "$result" = "codex --model gpt-5.6-terra -c model_reasoning_effort=ultra --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen" ]
 }
 
+@test "build_cli_command: gunshi preserves configured terra and max contract" {
+    cat > "${TEST_TMP}/settings_gunshi_terra_max.yaml" << 'YAML'
+cli:
+  agents:
+    gunshi:
+      type: codex
+      model: gpt-5.6-terra
+      effort: max
+YAML
+    load_adapter_with "${TEST_TMP}/settings_gunshi_terra_max.yaml"
+    result=$(build_cli_command "gunshi")
+    [ "$result" = "codex --model gpt-5.6-terra -c model_reasoning_effort=max --search --dangerously-bypass-approvals-and-sandbox --no-alt-screen" ]
+    [[ "$result" != *"luna"* ]]
+    [[ "$result" != *"low"* ]]
+}
+
 @test "build_cli_command: copilot → copilot --yolo" {
     load_adapter_with "${TEST_TMP}/settings_mixed.yaml"
     result=$(build_cli_command "ashigaru7")

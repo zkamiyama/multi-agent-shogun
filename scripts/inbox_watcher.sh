@@ -1060,6 +1060,11 @@ allow_plain_nudge_active_attached() {
     # Shogun is Lord-controlled: active+attached is a hard no-key invariant.
     [ "$AGENT_ID" != "shogun" ] || return 1
 
+    # Gunshi's strategic reasoning must never be interrupted while a human is
+    # attached to its active pane. Even a plain inboxN plus Enter can submit or
+    # interrupt its current Codex turn and alter the runtime-selected model.
+    [[ "$AGENT_ID" =~ ^gunshi[0-9]*$ ]] && return 1
+
     agent_can_receive_clean_idle_plain_nudge || return 1
 
     if agent_is_busy; then
