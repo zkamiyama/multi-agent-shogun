@@ -274,6 +274,20 @@ setup() {
     grep -qi "copilot\|Copilot" "$OUTPUT_DIR/copilot-shogun.md"
 }
 
+@test "content: generated prompts include Outcome-First common rule [cmd_015]" {
+    local file
+
+    for file in \
+        "$OUTPUT_DIR"/*.md \
+        "$PROJECT_ROOT/.opencode/agents"/*.md \
+        "$PROJECT_ROOT/AGENTS.md" \
+        "$PROJECT_ROOT/.github/copilot-instructions.md" \
+        "$PROJECT_ROOT/agents/default/system.md"; do
+        [ -f "$file" ] || continue
+        grep -Fq "Outcome-First / 過剰検証防止" "$file"
+    done
+}
+
 # =============================================================================
 # AGENTS.md 生成テスト (Phase 2+3 受入基準)
 # =============================================================================

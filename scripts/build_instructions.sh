@@ -61,6 +61,24 @@ normalize_root_instruction_candidates() {
         "$output_path"
 }
 
+# Function: append_outcome_first_rule
+# Description: Appends the shared Outcome-First rule to root CLI auto-load files.
+append_outcome_first_rule() {
+    local output_path="$1"
+    local task_flow="$PARTS_DIR/common/task_flow.md"
+
+    grep -Fq "Outcome-First / 過剰検証防止" "$output_path" && return 0
+    awk '
+        /^## Outcome-First \/ 過剰検証防止$/ { emit = 1 }
+        emit && /^## / && !/^## Outcome-First \/ 過剰検証防止$/ { exit }
+        emit { lines[++count] = $0 }
+        END {
+            while (count && lines[count] == "") count--
+            for (index = 1; index <= count; index++) print lines[index]
+        }
+    ' "$task_flow" >> "$output_path"
+}
+
 # Function: normalize_claude_autoload_source
 # Description: Keeps the root Claude auto-load source aligned with shared protocol
 # wording before deriving other root auto-load files from it.
@@ -257,6 +275,7 @@ generate_agents_md() {
         -e 's|`/clear` wipes old context|`/new` wipes old context|g' \
         "$claude_md" | tr -d '\r' > "$output_path"
     normalize_root_instruction_candidates "$output_path"
+    append_outcome_first_rule "$output_path"
 
     echo "  ✅ Created: AGENTS.md"
 }
@@ -294,6 +313,7 @@ generate_copilot_instructions() {
         -e 's|Claude Code|GitHub Copilot CLI|g' \
         "$claude_md" | tr -d '\r' > "$output_path"
     normalize_root_instruction_candidates "$output_path"
+    append_outcome_first_rule "$output_path"
 
     echo "  ✅ Created: .github/copilot-instructions.md"
 }
@@ -333,6 +353,7 @@ generate_kimi_instructions() {
         -e 's|Claude Code|Kimi K2 CLI|g' \
         "$claude_md" | tr -d '\r' > "$system_md_path"
     normalize_root_instruction_candidates "$system_md_path"
+    append_outcome_first_rule "$system_md_path"
 
     echo "  ✅ Created: agents/default/system.md"
 

@@ -260,6 +260,29 @@ automatically for long-running/high-interaction work. If you receive the
 resulting `stall_alert`, treat it as an active escalation path and follow
 through instead of marking the inbox item read and going idle.
 
+### Explicit RCA elapsed-time escalation
+
+For an investigation that must reach a strategic review even while its pane is
+busy, put this explicit marker on the assigned task; do not infer it from a
+`blocked_by`, task type, or wording:
+
+```yaml
+rca_tracking:
+  enabled: true
+  family_id: rca_<stable_family_id>
+  started_at: "<ISO-8601 timestamp>"
+```
+
+Keep `family_id` and `started_at` unchanged across a redo in the same RCA
+family. The detector sends Karo one P3 checkpoint at 60 minutes and creates one
+P1 Gunshi2 intent at 120 minutes; normal reports, worktree changes, and a busy
+pane do not reset that clock. Record the outcome in the responsible report as a
+top-level `rca_events` item with the same raw `parent_cmd` and `family_id`:
+`outcome: completed|failed|blocked|cancelled`. A different family never closes
+the clock. If Gunshi2 is assigned to another case, leave its task untouched;
+the detector retains `pending_gunshi2_slot` and Karo must release or re-prioritize
+capacity before it dispatches.
+
 ### No QC for Ashigaru
 
 **Never assign QC tasks to ashigaru.** Haiku models are unsuitable for quality judgment.
@@ -783,6 +806,14 @@ Cross-reference with dashboard.md — process any reports not yet reflected.
 date "+%Y-%m-%d %H:%M"       # For dashboard.md
 date "+%Y-%m-%dT%H:%M:%S"    # For YAML (ISO 8601)
 ```
+
+## Outcome-First / 過剰検証防止
+
+成果物と未達の受入条件を先に確認し、最短でその gap を埋める。fixture・contract・evidence は成果達成の手段であり、明示要求がない限り成果物にしない。直接進まない追加作業、test の test 等の再帰検証、根拠なき独自 gate、可逆 local 作業への exact-once・immutable receipt 儀式は禁止する。
+
+- 安全かつ許可済みなら、実 build/test/runtime を source-only gate の反復より優先する。単発 network 失敗だけを根拠に汎用 offline framework を新設しない。
+- 同一 task family の redo/QC が連続 2 回なら最短経路へ簡素化し、3 回なら Gunshi2 へ一度上奏して追加 redo を止める。
+- 進捗報告には user-visible progress と残る outcome gap を必ず記す。破壊的操作禁止と SKIP=FAIL はこの規則で緩和しない。
 
 ## Project Root Instruction Gate (Mandatory)
 
