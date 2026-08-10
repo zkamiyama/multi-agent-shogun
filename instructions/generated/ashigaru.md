@@ -525,6 +525,20 @@ date "+%Y-%m-%dT%H:%M:%S"    # For YAML (ISO 8601)
 - 試行回数だけを理由に殿判断待ち、terminal status、追加 redo の自動停止へ移行してはならない。停止は破壊的操作、権限不足、外部 scope・費用・安全判断、または技術的に次の有意な手がない場合に限る。
 - 進捗報告には user-visible progress と残る outcome gap を必ず記す。破壊的操作禁止と SKIP=FAIL はこの規則で緩和しない。
 
+## Contract/Test Recursion Prevention（all agents）
+
+contract・fixture・static gateを先に精緻化し続け、production成果が進まない状態を禁止する。検証は成果へ到達するための手段であり、検証器自体の完成を暗黙の成果へ昇格させてはならない。
+
+1. **責務境界をtestより先に確定**: Contractに該当する責務境界（例: process lifecycle、data owner、metric/oracle authority、永続化owner）をStrategy段階で分離する。test packetを設ける場合、正しい実装が循環なくGREENへ到達できるpositive pathを最初のpacketに含める。
+2. **縦切りpacketを優先**: 安全・権限・前提が満たされ、各層がContract証明に必要なら、spec/test/source/build/runtimeのうち必要な最小集合を一つのvertical sliceとして進める。実行boundはrequester・target specification・applicable safety policy・必要measurementのいずれかに由来させ、test-only redoで次の未達成果層を不必要に遅らせない。
+3. **有限状態は初回から全列挙**: contractから有限な状態直積が厳密に導け、Deletion Test上必要で、current environmentで安全・実行可能な場合は、single-caseを順次追加せず初回から全組合せを検証する。全列挙が不要または実行不能なら、contract由来の同値類・境界・property proofへ縮約し、縮約根拠を記録する。任意sampleは禁止する。
+4. **behaviorを検証しtoken shapeを設計しない**: 正当なaggregate、RAII、同義実装を拒むinvented symbol、固定window、代入形、token列をacceptanceにしない。構文解析が必要ならobservable ownership/dataflow/effectへ限定する。unsupported形はUNKNOWNとしfail-closed gateではGREENを許可しないが、同一criterionを証明する代替evidenceを認め、product defectとharness limitationを区別して報告する。
+5. **同一file redoのたびに成果gapを再評価**: 新しい反証を追加する前に、それを削除するとuser-visible Contractが未証明になるかDeletion Testを行う。ならないなら追加せず、権限・安全・前提の範囲で次の未達成果層（source/build/runtime等）へ戻る。
+6. **二回目redoで一括簡素化**: 同一contract/test fileの二回目QC NG時点で、既知の因果、positive path、有限state spaceを一括再設計する。一原因ずつのadversary追加を続けない。三回目のGunshi2上奏はこの一括案の最短化に使う。
+7. **固定点はtestの完全性ではなく成果で判定**: 「追加adversaryが思いつかない」ではなく、当該taskのrequested outcomeがContractで要求する成果層（docs/review/source/build/runtime等）のevidenceで証明され、残るclaimがDeletion Testを通らない時だけ当該taskをCLOSEDとする。delegated test stageを閉じてもparent requested outcomeを完了扱いしない。
+
+- BFVのMaximum Roundsは同一task execution内で同じClaimまたはcausal rootを反復するRoundだけに適用し、new task_idのredo/QC family回数とは別に数える。FUSE_STOPPEDは当該taskの未解決報告であり、parent outcomeのCOMPLETED判定またはnew evidenceによるfresh taskの禁止を意味しない。
+
 ## Project Root Instruction Gate (Mandatory)
 
 When a task targets a project or target path, Karo/Gunshi/Ashigaru must run a
@@ -681,7 +695,6 @@ bats tests/*.bats tests/unit/*.bats
 bash scripts/build_instructions.sh
 git diff --exit-code instructions/generated/
 ```
-
 # Forbidden Actions
 
 ## Common Forbidden Actions (All Agents)
@@ -828,3 +841,411 @@ All agents: Follow the Session Start / Recovery procedure in CLAUDE.md. Key step
 3. Read your instructions file (shogun→instructions/shogun.md, karo→instructions/karo.md, ashigaru→instructions/ashigaru.md)
 4. Rebuild state from primary YAML data (queue/, tasks/, reports/)
 5. Review forbidden actions, then start work
+
+<!-- Shared canonical source: instructions/common/bfv_kernel.md. Generated copies are not hand-edited. -->
+
+# BFV Kernel
+
+> **Bound the work.<br>
+> Falsify necessity.<br>
+> Verify the Contract.<br>
+> Stop at the Fixed Point.**
+
+BFV stands for **Bounded Falsification & Verification**.
+
+- **Bounded** — The `Contract` defines the boundary of the work.
+- **Falsification** — Every proposed `Claim` must survive deletion.
+- **Verification** — The remaining work must prove the `Contract`.
+
+The Kernel exists to do only the work required by the request, prove completion with evidence, and stop when nothing else is necessary.
+
+---
+
+## 1. Contract
+
+Define the `Contract` before implementation.
+
+```text
+Contract =
+  Requested Outcome
+  + the smallest set of Acceptance Criteria sufficient to prove it
+```
+
+```text
+Outcome:
+  The final state that must exist
+
+Acceptance Criteria:
+  The smallest set of conditions sufficient to prove the Outcome
+
+Interpretation:
+  How ambiguity in the request was resolved
+```
+
+Clarify ambiguity when possible. Otherwise, use the narrowest interpretation consistent with the request and known context.
+
+Do not expand the `Contract` through speculation.
+
+---
+
+## 2. Claim
+
+A `Claim` is anything requesting admission as work.
+
+Claims include:
+
+- Plan steps
+- Code or configuration changes
+- Tests
+- Investigations
+- Refactors
+- Documentation
+- Review findings
+- Discovered defects or edge cases
+- Additional verification or optimization
+- Adjacent improvements
+
+A Claim is not necessary merely because it is reported, severe, useful, thorough, possible, or interesting.
+
+```text
+reported    ≠ necessary
+severe      ≠ necessary
+useful      ≠ necessary
+thorough    ≠ necessary
+possible    ≠ necessary
+interesting ≠ necessary
+```
+
+Necessity is determined only by the Deletion Test.
+
+---
+
+## 3. Deletion Test
+
+Before executing a Claim, ask:
+
+> **If this Claim is deleted, can the Contract still be proven under the current inputs and environment?**
+
+If yes, reject the Claim.
+
+If no, record:
+
+```text
+Claim:
+  The proposed work
+
+Broken Criterion:
+  The Acceptance Criterion that becomes unprovable
+
+Failure:
+  How deleting the Claim breaks the Contract
+
+Evidence:
+  How that failure can be observed
+
+Minimum Form:
+  The smallest work required to prevent the failure
+```
+
+Admit only the minimum form of the Claim.
+
+```text
+for each claim c:
+
+  remove(c)
+
+  if contract remains provable:
+      reject(c)
+  else:
+      retain only the minimum required form
+```
+
+---
+
+## 4. Execution
+
+Work proceeds in this order:
+
+```text
+1. Define the Contract
+2. Enumerate Claims
+3. Apply the Deletion Test
+4. Execute admitted Claims
+5. Verify every Acceptance Criterion
+6. Evaluate newly discovered Claims
+7. Stop at the Fixed Point
+```
+
+A Claim does not become necessary because it appears in the plan, has already started, or consumed time.
+
+If a Claim becomes unnecessary, reject it immediately.
+
+---
+
+## 5. Newly Discovered Claims
+
+New findings do not automatically expand the work.
+
+```text
+discovered ≠ admitted
+```
+
+For every newly discovered Claim, ask:
+
+```text
+If this remains unresolved,
+does the current Contract become unprovable?
+```
+
+If no, exclude it from the current work.
+
+If yes, identify the broken Acceptance Criterion and admit only the minimum required work.
+
+A new possibility does not create a new obligation.
+
+---
+
+## 6. Verification
+
+Every Acceptance Criterion must have evidence.
+
+```text
+Criterion:
+  The Acceptance Criterion being proven
+
+Evidence:
+  What demonstrates that it is satisfied
+
+Reproduction:
+  How the result can be observed again
+
+Environment:
+  Relevant inputs, state, configuration, and runtime
+
+Status:
+  PROVEN / UNPROVEN
+```
+
+Evidence may include:
+
+- Automated tests
+- Reproduction steps
+- Execution results
+- Logs or measurements
+- Static analysis
+- Specification comparison
+- Generated artifacts
+- Verification in the target environment
+
+Evidence collection is itself a Claim. Add tests, logs, measurements, or investigations only when omitting them would make the `Contract` unprovable.
+
+Do not optimize for evidence volume.
+
+---
+
+## 7. Current Inputs and Environment
+
+Evaluate necessity against the current task, not abstract possibility alone.
+
+```text
+Input:
+  Inputs handled by the current task
+
+Environment:
+  Runtime, configuration, dependencies, and state
+
+Observable Failure:
+  What fails when the Claim is deleted
+
+Affected Criterion:
+  Which Acceptance Criterion is broken
+```
+
+A theoretical possibility is not sufficient by itself.
+
+A problem that cannot be connected to the current `Contract` is outside the current work.
+
+---
+
+## 8. No Arbitrary Limits
+
+Do not invent unsupported numeric limits, including:
+
+- Thresholds
+- Quotas
+- Budgets
+- Timeouts
+- Retry counts
+- Round counts
+- File, line, test, or criterion counts
+- Concurrency limits
+
+A limit is valid only when its exact value comes from:
+
+1. The requester
+2. The target system specification
+3. An applicable project policy
+4. Measurement required to satisfy or prove the `Contract`
+
+```text
+Limit:
+  The applied value
+
+Source:
+  Where the value came from
+
+Required For:
+  The Acceptance Criterion that requires it
+```
+
+If no valid source exists, do not invent the limit.
+
+---
+
+## 9. Rounds and Fuse
+
+A Round consists of:
+
+```text
+1. Enumerate current Claims
+2. Apply the Deletion Test
+3. Execute admitted Claims
+4. Re-verify the Contract
+5. Collect newly surfaced Claims
+```
+
+A Claim introduced in Round `n + 1` should be rejected if it was already observable in Round `n`, unless new evidence changed its necessity.
+
+A Fuse is an external safety mechanism, not a necessity rule.
+
+```text
+Maximum Rounds: 3
+```
+
+If the Fixed Point is not reached after three Rounds, stop and report unresolved Claims.
+
+```text
+FUSE_STOPPED ≠ COMPLETED
+```
+
+---
+
+## 10. Fixed Point
+
+The Fixed Point is reached when:
+
+```text
+Contract is proven
+AND
+no remaining Claim passes the Deletion Test
+```
+
+Stop immediately at the Fixed Point.
+
+Do not continue because the result could be cleaner, broader, more elegant, more future-proof, or more impressive.
+
+```text
+Stopping before the Fixed Point
+  = incomplete work
+
+Continuing beyond the Fixed Point
+  = unnecessary work
+```
+
+---
+
+## 11. Completion Report
+
+The final report contains only:
+
+```text
+Outcome:
+  What was established relative to the Contract
+
+Proof:
+  Each Acceptance Criterion and its Evidence
+
+Rejected Claims:
+  Rejected Claims the requester has a practical reason to know about
+
+Open Items:
+  Unresolved Claims after a Fuse-triggered stop
+
+Status:
+  COMPLETED / FUSE_STOPPED
+```
+
+Do not output a work diary, internal reasoning, or an exhaustive list of rejected improvements.
+
+---
+
+## 12. Prohibited Patterns
+
+### Scope Expansion
+
+Adding work not required by the `Contract`.
+
+### Opportunistic Refactoring
+
+Mixing unrelated cleanup, abstraction, or migration into the task.
+
+### Evidence Inflation
+
+Adding unnecessary tests, logs, measurements, or checks.
+
+### Possibility as Necessity
+
+Treating theoretical possibility as proof that a Claim is required.
+
+### Severity by Label
+
+Admitting a Claim only because it is described as severe.
+
+### Sunk-Cost Retention
+
+Keeping unnecessary work because it has already started.
+
+### Arbitrary Limits
+
+Inventing unsupported thresholds, timeouts, retries, quotas, or counts.
+
+### Endless Review
+
+Generating new Claims after the Fixed Point.
+
+### Premature Closure
+
+Declaring completion before every Acceptance Criterion is proven.
+
+---
+
+## 13. Kernel Order
+
+When uncertain, return to this sequence:
+
+```text
+1. Inspect the Contract
+2. Inspect the Acceptance Criteria
+3. Select one Claim
+4. Delete it
+5. Test whether the Contract remains provable
+6. Reject it if the Contract remains provable
+7. Otherwise retain only its minimum form
+8. Execute
+9. Collect Evidence
+10. Test for the Fixed Point
+11. Stop
+```
+
+---
+
+## Final Directive
+
+> **A Claim becomes work only when deleting it breaks the Contract.**
+
+```text
+Define the Contract.
+Delete every unnecessary Claim.
+Prove what remains.
+Stop at the Fixed Point.
+```

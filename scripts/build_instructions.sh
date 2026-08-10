@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 PARTS_DIR="$ROOT_DIR/instructions"
 OUTPUT_DIR="$ROOT_DIR/instructions/generated"
+BFV_KERNEL="$PARTS_DIR/common/bfv_kernel.md"
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -76,7 +77,70 @@ append_outcome_first_rule() {
             while (count && lines[count] == "") count--
             for (line_no = 1; line_no <= count; line_no++) print lines[line_no]
         }
-    ' "$task_flow" >> "$output_path"
+' "$task_flow" >> "$output_path"
+}
+
+# Function: sync_claude_bfv_kernel
+# Description: Replaces the legacy handwritten BFV body in CLAUDE.md with the
+# shared canonical source before deriving root auto-load files.
+sync_claude_bfv_kernel() {
+    local claude_md="$ROOT_DIR/CLAUDE.md"
+    local bfv_kernel="$BFV_KERNEL"
+    local python_bin
+
+    [ -f "$claude_md" ] || return 0
+    [ -f "$bfv_kernel" ] || {
+        echo "  ❌ Shared BFV source not found: $bfv_kernel" >&2
+        return 1
+    }
+
+    python_bin=$(command -v python3 2>/dev/null || true)
+    if [[ -z "$python_bin" ]]; then
+        echo "  ❌ python3 is required to sync the shared BFV Kernel." >&2
+        return 1
+    fi
+
+    "$python_bin" - "$claude_md" "$bfv_kernel" <<'PYEOF'
+from pathlib import Path
+import sys
+
+claude_path = Path(sys.argv[1])
+kernel_path = Path(sys.argv[2])
+raw = claude_path.read_bytes()
+newline = "\r\n" if b"\r\n" in raw else "\n"
+text = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+kernel = kernel_path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n").strip("\n")
+
+begin = "<!-- BEGIN GENERATED BFV KERNEL: instructions/common/bfv_kernel.md -->"
+end = "<!-- END GENERATED BFV KERNEL -->"
+
+if begin in text:
+    before, generated = text.split(begin, 1)
+    if end in generated:
+        _, after = generated.split(end, 1)
+        text = before.rstrip("\n") + ("\n\n" + after.lstrip("\n") if after.strip() else "")
+    else:
+        # The first migration run may see the old body after a marker-less
+        # insertion; the legacy BFV block is the final section in CLAUDE.md.
+        text = before.rstrip("\n")
+else:
+    for legacy_header in ("# CLAUDE.md — BFV Kernel\n", "# BFV Kernel\n"):
+        if legacy_header in text:
+            text = text.split(legacy_header, 1)[0].rstrip("\n")
+            break
+
+text = (
+    text.rstrip("\n")
+    + "\n\n"
+    + begin
+    + "\n\n"
+    + kernel
+    + "\n\n"
+    + end
+    + "\n"
+)
+claude_path.write_bytes(text.replace("\n", newline).encode("utf-8"))
+PYEOF
 }
 
 # Function: normalize_claude_autoload_source
@@ -120,6 +184,7 @@ path.write_bytes(text.replace("\n", newline).encode("utf-8"))
 PYEOF
 }
 
+sync_claude_bfv_kernel
 normalize_claude_autoload_source
 
 # ============================================================
@@ -158,7 +223,6 @@ EOFYAML
     cat "$PARTS_DIR/common/protocol.md" >> "$output_path"
     echo "" >> "$output_path"
     cat "$PARTS_DIR/common/task_flow.md" >> "$output_path"
-    echo "" >> "$output_path"
     cat "$PARTS_DIR/common/forbidden_actions.md" >> "$output_path"
 
     # Append CLI-specific tools section
@@ -190,6 +254,11 @@ EOFYAML
     if [[ "$cli_type" == "opencode" ]]; then
         normalize_generated_markdown "$output_path"
     fi
+
+    echo "" >> "$output_path"
+    # Append after OpenCode whitespace normalization so the shared source is
+    # byte-identical in every generated destination.
+    cat "$BFV_KERNEL" >> "$output_path"
 
     echo "  ✅ Created: $output_filename"
 }
@@ -641,6 +710,10 @@ EOF
         } >> "$output_path"
 
         normalize_generated_markdown "$output_path"
+
+        echo "" >> "$output_path"
+        # Append after normalization so the shared source is byte-identical.
+        cat "$BFV_KERNEL" >> "$output_path"
 
         if [[ -n "$routing_yaml" ]]; then
             local runtime_path="$agents_dir/${agent_id}-runtime.md"

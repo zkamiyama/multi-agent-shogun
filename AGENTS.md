@@ -412,12 +412,29 @@ When processing large datasets (30+ items requiring individual web search, API c
 - 試行回数だけを理由に殿判断待ち、terminal status、追加 redo の自動停止へ移行してはならない。停止は破壊的操作、権限不足、外部 scope・費用・安全判断、または技術的に次の有意な手がない場合に限る。
 - 進捗報告には user-visible progress と残る outcome gap を必ず記す。破壊的操作禁止と SKIP=FAIL はこの規則で緩和しない。
 
+## Contract/Test Recursion Prevention（all agents）
 
-# AGENTS.md — BFV Kernel
+contract・fixture・static gateを先に精緻化し続け、production成果が進まない状態を禁止する。検証は成果へ到達するための手段であり、検証器自体の完成を暗黙の成果へ昇格させてはならない。
 
-> **Bound the work.  
-> Falsify necessity.  
-> Verify the Contract.  
+1. **責務境界をtestより先に確定**: Contractに該当する責務境界（例: process lifecycle、data owner、metric/oracle authority、永続化owner）をStrategy段階で分離する。test packetを設ける場合、正しい実装が循環なくGREENへ到達できるpositive pathを最初のpacketに含める。
+2. **縦切りpacketを優先**: 安全・権限・前提が満たされ、各層がContract証明に必要なら、spec/test/source/build/runtimeのうち必要な最小集合を一つのvertical sliceとして進める。実行boundはrequester・target specification・applicable safety policy・必要measurementのいずれかに由来させ、test-only redoで次の未達成果層を不必要に遅らせない。
+3. **有限状態は初回から全列挙**: contractから有限な状態直積が厳密に導け、Deletion Test上必要で、current environmentで安全・実行可能な場合は、single-caseを順次追加せず初回から全組合せを検証する。全列挙が不要または実行不能なら、contract由来の同値類・境界・property proofへ縮約し、縮約根拠を記録する。任意sampleは禁止する。
+4. **behaviorを検証しtoken shapeを設計しない**: 正当なaggregate、RAII、同義実装を拒むinvented symbol、固定window、代入形、token列をacceptanceにしない。構文解析が必要ならobservable ownership/dataflow/effectへ限定する。unsupported形はUNKNOWNとしfail-closed gateではGREENを許可しないが、同一criterionを証明する代替evidenceを認め、product defectとharness limitationを区別して報告する。
+5. **同一file redoのたびに成果gapを再評価**: 新しい反証を追加する前に、それを削除するとuser-visible Contractが未証明になるかDeletion Testを行う。ならないなら追加せず、権限・安全・前提の範囲で次の未達成果層（source/build/runtime等）へ戻る。
+6. **二回目redoで一括簡素化**: 同一contract/test fileの二回目QC NG時点で、既知の因果、positive path、有限state spaceを一括再設計する。一原因ずつのadversary追加を続けない。三回目のGunshi2上奏はこの一括案の最短化に使う。
+7. **固定点はtestの完全性ではなく成果で判定**: 「追加adversaryが思いつかない」ではなく、当該taskのrequested outcomeがContractで要求する成果層（docs/review/source/build/runtime等）のevidenceで証明され、残るclaimがDeletion Testを通らない時だけ当該taskをCLOSEDとする。delegated test stageを閉じてもparent requested outcomeを完了扱いしない。
+
+- BFVのMaximum Roundsは同一task execution内で同じClaimまたはcausal rootを反復するRoundだけに適用し、new task_idのredo/QC family回数とは別に数える。FUSE_STOPPEDは当該taskの未解決報告であり、parent outcomeのCOMPLETED判定またはnew evidenceによるfresh taskの禁止を意味しない。
+
+<!-- BEGIN GENERATED BFV KERNEL: instructions/common/bfv_kernel.md -->
+
+<!-- Shared canonical source: instructions/common/bfv_kernel.md. Generated copies are not hand-edited. -->
+
+# BFV Kernel
+
+> **Bound the work.<br>
+> Falsify necessity.<br>
+> Verify the Contract.<br>
 > Stop at the Fixed Point.**
 
 BFV stands for **Bounded Falsification & Verification**.
@@ -818,3 +835,5 @@ Delete every unnecessary Claim.
 Prove what remains.
 Stop at the Fixed Point.
 ```
+
+<!-- END GENERATED BFV KERNEL -->
