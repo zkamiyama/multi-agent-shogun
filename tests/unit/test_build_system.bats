@@ -576,6 +576,43 @@ PYEOF
 }
 
 # =============================================================================
+# Command completion Git disposition propagation (cmd_033)
+# =============================================================================
+
+@test "content: command completion Git disposition gate propagates exactly once" {
+    local file
+    local heading="## Command Completion Git Disposition Gate"
+    local -a generated_files=(
+        "$OUTPUT_DIR"/*.md
+        "$PROJECT_ROOT/.opencode/agents"/*.md
+    )
+
+    grep -Fq "$heading" "$PROJECT_ROOT/instructions/common/task_flow.md"
+    [ "$(grep -Fc "$heading" "$PROJECT_ROOT/instructions/common/task_flow.md")" -eq 1 ]
+
+    for file in "${generated_files[@]}"; do
+        [ -f "$file" ] || continue
+        [ "$(grep -Fc "$heading" "$file")" -eq 1 ]
+        grep -Fq "git status --porcelain=v1 -z" "$file"
+        grep -Fq "path: \"exact repo-relative path\"" "$file"
+        grep -Fq "disposition: keep | commit | discard | pending" "$file"
+        grep -Fq "git add -A" "$file"
+        grep -Fq "git add ." "$file"
+        grep -Fq "push_state" "$file"
+        grep -Fq "blocks_parent: true" "$file"
+    done
+
+    for file in \
+        "$PROJECT_ROOT/AGENTS.md" \
+        "$PROJECT_ROOT/CLAUDE.md" \
+        "$PROJECT_ROOT/.github/copilot-instructions.md" \
+        "$PROJECT_ROOT/agents/default/system.md"; do
+        [ -f "$file" ] || continue
+        ! grep -Fq "$heading" "$file"
+    done
+}
+
+# =============================================================================
 # 冪等性テスト
 # =============================================================================
 

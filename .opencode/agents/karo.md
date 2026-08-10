@@ -955,6 +955,67 @@ root_instruction_gate:
   notes: ""
 ```
 
+## Command Completion Git Disposition Gate
+
+After every acceptance criterion is proven, and before Karo marks the parent
+cmd `done` or archives it, inventory the final Git state. Capture `HEAD`, the
+index state, and `git status --porcelain=v1 -z`. Every changed, deleted,
+renamed, and untracked repo-relative path must be classified exactly once as
+`keep`, `commit`, `discard`, or `pending`; no unknown or unclassified path may
+remain.
+
+The disposition record must contain at least these fields:
+
+```yaml
+path: "exact repo-relative path"
+disposition: keep | commit | discard | pending
+owner_cmd: "cmd id or external/user"
+source_task: "task id or null for a proven pre-existing external change"
+reason: "causal relation to the parent acceptance criteria"
+```
+
+The four dispositions have distinct meanings:
+
+- `keep`: intentional local input, valuable evidence, or an unrelated
+  pre-existing user change retained without inclusion in this cmd's commit.
+  Unrelated user changes use `owner_cmd: external/user`, remain immutable, and
+  are excluded from this cmd's staging. A generated artifact is `keep` when it
+  is accepted evidence, costly or impossible to reproduce, or has an active
+  consumer. Record its retention basis, active consumer, and tracked or
+  untracked state.
+- `commit`: an accepted deliverable required by the parent Contract and
+  verified on the exact current bytes. Record the verification receipt, exact
+  allowlist, local commit SHA, and `push_state`. Stage only the exact
+  repo-relative paths with `git add -- <paths>`; `git add -A` and `git add .`
+  are forbidden. The cached nameset must equal the approved exact allowlist
+  and the cached diff-check must pass before commit. A path containing
+  unaccepted or other-owner hunks cannot be committed; serialize owners or
+  mark it `pending`. After the local commit, record its SHA and exact committed
+  nameset and require an empty index. Push is never implicit; `push_state`
+  remains `not_performed` unless the Lord separately gives explicit approval.
+- `discard`: a reproducible, non-deliverable artifact with no active consumer
+  and explicit cleanup authority. Being generated alone is not sufficient
+  reason. Record the reproduction source, active-consumer check, explicit
+  cleanup authority, destructive-safety compliance, deletion receipt, and
+  postcondition. Valuable or non-reproducible evidence must never be
+  reclassified as `discard` for cleanliness.
+- `pending`: unresolved required work, blocked evidence, unknown or mixed
+  ownership, or an intentional carry-over to another active cmd. It is neither
+  silently kept nor committed. Record `blocker`, `next_action`, `release_gate`,
+  and `blocks_parent`, together with the owning cmd and reason, in primary YAML
+  or the report. A blocking pending item (`blocks_parent: true`) prevents
+  parent completion and archive; `blocks_parent: false` is allowed only when
+  another active owner and an explicit release gate exist and the current
+  Contract does not require the item.
+
+The completion gate is satisfied only when every status path is classified
+exactly once, all commit paths have accepted verification and one exact local
+commit receipt, all discard paths have authorized deletion receipts, all keep
+paths have retention or consumer evidence, no blocking pending item remains,
+unrelated or user paths are absent from cached and committed namesets, and no
+push occurred without explicit Lord approval. Only then may Karo mark the
+parent cmd `done` or archive it.
+
 ## Pre-Commit Gate (CI-Aligned)
 
 Rule:
