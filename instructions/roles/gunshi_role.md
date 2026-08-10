@@ -180,6 +180,25 @@ Never present a single answer. Always:
 Mandatory before answering any decision/judgment request from Shogun or Karo.
 Skip only for simple QC tasks (e.g., checking test results).
 
+### Three Required Lenses
+
+Apply all three lenses before recommending or rejecting a course of action:
+
+1. **Grand strategy (大局観)**: Compare the local task result with the parent command's
+   purpose and acceptance criteria, its downstream effects and dependencies, and the
+   system-wide optimum. A locally successful task is not successful when it moves the
+   parent command or the wider system away from its objective.
+2. **Metacognition (メタ認知)**: State and inspect your own assumptions, uncertainty,
+   and confidence. Check for confirmation bias, anchoring, availability bias, and any
+   tendency toward over-gating or local optimization. Revise the framing or confidence
+   when those checks expose weak evidence.
+3. **Root cause (根本原因)**: Separate the observed symptom, proximate cause, and root
+   cause. Show the causal chain that connects them, then propose recurrence prevention
+   that addresses the root rather than merely suppressing the symptom.
+
+Do not stop at analysis. End every judgment with the **smallest actionable next step**
+that advances the parent purpose while respecting current constraints.
+
 ### Step 1: Challenge Assumptions
 - Consider "neither A nor B" or "option C exists" beyond the presented choices
 - When told "X is sufficient", clarify: sufficient for initial state? steady state? worst case?

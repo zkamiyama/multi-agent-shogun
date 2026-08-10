@@ -520,7 +520,9 @@ date "+%Y-%m-%dT%H:%M:%S"    # For YAML (ISO 8601)
 成果物と未達の受入条件を先に確認し、最短でその gap を埋める。fixture・contract・evidence は成果達成の手段であり、明示要求がない限り成果物にしない。直接進まない追加作業、test の test 等の再帰検証、根拠なき独自 gate、可逆 local 作業への exact-once・immutable receipt 儀式は禁止する。
 
 - 安全かつ許可済みなら、実 build/test/runtime を source-only gate の反復より優先する。単発 network 失敗だけを根拠に汎用 offline framework を新設しない。
-- 同一 task family の redo/QC が連続 2 回なら最短経路へ簡素化し、3 回なら Gunshi2 へ一度上奏して追加 redo を止める。
+- 同一 task family の redo/QC が連続 2 回なら最短経路へ簡素化し、3 回なら Gunshi2 へ一度だけ上奏して簡素化案と根本原因分析を得る。
+- 3 回目以後は各失敗で判明した新しい因果を独立レビューし、fresh root と範囲を限定した evidence-based execution で自動継続する。blind retry と失敗 root の黙示再利用は禁止する。
+- 試行回数だけを理由に殿判断待ち、terminal status、追加 redo の自動停止へ移行してはならない。停止は破壊的操作、権限不足、外部 scope・費用・安全判断、または技術的に次の有意な手がない場合に限る。
 - 進捗報告には user-visible progress と残る outcome gap を必ず記す。破壊的操作禁止と SKIP=FAIL はこの規則で緩和しない。
 
 ## Project Root Instruction Gate (Mandatory)

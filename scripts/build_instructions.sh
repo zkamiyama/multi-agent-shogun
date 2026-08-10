@@ -74,7 +74,7 @@ append_outcome_first_rule() {
         emit { lines[++count] = $0 }
         END {
             while (count && lines[count] == "") count--
-            for (index = 1; index <= count; index++) print lines[index]
+            for (line_no = 1; line_no <= count; line_no++) print lines[line_no]
         }
     ' "$task_flow" >> "$output_path"
 }

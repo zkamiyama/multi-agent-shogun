@@ -285,6 +285,38 @@ setup() {
         "$PROJECT_ROOT/agents/default/system.md"; do
         [ -f "$file" ] || continue
         grep -Fq "Outcome-First / 過剰検証防止" "$file"
+        grep -Fq "3 回目以後は各失敗で判明した新しい因果を独立レビューし" "$file"
+        grep -Fq "試行回数だけを理由に殿判断待ち、terminal status、追加 redo の自動停止へ移行してはならない" "$file"
+        ! grep -Fq "3 回なら Gunshi2 へ一度上奏して追加 redo を止める" "$file"
+    done
+}
+
+@test "content: gunshi source and all generated prompts include required strategic reasoning lenses [cmd_025]" {
+    local file
+
+    for file in \
+        "$PROJECT_ROOT/instructions/roles/gunshi_role.md" \
+        "$OUTPUT_DIR/gunshi.md" \
+        "$OUTPUT_DIR/codex-gunshi.md" \
+        "$OUTPUT_DIR/copilot-gunshi.md" \
+        "$OUTPUT_DIR/kimi-gunshi.md" \
+        "$OUTPUT_DIR/opencode-gunshi.md" \
+        "$OUTPUT_DIR/cursor-gunshi.md" \
+        "$OUTPUT_DIR/antigravity-gunshi.md"; do
+        [ -f "$file" ]
+        grep -Fq "Grand strategy (大局観)" "$file"
+        grep -Fq "parent command's" "$file"
+        grep -Fq "downstream effects and dependencies" "$file"
+        grep -Fq "system-wide optimum" "$file"
+        grep -Fq "Metacognition (メタ認知)" "$file"
+        grep -Fq "assumptions, uncertainty" "$file"
+        grep -Fq "confirmation bias" "$file"
+        grep -Fq "over-gating or local optimization" "$file"
+        grep -Fq "Root cause (根本原因)" "$file"
+        grep -Fq "symptom, proximate cause, and root" "$file"
+        grep -Fq "causal chain" "$file"
+        grep -Fq "recurrence prevention" "$file"
+        grep -Fq "smallest actionable next step" "$file"
     done
 }
 
