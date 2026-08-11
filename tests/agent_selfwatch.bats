@@ -81,7 +81,29 @@ teardown() {
 
 @test "TC-FR-002: inotify + timeout fallback is configured" {
     grep -q "INOTIFY_TIMEOUT=" "$WATCHER_SCRIPT"
-    grep -F -q 'inotifywait -q -t "$INOTIFY_TIMEOUT" -e modify -e close_write "$INBOX"' "$WATCHER_SCRIPT"
+
+    # Keep this contract scoped to the same shell command while allowing
+    # continuation lines and additional invalidation events.
+    local inotify_command
+    inotify_command="$(awk '
+        !capturing && $0 ~ /^[[:space:]]*inotifywait[[:space:]]/ {
+            capturing = 1
+        }
+        capturing {
+            printf "%s ", $0
+            if ($0 !~ /\\[[:space:]]*$/) {
+                exit
+            }
+        }
+    ' "$WATCHER_SCRIPT")"
+
+    [ -n "$inotify_command" ]
+    grep -Eq '(^|[[:space:]])inotifywait([[:space:]]|$)' <<< "$inotify_command"
+    grep -Eq '(^|[[:space:]])-q([[:space:]]|$)' <<< "$inotify_command"
+    grep -Eq '(^|[[:space:]])-t[[:space:]]+[\"]?\$INOTIFY_TIMEOUT[\"]?([[:space:]]|$)' <<< "$inotify_command"
+    grep -Eq '(^|[[:space:]])-e[[:space:]]+modify([[:space:]]|$)' <<< "$inotify_command"
+    grep -Eq '(^|[[:space:]])-e[[:space:]]+close_write([[:space:]]|$)' <<< "$inotify_command"
+    grep -Eq '(^|[[:space:]])[\"]?\$INBOX[\"]?([[:space:]]|$)' <<< "$inotify_command"
 }
 
 @test "TC-FR-003: get_unread_info routes task/special messages correctly" {

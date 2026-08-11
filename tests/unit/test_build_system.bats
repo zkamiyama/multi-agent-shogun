@@ -291,6 +291,126 @@ setup() {
     done
 }
 
+@test "content: Outcome-First section is unique and byte-identical across all generated outputs [cmd_036]" {
+    PROJECT_ROOT="$PROJECT_ROOT" python3 - <<'PYEOF'
+from pathlib import Path
+import os
+
+project_root = Path(os.environ["PROJECT_ROOT"])
+header = "## Outcome-First / 過剰検証防止"
+
+
+def section(path: Path) -> str:
+    text = path.read_bytes().decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    lines = text.splitlines()
+    starts = [index for index, line in enumerate(lines) if line == header]
+    assert len(starts) == 1, f"{path}: expected one Outcome-First header, got {len(starts)}"
+    start = starts[0]
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        if lines[index].startswith("## ") and not lines[index].startswith("### "):
+            end = index
+            break
+    body = lines[start:end]
+    while body and body[-1] == "":
+        body.pop()
+    return "\n".join(body)
+
+
+instruction_outputs = sorted((project_root / "instructions/generated").glob("*.md"))
+opencode_outputs = sorted(
+    path
+    for path in (project_root / ".opencode/agents").glob("*.md")
+    if not path.name.endswith("-runtime.md")
+)
+root_outputs = [
+    project_root / "CLAUDE.md",
+    project_root / "AGENTS.md",
+    project_root / ".github/copilot-instructions.md",
+    project_root / "agents/default/system.md",
+]
+
+assert len(instruction_outputs) == 28, len(instruction_outputs)
+assert len(opencode_outputs) == 11, len(opencode_outputs)
+targets = root_outputs + instruction_outputs + opencode_outputs
+assert len(targets) == 43, len(targets)
+
+canonical = section(project_root / "instructions/common/task_flow.md")
+for path in targets:
+    assert path.is_file(), f"missing generated output: {path}"
+    assert section(path) == canonical, f"stale or divergent Outcome-First section: {path}"
+PYEOF
+}
+
+@test "generator: duplicate Outcome-First target header fails closed [cmd_036]" {
+    local target="$BATS_TEST_TMPDIR/duplicate-outcome-first.md"
+    cp "$PROJECT_ROOT/CLAUDE.md" "$target"
+    printf '\n## Outcome-First / 過剰検証防止\n' >> "$target"
+
+    run bash -c 'source "$1" >/dev/null 2>&1; sync_outcome_first_rule "$2"' _ "$BUILD_SCRIPT" "$target"
+
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"duplicate"* ]]
+}
+
+@test "generator: stale Outcome-First target is replaced and sync is idempotent [cmd_036]" {
+    local target="$BATS_TEST_TMPDIR/stale-outcome-first.md"
+    cp "$PROJECT_ROOT/CLAUDE.md" "$target"
+    python3 - "$target" <<'PYEOF'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines()
+header = "## Outcome-First / 過剰検証防止"
+start = lines.index(header)
+end = next(
+    (index for index in range(start + 1, len(lines))
+     if lines[index].startswith("## ") and not lines[index].startswith("### ")),
+    len(lines),
+)
+for index in range(start + 1, end):
+    if lines[index]:
+        lines[index] = "stale generated policy content"
+        break
+path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PYEOF
+
+    run bash -c 'source "$1" >/dev/null 2>&1; sync_outcome_first_rule "$2"; sha256sum "$2"; sync_outcome_first_rule "$2"; sha256sum "$2"' _ "$BUILD_SCRIPT" "$target"
+
+    [ "$status" -eq 0 ]
+    local first_hash second_hash
+    first_hash="$(printf '%s\n' "$output" | sed -n '1p')"
+    second_hash="$(printf '%s\n' "$output" | sed -n '2p')"
+    [ "$first_hash" = "$second_hash" ]
+
+    PROJECT_ROOT="$PROJECT_ROOT" python3 - "$target" <<'PYEOF'
+from pathlib import Path
+import os
+import sys
+
+project_root = Path(os.environ["PROJECT_ROOT"])
+header = "## Outcome-First / 過剰検証防止"
+
+
+def section(path: Path) -> str:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    start = lines.index(header)
+    end = next(
+        (index for index in range(start + 1, len(lines))
+         if lines[index].startswith("## ") and not lines[index].startswith("### ")),
+        len(lines),
+    )
+    body = lines[start:end]
+    while body and not body[-1]:
+        body.pop()
+    return "\n".join(body)
+
+
+assert section(Path(sys.argv[1])) == section(project_root / "instructions/common/task_flow.md")
+PYEOF
+}
+
 @test "content: gunshi source and all generated prompts include required strategic reasoning lenses [cmd_025]" {
     local file
 
@@ -620,12 +740,36 @@ PYEOF
     # 1st build
     bash "$BUILD_SCRIPT" > /dev/null 2>&1
     local checksums_first
-    checksums_first=$(find "$OUTPUT_DIR" -name "*.md" -type f -exec md5sum {} \; | sort)
+    checksums_first=$(
+        for file in \
+            "$OUTPUT_DIR"/*.md \
+            "$PROJECT_ROOT/CLAUDE.md" \
+            "$PROJECT_ROOT/AGENTS.md" \
+            "$PROJECT_ROOT/.github/copilot-instructions.md" \
+            "$PROJECT_ROOT/agents/default/system.md" \
+            "$PROJECT_ROOT/.opencode/agents"/*.md; do
+            [ -f "$file" ] || continue
+            [[ "$file" == *-runtime.md ]] && continue
+            md5sum "$file"
+        done | sort
+    )
 
     # 2nd build
     bash "$BUILD_SCRIPT" > /dev/null 2>&1
     local checksums_second
-    checksums_second=$(find "$OUTPUT_DIR" -name "*.md" -type f -exec md5sum {} \; | sort)
+    checksums_second=$(
+        for file in \
+            "$OUTPUT_DIR"/*.md \
+            "$PROJECT_ROOT/CLAUDE.md" \
+            "$PROJECT_ROOT/AGENTS.md" \
+            "$PROJECT_ROOT/.github/copilot-instructions.md" \
+            "$PROJECT_ROOT/agents/default/system.md" \
+            "$PROJECT_ROOT/.opencode/agents"/*.md; do
+            [ -f "$file" ] || continue
+            [[ "$file" == *-runtime.md ]] && continue
+            md5sum "$file"
+        done | sort
+    )
 
     [ "$checksums_first" = "$checksums_second" ]
 }

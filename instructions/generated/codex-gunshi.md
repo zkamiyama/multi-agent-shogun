@@ -666,6 +666,17 @@ date "+%Y-%m-%dT%H:%M:%S"    # For YAML (ISO 8601)
 
 成果物と未達の受入条件を先に確認し、最短でその gap を埋める。fixture・contract・evidence は成果達成の手段であり、明示要求がない限り成果物にしない。直接進まない追加作業、test の test 等の再帰検証、根拠なき独自 gate、可逆 local 作業への exact-once・immutable receipt 儀式は禁止する。
 
+### Outcome-Bound Engineering Gate（all agents）
+
+新しい実装・検証・tool call・retry・helper・abstractionをClaimとして採用する前に、次を順に判定する。この判定専用のfixture・receipt・framework・formは作らず、既存のtask・plan・reportへ必要な根拠だけ記す。
+
+1. **Outcome link**: requested outcomeと未達のAcceptance Criterionを先に示す。Claimを削除するとそのcriterionが証明不能になる場合だけ、criterion・観測可能なgap・最小の次行為を結び付けて採用する。結び付けられないClaimは実行しない。
+2. **Failure-model authority**: crash consistency、power loss、cross-platform durability、exactly-once、immutable receipt、recovery journal、security hardening、transactional rollback等は、requester、target specification、applicable safety/security policy、または再現・計測済みfailureのいずれかが要求するときだけContractへ入れ、authorityと対象failureを記録する。「robust」「safe」「reliable」等の曖昧語だけからfailure modelを拡張しない。可逆local作業の通常成功だけが要求される場合、file/directory fsync、OS固有flush、crash-recovery harness、cross-platform parity、exactly-once、immutable receiptを追加しない。
+3. **Minimum evidence**: 各evidenceは証明するcriterionまたはClaimを一つ以上示す。同じClaimを既存のtest・build・runtime・logが直接証明できるなら再利用する。観測可能なgapを追加で閉じないtest-of-test、receipt-of-receipt、重複verifier、token-shape gate、専用frameworkは追加しない。外部仕様がexact byte・symbol・APIを要求する場合だけ、そのexactnessをbehaviorとして検証する。
+4. **Mechanism reuse**: 新しいhelper・layer・dependency・abstractionは、既存機構では満たせないcriterionと最小deltaを示し、Deletion Testを通る場合だけ追加する。tool callとretryは、named uncertaintyを減らす、新しいcausal hypothesisを検証する、またはContract指定の反復測定を行う場合に限る。同じ入力・同じ状態・新しい仮説なしの反復は禁止する。
+5. **CONTINUE / STOP**: named criterionが未証明で、許可済みかつ安全な次行為がそのgapを直接縮める場合だけCONTINUEする。全criterionが証明済みで、残るClaimがDeletion Testを通らない時はCOMPLETEDとしてSTOPする。criterionが残るが許可済みかつ安全なgap-reducing actionがない場合は、既存status規則に従ってexact gapを報告し、作業継続のための儀式を捏造しない。
+6. **Non-regression**: 破壊的操作禁止、SKIP=FAIL、applicable safety/security/privacy policy、および明示されたdurability・transactional correctness・crash consistencyは削除または弱体化しない。このgateが除外するのは根拠なく推定されたscopeだけである。
+
 - 安全かつ許可済みなら、実 build/test/runtime を source-only gate の反復より優先する。単発 network 失敗だけを根拠に汎用 offline framework を新設しない。
 - 同一 task family の redo/QC が連続 2 回なら最短経路へ簡素化し、3 回なら Gunshi2 へ一度だけ上奏して簡素化案と根本原因分析を得る。
 - 3 回目以後は各失敗で判明した新しい因果を独立レビューし、fresh root と範囲を限定した evidence-based execution で自動継続する。blind retry と失敗 root の黙示再利用は禁止する。

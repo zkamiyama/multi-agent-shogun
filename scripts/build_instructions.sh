@@ -62,22 +62,88 @@ normalize_root_instruction_candidates() {
         "$output_path"
 }
 
-# Function: append_outcome_first_rule
-# Description: Appends the shared Outcome-First rule to root CLI auto-load files.
-append_outcome_first_rule() {
+# Function: sync_outcome_first_rule
+# Description: Synchronizes the canonical Outcome-First section into a root auto-load file.
+sync_outcome_first_rule() {
     local output_path="$1"
     local task_flow="$PARTS_DIR/common/task_flow.md"
+    local python_bin
 
-    grep -Fq "Outcome-First / 過剰検証防止" "$output_path" && return 0
-    awk '
-        /^## Outcome-First \/ 過剰検証防止$/ { emit = 1 }
-        emit && /^## / && !/^## Outcome-First \/ 過剰検証防止$/ { exit }
-        emit { lines[++count] = $0 }
-        END {
-            while (count && lines[count] == "") count--
-            for (line_no = 1; line_no <= count; line_no++) print lines[line_no]
-        }
-' "$task_flow" >> "$output_path"
+    [ -f "$output_path" ] || return 0
+    [ -f "$task_flow" ] || {
+        echo "  ❌ Outcome-First canonical source not found: $task_flow" >&2
+        return 1
+    }
+
+    python_bin=$(command -v python3 2>/dev/null || true)
+    if [[ -z "$python_bin" ]]; then
+        echo "  ❌ python3 is required to synchronize the Outcome-First section." >&2
+        return 1
+    fi
+
+    "$python_bin" - "$output_path" "$task_flow" <<'PYEOF'
+from pathlib import Path
+import sys
+
+target_path = Path(sys.argv[1])
+canonical_path = Path(sys.argv[2])
+header = "## Outcome-First / 過剰検証防止"
+
+
+def normalize(raw: bytes) -> str:
+    return raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def section_bounds(lines: list[str], path: Path, *, canonical: bool = False) -> tuple[int, int]:
+    starts = [index for index, line in enumerate(lines) if line == header]
+    if canonical and len(starts) != 1:
+        raise SystemExit(
+            f"Outcome-First canonical section must have exactly one level-two header: "
+            f"{path} ({len(starts)})"
+        )
+    if not canonical and len(starts) > 1:
+        raise SystemExit(
+            f"Outcome-First target contains duplicate level-two headers: {path} ({len(starts)})"
+        )
+    if not starts:
+        return len(lines), len(lines)
+
+    start = starts[0]
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        if lines[index].startswith("## ") and not lines[index].startswith("### "):
+            end = index
+            break
+    return start, end
+
+
+canonical_lines = normalize(canonical_path.read_bytes()).splitlines()
+canonical_start, canonical_end = section_bounds(canonical_lines, canonical_path, canonical=True)
+canonical_section = canonical_lines[canonical_start:canonical_end]
+while canonical_section and canonical_section[-1] == "":
+    canonical_section.pop()
+
+raw = target_path.read_bytes()
+target_lines = normalize(raw).splitlines()
+target_start, target_end = section_bounds(target_lines, target_path)
+
+if target_start < len(target_lines):
+    replacement = list(canonical_section)
+    if target_end < len(target_lines):
+        replacement.append("")
+    updated_lines = target_lines[:target_start] + replacement + target_lines[target_end:]
+else:
+    updated_lines = list(target_lines)
+    if updated_lines and updated_lines[-1] != "":
+        updated_lines.append("")
+    updated_lines.extend(canonical_section)
+
+updated = "\n".join(updated_lines)
+if raw.endswith((b"\n", b"\r")):
+    updated += "\n"
+newline = "\r\n" if b"\r\n" in raw else "\n"
+target_path.write_bytes(updated.replace("\n", newline).encode("utf-8"))
+PYEOF
 }
 
 # Function: sync_claude_bfv_kernel
@@ -186,6 +252,7 @@ PYEOF
 
 sync_claude_bfv_kernel
 normalize_claude_autoload_source
+sync_outcome_first_rule "$ROOT_DIR/CLAUDE.md"
 
 # ============================================================
 # Helper function: Build a complete instruction file
@@ -344,7 +411,7 @@ generate_agents_md() {
         -e 's|`/clear` wipes old context|`/new` wipes old context|g' \
         "$claude_md" | tr -d '\r' > "$output_path"
     normalize_root_instruction_candidates "$output_path"
-    append_outcome_first_rule "$output_path"
+    sync_outcome_first_rule "$output_path"
 
     echo "  ✅ Created: AGENTS.md"
 }
@@ -382,7 +449,7 @@ generate_copilot_instructions() {
         -e 's|Claude Code|GitHub Copilot CLI|g' \
         "$claude_md" | tr -d '\r' > "$output_path"
     normalize_root_instruction_candidates "$output_path"
-    append_outcome_first_rule "$output_path"
+    sync_outcome_first_rule "$output_path"
 
     echo "  ✅ Created: .github/copilot-instructions.md"
 }
@@ -422,7 +489,7 @@ generate_kimi_instructions() {
         -e 's|Claude Code|Kimi K2 CLI|g' \
         "$claude_md" | tr -d '\r' > "$system_md_path"
     normalize_root_instruction_candidates "$system_md_path"
-    append_outcome_first_rule "$system_md_path"
+    sync_outcome_first_rule "$system_md_path"
 
     echo "  ✅ Created: agents/default/system.md"
 
