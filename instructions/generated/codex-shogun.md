@@ -566,6 +566,12 @@ date "+%Y-%m-%dT%H:%M:%S"    # For YAML (ISO 8601)
 
 成果物と未達の受入条件を先に確認し、最短でその gap を埋める。fixture・contract・evidence は成果達成の手段であり、明示要求がない限り成果物にしない。直接進まない追加作業、test の test 等の再帰検証、根拠なき独自 gate、可逆 local 作業への exact-once・immutable receipt 儀式は禁止する。
 
+### 成果への距離・原因切り分けに基づく優先順位
+
+候補作業ごとに、user-visible outcome への距離、現在の原因仮説を識別する情報利得、費用と脇道化リスクを比較して修正・検証順を決める。技術的に妥当であること、または最終 acceptance criterion に関係することだけでは最優先にしない。まず成果へ最も直接届き、主要な不確実性を最小作業で減らす修正・検証を行い、間接的な形式証明、汎用基盤、広い検証は、直接経路で必要性が立証された後へ送る。
+
+可視症状の原因が未分離なら、修正より先に最小の discriminator で主要な cause family を分ける。各差配・redo の前に「これが通れば成果 gap が何から何へ縮むか」を明記し、成果 gap が縮まらない作業は棄却または後順位にする。acceptance criterion 自体が実成果から遠い疑いが生じたら、機械的に追わず Contract interpretation を再評価して上位者へ報告する。
+
 ### Outcome-Bound Engineering Gate（all agents）
 
 新しい実装・検証・tool call・retry・helper・abstractionをClaimとして採用する前に、次を順に判定する。この判定専用のfixture・receipt・framework・formは作らず、既存のtask・plan・reportへ必要な根拠だけ記す。
