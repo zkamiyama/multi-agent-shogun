@@ -132,6 +132,20 @@ mux_zellij_state_py() {
     shift || true
     mkdir -p "$(dirname "$MUX_STATE_FILE")"
     local lock="${MUX_STATE_FILE}.lock"
+    local route_lock="${MUX_ROUTE_REGISTRY_LOCK_FILE:-${MUX_STATE_FILE}.route.lock}"
+    local route_fd=""
+    local rc=0
+    # A route sender already owns the registry transaction while it resolves
+    # and submits literal+Enter.  Nested reads must only take the state lock;
+    # ordinary registry/remapper operations acquire the shared route lock first.
+    if [ "${MUX_ROUTE_LOCK_HELD:-0}" != "1" ]; then
+        mkdir -p "$(dirname "$route_lock")"
+        exec {route_fd}>"$route_lock"
+        if ! flock -x "$route_fd"; then
+            exec {route_fd}>&-
+            return 1
+        fi
+    fi
     (
         flock -x 8
         MUX_STATE_FILE="$MUX_STATE_FILE" MUX_BACKEND="$MUX_BACKEND" python3 - "$@" <<PY
@@ -154,7 +168,28 @@ def save():
     os.replace(tmp, path)
 $code
 PY
-    ) 8>"$lock"
+    ) 8>"$lock" || rc=$?
+    if [ -n "$route_fd" ]; then
+        flock -u "$route_fd" 2>/dev/null || true
+        exec {route_fd}>&-
+    fi
+    return "$rc"
+}
+
+mux_backend_route_generation() {
+    local agent="$1"
+    local target="${2:-}"
+    mux_zellij_state_py '
+agent, target_hint = sys.argv[1], sys.argv[2]
+selected = target_hint
+if not selected:
+    for candidate, pane in (data.get("panes", {}) or {}).items():
+        if (pane or {}).get("agent_id") == agent:
+            selected = candidate
+            break
+updated = data.get("updated_at", "")
+print(f"{updated}:{selected}")
+' "$agent" "$target"
 }
 
 mux_zellij_state_set_meta() {

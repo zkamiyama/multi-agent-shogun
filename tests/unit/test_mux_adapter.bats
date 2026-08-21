@@ -340,3 +340,158 @@ PY
     [[ "$output" == *"scripts/agent_status.sh"* ]]
     [[ "$output" == *"scripts/ratelimit_check.sh"* ]]
 }
+
+@test "zellij route transaction serializes remap before or after a complete literal pair" {
+    if ! bash -s -- "$PROJECT_ROOT" "$TEST_TMPDIR" <<'BASH'
+set -e
+PROJECT_ROOT="$1"
+TEST_ROOT="$2"
+FAKE_ZELLIJ="$TEST_ROOT/zellij"
+
+cat > "$FAKE_ZELLIJ" <<'ZELLIJ'
+#!/usr/bin/env bash
+action=""
+pane=""
+text=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        action) action="$2"; shift 2 ;;
+        --pane-id) pane="$2"; shift 2 ;;
+        --session) shift 2 ;;
+        --json|--state) shift ;;
+        *) text="$1"; shift ;;
+    esac
+done
+if [ "$action" = "list-panes" ]; then
+    printf '%s\n' '[{"id":0,"is_plugin":false},{"id":1,"is_plugin":false}]'
+    exit 0
+fi
+if [ "$action" = "paste" ]; then
+    printf 'paste %s %s\n' "$pane" "$text" >> "$ROUTE_LOG"
+    if [ "$ROUTE_MODE" = "sender-first" ]; then
+        : > "$CASE_ROOT/literal_sent"
+        for _ in $(seq 1 200); do
+            [ -e "$CASE_ROOT/remap_requested" ] && break
+            command sleep 0.01
+        done
+        [ -e "$CASE_ROOT/remap_requested" ] || exit 91
+    fi
+    exit 0
+fi
+if [ "$action" = "send-keys" ]; then
+    printf 'keys %s %s\n' "$pane" "$text" >> "$ROUTE_LOG"
+    exit 0
+fi
+exit 0
+ZELLIJ
+chmod +x "$FAKE_ZELLIJ"
+
+run_case() {
+    local mode="$1"
+    local case_root="$2"
+    local old_target="zellij:multiagent:terminal_0"
+    local new_target="zellij:multiagent:terminal_1"
+    mkdir -p "$case_root"
+    cat > "$case_root/mux_state.yaml" <<'EOF'
+backend: zellij
+updated_at: generation-0
+panes:
+  zellij:multiagent:terminal_0:
+    agent_id: test_agent
+    agent_cli: codex
+    pane_id: terminal_0
+    session: multiagent
+  zellij:multiagent:terminal_1:
+    agent_id: ""
+    agent_cli: codex
+    pane_id: terminal_1
+    session: multiagent
+EOF
+    : > "$case_root/route.log"
+
+    (
+        export MUX_BACKEND=zellij
+        export ZELLIJ_BIN="$FAKE_ZELLIJ"
+        export MUX_STATE_FILE="$case_root/mux_state.yaml"
+        export MUX_ROUTE_REGISTRY_LOCK_FILE="$case_root/route.lock"
+        export ROUTE_LOG="$case_root/route.log"
+        export CASE_ROOT="$case_root"
+        export ROUTE_MODE="$mode"
+        export AGENT_ID=test_agent
+        export PANE_TARGET="$old_target"
+        export CLI_TYPE=codex
+        export SCRIPT_DIR="$PROJECT_ROOT"
+        export __INBOX_WATCHER_TESTING__=1
+        export INBOX_WATCHER_TEST_DYNAMIC_ROUTE=1
+        source "$PROJECT_ROOT/lib/mux_adapter.sh"
+        source "$PROJECT_ROOT/scripts/inbox_watcher.sh"
+
+        remap_agent() {
+            local remap_old="$1"
+            local remap_new="$2"
+            printf '%s\n' 'remap begin' >> "$ROUTE_LOG"
+            mux_zellij_state_py '
+old_target, new_target, agent = sys.argv[1:]
+panes = data.setdefault("panes", {})
+panes.setdefault(old_target, {})["agent_id"] = ""
+panes.setdefault(new_target, {}).update({
+    "agent_id": agent,
+    "agent_cli": "codex",
+    "pane_id": "terminal_1",
+    "session": "multiagent",
+})
+save()
+' "$remap_old" "$remap_new" "$AGENT_ID"
+            printf '%s\n' 'remap done' >> "$ROUTE_LOG"
+        }
+
+        if [ "$mode" = "remap-first" ]; then
+            remap_agent "$old_target" "$new_target"
+            route_send_literal_then_keys inbox1 0 Enter
+        else
+            route_send_literal_then_keys inbox1 0 Enter &
+            sender_pid=$!
+            for _ in $(seq 1 200); do
+                [ -e "$CASE_ROOT/literal_sent" ] && break
+                command sleep 0.01
+            done
+            [ -e "$CASE_ROOT/literal_sent" ]
+            ( remap_agent "$old_target" "$new_target" ) &
+            remap_pid=$!
+            for _ in $(seq 1 200); do
+                grep -q '^remap begin$' "$ROUTE_LOG" && break
+                command sleep 0.01
+            done
+            grep -q '^remap begin$' "$ROUTE_LOG"
+            : > "$CASE_ROOT/remap_requested"
+            wait "$sender_pid"
+            wait "$remap_pid"
+        fi
+
+        if [ "$mode" = "remap-first" ]; then
+            expected=$'remap begin\nremap done\npaste terminal_1 inbox1\nkeys terminal_1 Enter'
+        else
+            expected=$'paste terminal_0 inbox1\nremap begin\nkeys terminal_0 Enter\nremap done'
+        fi
+        actual="$(<"$ROUTE_LOG")"
+        [ "$actual" = "$expected" ]
+        if [ "$mode" = "remap-first" ]; then
+            [ "$(grep -c '^paste terminal_0 ' "$ROUTE_LOG" || true)" -eq 0 ]
+            [ "$(grep -c '^paste terminal_1 inbox1$' "$ROUTE_LOG")" -eq 1 ]
+            [ "$(grep -c '^keys terminal_1 Enter$' "$ROUTE_LOG")" -eq 1 ]
+        else
+            [ "$(grep -c '^paste terminal_0 inbox1$' "$ROUTE_LOG")" -eq 1 ]
+            [ "$(grep -c '^keys terminal_0 Enter$' "$ROUTE_LOG")" -eq 1 ]
+            [ "$(grep -c '^paste terminal_1 ' "$ROUTE_LOG" || true)" -eq 0 ]
+        fi
+        [ "$(mux_find_pane_by_agent "$AGENT_ID")" = "$new_target" ]
+    )
+}
+
+run_case remap-first "$TEST_ROOT/route-remap-first"
+run_case sender-first "$TEST_ROOT/route-sender-first"
+BASH
+    then
+        return 1
+    fi
+}

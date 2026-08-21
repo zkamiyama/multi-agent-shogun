@@ -17,6 +17,25 @@ if [ -z "${MUX_BACKEND:-}" ]; then
     MUX_BACKEND="${MUX_BACKEND:-zellij}"
 fi
 MUX_STATE_FILE="${MUX_STATE_FILE:-${MUX_ADAPTER_PROJECT_ROOT}/queue/mux_state.yaml}"
+# Route resolution and registry/remapper updates share one transaction lock.
+# A watcher holds this lock across literal+Enter; the zellij state writer takes
+# it before changing the agent-to-pane registry.  This keeps a remap from
+# splitting one delivery across pane generations.
+MUX_ROUTE_REGISTRY_LOCK_FILE="${MUX_ROUTE_REGISTRY_LOCK_FILE:-${MUX_STATE_FILE}.route.lock}"
+
+mux_route_registry_lock_file() {
+    printf '%s\n' "$MUX_ROUTE_REGISTRY_LOCK_FILE"
+}
+
+mux_route_generation() {
+    local agent="$1"
+    local target="${2:-}"
+    if type mux_backend_route_generation >/dev/null 2>&1; then
+        mux_backend_route_generation "$agent" "$target"
+        return $?
+    fi
+    printf '%s:%s\n' "$agent" "$target"
+}
 
 mux_backend_name() {
     printf '%s\n' "$MUX_BACKEND"

@@ -52,7 +52,10 @@ if [ "${__INBOX_WATCHER_TESTING__:-}" != "1" ]; then
 
     echo "[$(date)] inbox_watcher started — agent: $AGENT_ID, pane: $PANE_TARGET, cli: $CLI_TYPE" >&2
 
-    WATCHER_INSTANCE_LOCK="/tmp/shogun_inbox_watcher_${AGENT_ID}_$(printf '%s' "$PANE_TARGET" | tr -c 'A-Za-z0-9_.-' '_').lock"
+    # Ownership is agent-wide, not pane-wide.  A pane remap must not allow an
+    # old watcher and a newly started watcher to deliver the same inbox event.
+    # The active watcher re-resolves the current pane before every send below.
+    WATCHER_INSTANCE_LOCK="/tmp/shogun_inbox_watcher_${AGENT_ID}.lock"
     exec 201>"$WATCHER_INSTANCE_LOCK"
     if ! flock -n 201; then
         echo "[$(date)] [EXIT] inbox_watcher already running — agent: $AGENT_ID, pane: $PANE_TARGET" >&2
@@ -293,9 +296,216 @@ normalize_watcher_cli_type() {
     esac
 }
 
+route_registry_lock_file() {
+    if type mux_route_registry_lock_file &>/dev/null; then
+        mux_route_registry_lock_file
+        return 0
+    fi
+    if [ -n "${MUX_ROUTE_REGISTRY_LOCK_FILE:-}" ]; then
+        printf '%s\n' "$MUX_ROUTE_REGISTRY_LOCK_FILE"
+    elif [ -n "${MUX_STATE_FILE:-}" ]; then
+        printf '%s.route.lock\n' "$MUX_STATE_FILE"
+    else
+        printf '%s\n' "/tmp/shogun_agent_route_registry.lock"
+    fi
+}
+
+# Re-resolve the route immediately before each potentially mutating mux call.
+# The watcher process may outlive a pane remap, so its startup PANE_TARGET is
+# only a test/legacy fallback; production requires the current agent_id route.
+# ROUTE_GENERATION is intentionally recomputed on every call and is an
+# observability token, not a permission to reuse a stale pane target.
+route_current_pane() {
+    local resolved=""
+    local resolved_agent=""
+    local resolved_cli=""
+    local resolved_generation=""
+
+    # The normal test harness sources agent_status.sh, which in turn loads the
+    # real mux adapter.  Its fixed mock target is intentional for legacy unit
+    # tests; route-specific tests opt into the resolver explicitly.
+    if [ "${__INBOX_WATCHER_TESTING__:-}" = "1" ] \
+            && [ "${INBOX_WATCHER_TEST_DYNAMIC_ROUTE:-0}" != "1" ] \
+            && [ -n "${PANE_TARGET:-}" ]; then
+        ROUTE_GENERATION="${AGENT_ID}:${PANE_TARGET}"
+        return 0
+    fi
+
+    if type mux_find_pane_by_agent &>/dev/null; then
+        resolved=$(mux_find_pane_by_agent "$AGENT_ID" 2>/dev/null \
+            | head -n 1 | tr -d '\r')
+        if [ -z "$resolved" ]; then
+            echo "[$(date)] [ROUTE-REJECT] no current pane for agent=$AGENT_ID" >&2
+            return 1
+        fi
+        if ! type mux_get_meta &>/dev/null; then
+            echo "[$(date)] [ROUTE-REJECT] pane metadata unavailable for agent=$AGENT_ID" >&2
+            return 1
+        fi
+        resolved_agent=$(mux_get_meta "$resolved" agent_id 2>/dev/null \
+            | head -n 1 | tr -d '\r[:space:]')
+        if [ "$resolved_agent" != "$AGENT_ID" ]; then
+            echo "[$(date)] [ROUTE-REJECT] pane=$resolved belongs to agent=${resolved_agent:-unknown}, expected=$AGENT_ID" >&2
+            return 1
+        fi
+        resolved_cli=$(mux_get_meta "$resolved" agent_cli 2>/dev/null \
+            | head -n 1 | tr -d '\r[:space:]')
+        if is_valid_cli_type "$resolved_cli"; then
+            CLI_TYPE=$(normalize_watcher_cli_type "$resolved_cli")
+        fi
+        PANE_TARGET="$resolved"
+        if type mux_route_generation &>/dev/null; then
+            resolved_generation=$(mux_route_generation "$AGENT_ID" "$resolved" 2>/dev/null || true)
+        fi
+        ROUTE_GENERATION="${resolved_generation:-${AGENT_ID}:${PANE_TARGET}}"
+        return 0
+    fi
+
+    # Route-specific tests may inject mux_send_* functions without loading the
+    # adapter.  Keep their fixed target deterministic while production remains
+    # fail-closed.
+    if [ "${__INBOX_WATCHER_TESTING__:-}" = "1" ] \
+            && [ "${INBOX_WATCHER_TEST_DYNAMIC_ROUTE:-0}" != "1" ] \
+            && [ -n "${PANE_TARGET:-}" ]; then
+        ROUTE_GENERATION="${AGENT_ID}:${PANE_TARGET}"
+        return 0
+    fi
+
+    echo "[$(date)] [ROUTE-REJECT] mux agent resolver unavailable for agent=$AGENT_ID" >&2
+    return 1
+}
+
+route_send_keys() {
+    route_current_pane || return 1
+    mux_send_keys "$PANE_TARGET" "$@"
+}
+
+route_send_literal() {
+    route_current_pane || return 1
+    mux_send_literal "$PANE_TARGET" "$@"
+}
+
+route_send_line() {
+    route_current_pane || return 1
+    mux_send_line "$PANE_TARGET" "$@"
+}
+
+# A text+Enter submission is one route transaction.  Resolve the exact agent
+# pane before the literal, then resolve it again before Enter and fail closed if
+# a remap occurred.  This prevents one nudge from touching two pane generations.
+route_send_literal_then_keys() {
+    local literal="$1"
+    local delay="$2"
+    shift 2
+    local route_target route_generation route_fd route_lock_file
+    local route_lock_held_was_set=0 route_lock_held_value=""
+    route_lock_file="$(route_registry_lock_file)"
+    mkdir -p "$(dirname "$route_lock_file")" 2>/dev/null || true
+    exec {route_fd}>"$route_lock_file"
+    if ! flock -x "$route_fd"; then
+        exec {route_fd}>&-
+        return 1
+    fi
+
+    if [ "${MUX_ROUTE_LOCK_HELD+x}" = "x" ]; then
+        route_lock_held_was_set=1
+        route_lock_held_value="$MUX_ROUTE_LOCK_HELD"
+    fi
+    export MUX_ROUTE_LOCK_HELD=1
+
+    route_unlock() {
+        flock -u "$route_fd" 2>/dev/null || true
+        exec {route_fd}>&-
+        if [ "$route_lock_held_was_set" -eq 1 ]; then
+            export MUX_ROUTE_LOCK_HELD="$route_lock_held_value"
+        else
+            unset MUX_ROUTE_LOCK_HELD
+        fi
+    }
+
+    if ! route_current_pane; then
+        route_unlock
+        return 1
+    fi
+    route_target="$PANE_TARGET"
+    route_generation="$ROUTE_GENERATION"
+    ROUTE_TRANSACTION_TARGET="$route_target"
+    ROUTE_TRANSACTION_GENERATION="$route_generation"
+    if ! mux_send_literal "$route_target" "$literal"; then
+        route_unlock
+        return 1
+    fi
+    sleep "$delay"
+    if ! route_current_pane \
+            || [ "$PANE_TARGET" != "$route_target" ] \
+            || [ "$ROUTE_GENERATION" != "$route_generation" ]; then
+        echo "[$(date)] [ROUTE-REJECT] route changed before Enter for agent=$AGENT_ID; literal target=$route_target" >&2
+        route_unlock
+        return 2
+    fi
+    if ! mux_send_keys "$route_target" "$@"; then
+        route_unlock
+        return 1
+    fi
+    route_unlock
+    return 0
+}
+
+# Retry Enter only on the exact route that accepted the literal.  A remap after
+# the first pair is also fail-closed rather than sending to a second pane.
+route_send_bound_keys() {
+    local bound_target="${ROUTE_TRANSACTION_TARGET:-}"
+    local bound_generation="${ROUTE_TRANSACTION_GENERATION:-}"
+    local route_fd route_lock_file
+    local route_lock_held_was_set=0 route_lock_held_value=""
+    [ -n "$bound_target" ] && [ -n "$bound_generation" ] || return 1
+    route_lock_file="$(route_registry_lock_file)"
+    mkdir -p "$(dirname "$route_lock_file")" 2>/dev/null || true
+    exec {route_fd}>"$route_lock_file"
+    if ! flock -x "$route_fd"; then
+        exec {route_fd}>&-
+        return 1
+    fi
+    if [ "${MUX_ROUTE_LOCK_HELD+x}" = "x" ]; then
+        route_lock_held_was_set=1
+        route_lock_held_value="$MUX_ROUTE_LOCK_HELD"
+    fi
+    export MUX_ROUTE_LOCK_HELD=1
+    if ! route_current_pane \
+            || [ "$PANE_TARGET" != "$bound_target" ] \
+            || [ "$ROUTE_GENERATION" != "$bound_generation" ]; then
+        echo "[$(date)] [ROUTE-REJECT] bound route changed before retry Enter for agent=$AGENT_ID" >&2
+        flock -u "$route_fd" 2>/dev/null || true
+        exec {route_fd}>&-
+        if [ "$route_lock_held_was_set" -eq 1 ]; then
+            export MUX_ROUTE_LOCK_HELD="$route_lock_held_value"
+        else
+            unset MUX_ROUTE_LOCK_HELD
+        fi
+        return 2
+    fi
+    mux_send_keys "$bound_target" "$@"
+    local rc=$?
+    flock -u "$route_fd" 2>/dev/null || true
+    exec {route_fd}>&-
+    if [ "$route_lock_held_was_set" -eq 1 ]; then
+        export MUX_ROUTE_LOCK_HELD="$route_lock_held_value"
+    else
+        unset MUX_ROUTE_LOCK_HELD
+    fi
+    return "$rc"
+}
+
 get_effective_cli_type() {
     local pane_cli_raw=""
     local pane_cli=""
+
+    # A failed route is fail-closed for all later sends.  Returning the
+    # codex-safe mode also avoids a destructive CLI branch during remap.
+    if ! route_current_pane; then
+        echo "codex"
+        return 0
+    fi
 
     pane_cli_raw=$(mux_get_meta "$PANE_TARGET" agent_cli 2>/dev/null || true)
     pane_cli=$(echo "$pane_cli_raw" | tr -d '\r' | head -n1 | tr -d '[:space:]')
@@ -507,7 +717,7 @@ except Exception:
         fi
         # Force re-nudge: send "inboxN" + Enter directly
         echo "[$(date)] [CLEAR-WATCHDOG] $AGENT_ID idle (unread=${unread_count}, worktree_dirty=${worktree_dirty}) 30s post-/clear — force re-nudge" >&2
-        mux_send_line "$PANE_TARGET" "inbox${unread_count}" 2>/dev/null || true
+        route_send_line "inbox${unread_count}" 2>/dev/null || true
     ) &
     disown 2>/dev/null || true
 }
@@ -664,11 +874,11 @@ send_cli_command() {
                 fi
                 echo "[$(date)] [SEND-KEYS] Codex /clear→/new: starting new conversation for $AGENT_ID" >&2
                 # Dismiss suggestion UI first (typing "x" clears autocomplete prompt)
-                mux_send_keys "$PANE_TARGET" "x" 2>/dev/null || true
+                route_send_keys "x" 2>/dev/null || true
                 sleep 0.3
-                mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
+                route_send_keys C-u 2>/dev/null || true
                 sleep 0.3
-                mux_send_line "$PANE_TARGET" "/new" 2>/dev/null || true
+                route_send_line "/new" 2>/dev/null || true
                 sleep 3
                 # Send startup prompt immediately (don't defer to context-reset cycle)
                 send_startup_prompt
@@ -688,9 +898,9 @@ send_cli_command() {
                     return 0
                 fi
                 echo "[$(date)] [SEND-KEYS] OpenCode /new for clear_command: starting new conversation for $AGENT_ID" >&2
-                mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
+                route_send_keys C-u 2>/dev/null || true
                 sleep 0.3
-                mux_send_line "$PANE_TARGET" "/new" 2>/dev/null || true
+                route_send_line "/new" 2>/dev/null || true
                 sleep 3
                 NEW_CONTEXT_SENT=1
                 return 0
@@ -704,9 +914,9 @@ send_cli_command() {
             # Copilot: /clearはCtrl-C+再起動, /model非対応→スキップ
             if [[ "$cmd" == "/clear" ]]; then
                 echo "[$(date)] [SEND-KEYS] Copilot /clear: sending Ctrl-C + restart for $AGENT_ID" >&2
-                mux_send_keys "$PANE_TARGET" C-c 2>/dev/null || true
+                route_send_keys C-c 2>/dev/null || true
                 sleep 2
-                mux_send_line "$PANE_TARGET" "copilot --yolo" 2>/dev/null || true
+                route_send_line "copilot --yolo" 2>/dev/null || true
                 sleep 3
                 return 0
             fi
@@ -723,7 +933,7 @@ send_cli_command() {
                     return 0
                 fi
                 echo "[$(date)] [SEND-KEYS] Cursor /clear→/new-chat: starting new conversation for $AGENT_ID" >&2
-                mux_send_line "$PANE_TARGET" "/new-chat" 2>/dev/null || true
+                route_send_line "/new-chat" 2>/dev/null || true
                 sleep 3
                 NEW_CONTEXT_SENT=1
                 return 0
@@ -742,18 +952,15 @@ send_cli_command() {
     # Clear stale input first, then send command (text and Enter separated for Codex TUI)
     # Codex CLI: C-c when idle causes CLI to exit — skip it
     if [[ "$effective_cli" != "codex" ]]; then
-        mux_send_keys "$PANE_TARGET" C-c 2>/dev/null || true
+        route_send_keys C-c 2>/dev/null || true
         sleep 0.5
     fi
     # /clear needs longer gap before Enter — CLI prompt may not be ready at 0.3s
     if [[ "$actual_cmd" == "/clear" || "$actual_cmd" == "/new" ]]; then
-        mux_send_literal "$PANE_TARGET" "$actual_cmd" 2>/dev/null || true
-        sleep 1.0
+        route_send_literal_then_keys "$actual_cmd" 1.0 Enter 2>/dev/null || true
     else
-        mux_send_literal "$PANE_TARGET" "$actual_cmd" 2>/dev/null || true
-        sleep 0.3
+        route_send_literal_then_keys "$actual_cmd" 0.3 Enter 2>/dev/null || true
     fi
-    mux_send_keys "$PANE_TARGET" Enter 2>/dev/null || true
 
     # /clear needs extra wait time before follow-up
     if [[ "$actual_cmd" == "/clear" ]]; then
@@ -801,14 +1008,12 @@ send_startup_prompt() {
     echo "[$(date)] [STARTUP] Sending startup prompt to $AGENT_ID (${effective_cli}): ${startup_prompt:0:80}..." >&2
     # Dismiss suggestion UI, then send startup prompt
     if [[ "$effective_cli" != "opencode" ]]; then
-        mux_send_keys "$PANE_TARGET" "x" 2>/dev/null || true
+        route_send_keys "x" 2>/dev/null || true
         sleep 0.3
-        mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
+        route_send_keys C-u 2>/dev/null || true
         sleep 0.3
     fi
-    mux_send_literal "$PANE_TARGET" "$startup_prompt" 2>/dev/null || true
-    sleep 0.3
-    mux_send_keys "$PANE_TARGET" Enter 2>/dev/null || true
+    route_send_literal_then_keys "$startup_prompt" 0.3 Enter 2>/dev/null || true
     STARTUP_PROMPT_SENT=1
 }
 
@@ -859,14 +1064,14 @@ send_context_reset() {
     if [[ "$effective_cli" == "codex" || "$effective_cli" == "opencode" || "$effective_cli" == "cursor" ]]; then
         # Dismiss suggestion UI (Codex only) + send reset command
         if [[ "$effective_cli" == "codex" ]]; then
-            mux_send_keys "$PANE_TARGET" "x" 2>/dev/null || true
+            route_send_keys "x" 2>/dev/null || true
             sleep 0.3
         fi
         if [[ "$effective_cli" != "cursor" ]]; then
-            mux_send_keys "$PANE_TARGET" C-u 2>/dev/null || true
+            route_send_keys C-u 2>/dev/null || true
             sleep 0.3
         fi
-        mux_send_line "$PANE_TARGET" "$reset_cmd" 2>/dev/null || true
+        route_send_line "$reset_cmd" 2>/dev/null || true
         sleep 3
         # Codex: send startup prompt (agent has no auto-loaded instructions).
         # OpenCode: skip — agent definition is auto-loaded via --agent flag.
@@ -878,10 +1083,8 @@ send_context_reset() {
 
     # Non-Codex CLIs: send /clear and wait for idle
     # Send the command (text and Enter separated for TUI compatibility)
-    mux_send_literal "$PANE_TARGET" "$reset_cmd" 2>/dev/null || true
     # Longer gap for /clear — CLI prompt rendering needs time
-    sleep 1.0
-    mux_send_keys "$PANE_TARGET" Enter 2>/dev/null || true
+    route_send_literal_then_keys "$reset_cmd" 1.0 Enter 2>/dev/null || true
     # Mark /clear timestamp so agent_is_busy() treats it as busy during processing
     if [[ "$reset_cmd" == "/clear" ]]; then
         LAST_CLEAR_TS=$(date +%s)
@@ -1162,13 +1365,21 @@ send_wakeup() {
             fi
         fi
 
-        if ! mux_send_literal "$PANE_TARGET" "$nudge" 2>/dev/null; then
+        local route_rc=0
+        if route_send_literal_then_keys "$nudge" 0.3 Enter 2>/dev/null; then
+            route_rc=0
+        else
+            route_rc=$?
+        fi
+        if [ "$route_rc" -eq 2 ]; then
+            echo "[$(date)] WARNING: route remapped during nudge for $AGENT_ID; aborting without retry on a second pane" >&2
+            return 0
+        fi
+        if [ "$route_rc" -ne 0 ]; then
             echo "[$(date)] WARNING: send-keys nudge failed for $AGENT_ID (attempt $((attempt+1)))" >&2
             attempt=$((attempt+1))
             continue
         fi
-        sleep 0.3
-        mux_send_keys "$PANE_TARGET" Enter 2>/dev/null || true
         sleep 0.5
         if [[ "$effective_cli_for_nudge" == "codex" ]]; then
             # Codex echoes submitted text in the transcript; seeing inboxN after
@@ -1183,7 +1394,10 @@ send_wakeup() {
             # nudgeテキストが残存 → Enter が取りこぼされた可能性。
             # C-u cleanup is intentionally forbidden in normal wake-up paths.
             echo "[$(date)] WARNING: nudge text still visible in pane, retrying Enter only (attempt $((attempt+1)))" >&2
-            mux_send_keys "$PANE_TARGET" Enter 2>/dev/null || true
+            if ! route_send_bound_keys Enter 2>/dev/null; then
+                echo "[$(date)] WARNING: bound route changed while retrying Enter for $AGENT_ID" >&2
+                return 0
+            fi
             sleep 0.3
             attempt=$((attempt+1))
             continue
@@ -1260,15 +1474,13 @@ send_wakeup_with_escape() {
 
     echo "[$(date)] [SEND-KEYS] ESCALATION Phase 2: Escape×2 + nudge for $AGENT_ID (cli=$effective_cli)" >&2
     # Escape×2 to exit any mode
-    mux_send_keys "$PANE_TARGET" Escape Escape 2>/dev/null || true
+    route_send_keys Escape Escape 2>/dev/null || true
     sleep 0.5
     if [[ "$effective_cli" == "copilot" || "$effective_cli" == "kimi" ]]; then
-        mux_send_keys "$PANE_TARGET" C-c 2>/dev/null || true
+        route_send_keys C-c 2>/dev/null || true
         sleep 0.5
     fi
-    if mux_send_literal "$PANE_TARGET" "$nudge" 2>/dev/null; then
-        sleep 0.3
-        mux_send_keys "$PANE_TARGET" Enter 2>/dev/null || true
+    if route_send_literal_then_keys "$nudge" 0.3 Enter 2>/dev/null; then
         echo "[$(date)] Escape+nudge sent to $AGENT_ID (${unread_count} unread, cli=$effective_cli)" >&2
         return 0
     fi

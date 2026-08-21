@@ -229,7 +229,9 @@ supervised by `watcher_supervisor.sh`. Each scan reads `queue/tasks/`,
 `type: stall_alert` to Karo's inbox with per-alert dedupe + 30m cooldown. Alert
 history and detector state live in `queue/stall_alerts.yaml` /
 `queue/stall_detector_state.yaml`; an alert auto-resolves once its target task or
-report advances.
+report advances. A successful scan atomically replaces
+`queue/stall_detector.heartbeat`; the supervisor requires both detector process
+presence and a fresh heartbeat.
 
 | Kind | Threshold | Severity |
 |------|-----------|----------|
@@ -238,6 +240,50 @@ report advances.
 | `idle_with_active_task` | 30m | P2 |
 | `agent_unread_unprocessed` | 15m idle/unknown/absent; 45m busy | P3, escalates through normal stall alert handling |
 | `karo_unresponsive_to_stall_alert` | 30m after a primary alert stays open | P0 |
+
+For an assigned task whose `last_progress` is still unchanged after 60m, the
+detector sends the target agent one actionable resume message: re-read its task
+YAML, resume the work, and immediately write one progress or blocker report.
+The message type is `stall_resume_required` (never `task_assigned` or
+`clear_command`), so inbox delivery does not request a context reset. This
+liveness lane is based on `last_progress`, not pane state. The explicit
+`DEDUP_KEY=stall-resume:<agent>:<task_id>:<last_progress_at>` is stable for
+`(agent, task, last_progress episode)`; a newer task/report/worktree progress
+timestamp re-arms the next notification. The detector persists the episode as
+delivered only after `inbox_write.sh` succeeds; a failed write remains due for
+the next scan. This target nudge is additional to, and does not replace, the
+existing Karo `assigned_no_progress` stall alert and its pane-state
+false-positive controls.
+
+`watcher_supervisor.sh` must not infer detector health from `pgrep` alone. If a
+detector process is present but its heartbeat is stale, it fingerprints the
+same successful-scan episode using `scan_count:last_scan`, records one atomic
+replacement marker, starts exactly one cooperative replacement without killing
+or signalling the stale process, and sends one deduplicated P0 `stall_alert` to
+Karo. Repeated scans with the same fingerprint suppress the second replacement;
+a new successful heartbeat creates a new episode. If the process is absent, it
+may start a replacement. For fixture roots, live Karo and target inbox sends are
+suppressed; isolated E2E copies may receive fixture-local writes for evidence.
+
+Report scans use a bounded line-stream extractor for the finite fields needed
+by liveness detection; they must not materialize the full `gunshi_report.yaml`
+corpus with `safe_load_all`.
+
+Detector state ownership is a short-transaction contract: initialize and take
+the `stall_detector_state.yaml` snapshot under `STATE_FILE.lock`, perform all
+potentially blocking report/pane/worktree scanning outside that lock, then
+merge/CAS detector-owned keys against the current state. Resume delivery
+commits, RCA dispatch updates, and state initialization use the same helper
+transaction; no writer may replace a stale full snapshot. The supervisor must
+not acquire `STATE_FILE.lock`, because stale-scan recovery must remain runnable
+while a detector is blocked in scan work.
+
+Stale-detector recovery records `replacement_started` separately from P0
+delivery. `delivery_mode=inbox` is required before `p0_delivered=true` is
+trusted in the production root; `suppressed` and legacy markers remain due and
+retry the same stable P0 dedup key without launching a second replacement.
+`watcher_supervisor.sh` holds one root-scoped lifetime lease so a deleted or
+stale fixture root cannot cause another supervisor generation to be started.
 
 **vs. the Escalation table above**: delivery escalation re-sends *unread messages*;
 stall detection tracks *task/report state over the time axis* after delivery already

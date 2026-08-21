@@ -152,9 +152,13 @@ setup_file() {
     # 検知本体は production core を別名でコピーし wrapper が --once で委譲する。
     cp "$FIXTURES/e2e_detector_wrapper.sh"           "$E2E_ROOT/scripts/stall_detector.sh"
     cp "$PROJECT_ROOT/scripts/stall_detector.sh"     "$E2E_ROOT/scripts/_stall_detector_core.sh"
+    cp "$PROJECT_ROOT/scripts/stall_state.py"        "$E2E_ROOT/scripts/stall_state.py"
     cp "$PROJECT_ROOT/scripts/watcher_supervisor.sh" "$E2E_ROOT/scripts/"
     cp "$PROJECT_ROOT/scripts/inbox_write.sh"        "$E2E_ROOT/scripts/"
     cp "$PROJECT_ROOT/scripts/inbox_watcher.sh"      "$E2E_ROOT/scripts/"
+    cp "$PROJECT_ROOT/lib/agent_registry.sh"         "$E2E_ROOT/lib/"
+    cp "$PROJECT_ROOT/lib/mux_adapter.sh"            "$E2E_ROOT/lib/"
+    cp -r "$PROJECT_ROOT/lib/mux"                    "$E2E_ROOT/lib/"
     cp "$PROJECT_ROOT/lib/agent_status.sh"           "$E2E_ROOT/lib/" 2>/dev/null || true
     cp "$PROJECT_ROOT/lib/cli_adapter.sh"            "$E2E_ROOT/lib/" 2>/dev/null || true
     cp "$PROJECT_ROOT/config/settings.yaml"          "$E2E_ROOT/config/" 2>/dev/null || true
@@ -318,6 +322,7 @@ teardown_file() {
     local elapsed=0
     while [ "$elapsed" -lt 60 ]; do
         if karo_has_stall_alert ashigaru1 blocked_report_unresolved; then
+            [ -f "$E2E_ROOT/queue/stall_detector.heartbeat" ]
             return 0
         fi
         sleep 2

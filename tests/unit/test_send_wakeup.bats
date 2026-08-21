@@ -1905,3 +1905,123 @@ YAML
     ! grep -q "send-keys.*Escape" "$MOCK_LOG"
     ! grep -q "send-keys.*C-c" "$MOCK_LOG"
 }
+
+# --- T-ROUTE-001: pane remap routes the nudge to the current agent pane ---
+
+@test "T-ROUTE-001: send_wakeup re-resolves the current pane before delivery" {
+    run bash -c '
+        source "'"$TEST_HARNESS"'"
+        INBOX_WATCHER_TEST_DYNAMIC_ROUTE=1
+        mux_find_pane_by_agent() { echo "test:0.1"; }
+        mux_get_meta() {
+            case "$2" in
+                agent_id) echo "test_agent" ;;
+                agent_cli) echo "codex" ;;
+            esac
+        }
+        send_wakeup 1
+    '
+    [ "$status" -eq 0 ]
+    grep -q "send-keys .*test:0.1 inbox1" "$MOCK_LOG"
+    ! grep -q "send-keys .*test:0.0 inbox1" "$MOCK_LOG"
+}
+
+# --- T-ROUTE-002: stale/wrong agent metadata is fail-closed ---
+
+@test "T-ROUTE-002: wrong-recipient route is rejected without a keystroke" {
+    run bash -c '
+        source "'"$TEST_HARNESS"'"
+        INBOX_WATCHER_TEST_DYNAMIC_ROUTE=1
+        mux_find_pane_by_agent() { echo "test:0.1"; }
+        mux_get_meta() {
+            case "$2" in
+                agent_id) echo "other_agent" ;;
+                agent_cli) echo "codex" ;;
+            esac
+        }
+        send_wakeup 1
+    '
+    [ "$status" -eq 0 ]
+    ! grep -q "send-keys" "$MOCK_LOG"
+    echo "$output" | grep -q "ROUTE-REJECT"
+}
+
+@test "T-ROUTE-003: dynamic route without agent metadata is fail-closed" {
+    run bash -c '
+        source "'"$TEST_HARNESS"'"
+        INBOX_WATCHER_TEST_DYNAMIC_ROUTE=1
+        mux_find_pane_by_agent() { echo "test:0.1"; }
+        mux_get_meta() {
+            case "$2" in
+                agent_cli) echo "codex" ;;
+            esac
+        }
+        route_current_pane
+    '
+    [ "$status" -ne 0 ]
+    echo "$output" | grep -q "ROUTE-REJECT"
+}
+
+@test "T-ROUTE-004: remap after literal aborts before Enter or retry on the new pane" {
+    run bash -c '
+        source "'"$TEST_HARNESS"'"
+        INBOX_WATCHER_TEST_DYNAMIC_ROUTE=1
+        ROUTE_CALLS_FILE="$TEST_TMPDIR/route_calls"
+        printf "0\\n" > "$ROUTE_CALLS_FILE"
+        mux_find_pane_by_agent() {
+            local route_calls
+            route_calls=$(cat "$ROUTE_CALLS_FILE")
+            route_calls=$((route_calls + 1))
+            printf "%s\\n" "$route_calls" > "$ROUTE_CALLS_FILE"
+            if [ "$route_calls" -le 5 ]; then
+                echo "test:0.0"
+            else
+                echo "test:0.1"
+            fi
+        }
+        mux_get_meta() {
+            case "$2" in
+                agent_id) echo "test_agent" ;;
+                agent_cli) echo "codex" ;;
+            esac
+        }
+        send_wakeup 1
+    '
+    [ "$status" -eq 0 ]
+    grep -q "send-keys .*test:0.0 inbox1" "$MOCK_LOG"
+    ! grep -q "send-keys .*test:0.0 Enter" "$MOCK_LOG"
+    ! grep -q "send-keys .*test:0.1" "$MOCK_LOG"
+    echo "$output" | grep -q "aborting without retry on a second pane"
+}
+
+@test "T-ROUTE-005: registry generation change aborts before Enter" {
+    run bash -c '
+        source "'"$TEST_HARNESS"'"
+        INBOX_WATCHER_TEST_DYNAMIC_ROUTE=1
+        ROUTE_GENERATION_CALLS_FILE="$TEST_TMPDIR/route_generation_calls"
+        printf "0\\n" > "$ROUTE_GENERATION_CALLS_FILE"
+        mux_find_pane_by_agent() { echo "test:0.1"; }
+        mux_get_meta() {
+            case "$2" in
+                agent_id) echo "test_agent" ;;
+                agent_cli) echo "codex" ;;
+            esac
+        }
+        mux_route_generation() {
+            local calls
+            calls=$(cat "$ROUTE_GENERATION_CALLS_FILE")
+            calls=$((calls + 1))
+            printf "%s\\n" "$calls" > "$ROUTE_GENERATION_CALLS_FILE"
+            if [ "$calls" -le 5 ]; then
+                echo "registry:old"
+            else
+                echo "registry:new"
+            fi
+        }
+        send_wakeup 1
+    '
+    [ "$status" -eq 0 ]
+    grep -q "send-keys .*test:0.1 inbox1" "$MOCK_LOG"
+    ! grep -q "send-keys .*test:0.1 Enter" "$MOCK_LOG"
+    echo "$output" | grep -q "aborting without retry on a second pane"
+}

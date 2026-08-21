@@ -415,6 +415,529 @@ PYEOF
     [ "$(count_alerts)" -eq 0 ]
 }
 
+@test "assigned_no_progress: 60m target resume is one-shot and re-arms after progress" {
+    load_fixture assigned_no_progress
+
+    # First scan establishes the idle streak; the second crosses 60m since the
+    # task timestamp and must keep the existing Karo alert plus emit one target
+    # resume request.  Fixture roots must suppress real inbox delivery.
+    scan "2026-05-15T00:59:00" '{"ashigaru1":"idle"}'
+    [ "$status" -eq 0 ]
+    scan "2026-05-15T01:00:00" '{"ashigaru1":"idle"}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"RESUME (test-mode, inbox suppressed)"* ]]
+    [[ "$output" == *"type=stall_resume_required"* ]]
+    [[ "$output" == *"queue/tasks/ashigaru1.yaml"* ]]
+    [[ "$output" == *"progress or blocker report"* ]]
+    [[ "$output" == *"DEDUP_KEY=stall-resume:ashigaru1:fixture_assigned_task:"* ]]
+    run alerts_lines
+    [[ "$output" == *"ashigaru1 assigned_no_progress"* ]]
+
+    # Same task and same last-progress timestamp: no duplicate target nudge.
+    scan "2026-05-15T01:01:00" '{"ashigaru1":"idle"}'
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"RESUME (test-mode, inbox suppressed)"* ]]
+
+    # A newer report timestamp is observable progress and re-arms the same
+    # task's next 60m episode.
+    cat > "$STALL_ROOT/queue/reports/ashigaru1_report.yaml" <<'EOF'
+report:
+  - task_id: fixture_assigned_task
+    status: in_progress
+    timestamp: "2026-05-15T01:02:00"
+EOF
+    scan "2026-05-15T02:02:00" '{"ashigaru1":"idle"}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"RESUME (test-mode, inbox suppressed)"* ]]
+    run python3 - "$STALL_ROOT/queue/stall_detector_state.yaml" <<'PYEOF'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1])) or {}
+entry = (doc.get("resume_notifications") or {}).get("ashigaru1") or {}
+assert entry.get("task_id") == "fixture_assigned_task"
+assert entry.get("delivered") is True
+assert entry.get("progress_at", "").startswith("2026-05-15T01:02:00")
+assert entry.get("episode_key", "").endswith("2026-05-15T01:02:00+09:00")
+assert entry.get("dedup_key", "").startswith("stall-resume:ashigaru1:fixture_assigned_task:")
+PYEOF
+    [ "$status" -eq 0 ]
+}
+
+@test "normal scan atomically updates detector heartbeat" {
+    load_fixture assigned_no_progress
+    scan "2026-05-15T00:01:00" '{}'
+    [ "$status" -eq 0 ]
+    [ -f "$STALL_ROOT/queue/stall_detector.heartbeat" ]
+    run python3 - "$STALL_ROOT/queue/stall_detector.heartbeat" <<'PYEOF'
+import sys
+value = open(sys.argv[1], encoding="utf-8").read().strip()
+assert value.isdigit(), value
+assert int(value) > 0, value
+PYEOF
+    [ "$status" -eq 0 ]
+    [ "$(cat "$STALL_ROOT/queue/stall_detector.heartbeat")" -eq "$(epoch '2026-05-15T00:01:00')" ]
+    [ -z "$(find "$STALL_ROOT/queue" -maxdepth 1 -name 'stall_detector.heartbeat.tmp.*' -print -quit)" ]
+}
+
+@test "60m target resume is based on last_progress even when pane is busy" {
+    load_fixture assigned_no_progress
+    scan "2026-05-15T01:00:00" '{"ashigaru1":"busy"}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"RESUME (test-mode, inbox suppressed)"* ]]
+}
+
+@test "60m target resume includes assigned Gunshi and Gunshi2 workers" {
+    load_fixture assigned_no_progress
+    cat > "$STALL_ROOT/queue/tasks/gunshi.yaml" <<'EOF'
+task:
+  task_id: fixture_gunshi_task
+  parent_cmd: cmd_fixture_gunshi
+  status: assigned
+  type: analysis
+  timestamp: "2026-05-15T00:00:00"
+EOF
+    cat > "$STALL_ROOT/queue/tasks/gunshi2.yaml" <<'EOF'
+task:
+  task_id: fixture_gunshi2_task
+  parent_cmd: cmd_fixture_gunshi2
+  status: assigned
+  type: analysis
+  timestamp: "2026-05-15T00:00:00"
+EOF
+    scan "2026-05-15T01:00:00" '{}'
+    [ "$status" -eq 0 ]
+    [ "$(grep -c 'type=stall_resume_required' <<<"$output")" -eq 3 ]
+    [[ "$output" == *"gunshi task=fixture_gunshi_task"* ]]
+    [[ "$output" == *"gunshi2 task=fixture_gunshi2_task"* ]]
+    [ "$(find "$STALL_ROOT/queue/inbox" -type f -name '*.yaml' -print -exec grep -l 'stall_resume_required' {} \; | wc -l)" -eq 0 ]
+}
+
+@test "60m target resume ignores a prior task's terminal report" {
+    load_fixture assigned_no_progress
+    cat > "$STALL_ROOT/queue/reports/ashigaru1_report.yaml" <<'EOF'
+report:
+  - task_id: prior_task
+    status: done
+    timestamp: "2026-05-15T00:59:00"
+EOF
+
+    scan "2026-05-15T01:00:00" '{}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"type=stall_resume_required"* ]]
+    run python3 - "$STALL_ROOT/queue/stall_detector_state.yaml" <<'PYEOF'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1])) or {}
+entry = (doc.get("resume_notifications") or {}).get("ashigaru1") or {}
+assert entry.get("task_id") == "fixture_assigned_task"
+assert entry.get("progress_at", "").startswith("2026-05-15T00:00:00")
+PYEOF
+    [ "$status" -eq 0 ]
+}
+
+@test "report extractor preserves worker_id-first record boundaries" {
+    load_fixture assigned_no_progress
+    cat > "$STALL_ROOT/queue/reports/ashigaru1_report.yaml" <<'EOF'
+report:
+  - task_id: fixture_assigned_task
+    status: done
+    timestamp: "2026-05-15T00:59:00"
+  - worker_id: ashigaru7
+    status: in_progress
+    timestamp: "2026-05-15T01:00:00"
+EOF
+
+    scan "2026-05-15T02:00:00" '{}'
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"type=stall_resume_required"* ]]
+}
+
+@test "report extractor streams the current-size report without safe_load_all" {
+    load_fixture assigned_no_progress
+    cp "$PROJECT_ROOT/queue/reports/gunshi_report.yaml" \
+       "$STALL_ROOT/queue/reports/gunshi_report.yaml"
+    cat > "$STALL_ROOT/queue/tasks/gunshi.yaml" <<'EOF'
+task:
+  task_id: fixture_large_report_task
+  parent_cmd: cmd_fixture_large_report
+  status: assigned
+  type: analysis
+  timestamp: "2026-05-15T00:00:00"
+EOF
+    run timeout 20 env STALL_ROOT="$STALL_ROOT" \
+        STALL_NOW="$(epoch '2026-05-15T00:01:00')" \
+        STALL_PANE_STATES_OVERRIDE='{}' \
+        bash "$DETECTOR" --once
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"SUMMARY:"* ]]
+    [ -f "$STALL_ROOT/queue/stall_detector.heartbeat" ]
+    ! grep -q 'safe_load_all' "$DETECTOR"
+}
+
+@test "resume episode persists only after delivery and retries the same dedup key" {
+    local copied_root="$STALL_ROOT/copy-root"
+    mkdir -p "$copied_root/scripts" "$copied_root/queue/tasks" \
+             "$copied_root/queue/reports" "$copied_root/queue/inbox" \
+             "$copied_root/logs"
+    cp "$DETECTOR" "$copied_root/scripts/stall_detector.sh"
+    cp "$PROJECT_ROOT/scripts/stall_state.py" "$copied_root/scripts/stall_state.py"
+    cp "$FIXTURES/assigned_no_progress/queue/tasks/ashigaru1.yaml" \
+       "$copied_root/queue/tasks/ashigaru1.yaml"
+    cat > "$copied_root/scripts/inbox_write.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$(dirname "$0")/../resume_delivery.log"
+if [ ! -f "$(dirname "$0")/../allow_delivery" ]; then
+    exit 1
+fi
+exit 0
+EOF
+    chmod +x "$copied_root/scripts/inbox_write.sh"
+
+    run env -u STALL_ROOT \
+            STALL_NOW="$(epoch '2026-05-15T01:00:00')" \
+            STALL_PANE_STATES_OVERRIDE='{}' \
+            bash "$copied_root/scripts/stall_detector.sh" --once
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"inbox_write.sh failed"* ]]
+    run python3 - "$copied_root/queue/stall_detector_state.yaml" <<'PYEOF'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1])) or {}
+entry = (doc.get("resume_notifications") or {}).get("ashigaru1") or {}
+assert entry.get("delivered") is False
+assert entry.get("dedup_key", "").startswith("stall-resume:ashigaru1:fixture_assigned_task:")
+PYEOF
+    [ "$status" -eq 0 ]
+
+    : > "$copied_root/allow_delivery"
+    run env -u STALL_ROOT \
+            STALL_NOW="$(epoch '2026-05-15T01:00:00')" \
+            STALL_PANE_STATES_OVERRIDE='{}' \
+            bash "$copied_root/scripts/stall_detector.sh" --once
+    [ "$status" -eq 0 ]
+    run python3 - "$copied_root/queue/stall_detector_state.yaml" <<'PYEOF'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1])) or {}
+entry = (doc.get("resume_notifications") or {}).get("ashigaru1") or {}
+assert entry.get("delivered") is True
+assert entry.get("delivered_at")
+PYEOF
+    [ "$status" -eq 0 ]
+    [ "$(wc -l < "$copied_root/resume_delivery.log")" -eq 2 ]
+    grep -q 'ashigaru1 .* stall_resume_required stall_detector' "$copied_root/resume_delivery.log"
+    grep -q 'DEDUP_KEY=stall-resume:ashigaru1:fixture_assigned_task:' "$copied_root/resume_delivery.log"
+}
+
+@test "overlapping detector scans preserve a delivered resume state" {
+    local copied_root="$STALL_ROOT/concurrent-root"
+    mkdir -p "$copied_root/scripts" "$copied_root/queue/tasks" \
+             "$copied_root/queue/reports" "$copied_root/queue/inbox" \
+             "$copied_root/logs"
+    cp "$DETECTOR" "$copied_root/scripts/stall_detector.sh"
+    cp "$PROJECT_ROOT/scripts/stall_state.py" "$copied_root/scripts/stall_state.py"
+    cp "$FIXTURES/assigned_no_progress/queue/tasks/ashigaru1.yaml" \
+       "$copied_root/queue/tasks/ashigaru1.yaml"
+    cat > "$copied_root/scripts/inbox_write.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+    chmod +x "$copied_root/scripts/inbox_write.sh"
+    cat > "$copied_root/queue/stall_detector_state.yaml" <<'EOF'
+last_scan: null
+last_error: null
+scan_count: 0
+pane_idle_streak: {}
+worktree_progress: {}
+gunshi2_escalations: {}
+resume_notifications: {}
+EOF
+    printf 'alerts: []\n' > "$copied_root/queue/stall_alerts.yaml"
+
+    env -u STALL_ROOT STALL_NOW="$(epoch '2026-05-15T01:00:00')" \
+        STALL_PANE_STATES_OVERRIDE='{}' STALL_TEST_STATE_LOCK_HOLD_SEC=0.2 \
+        bash "$copied_root/scripts/stall_detector.sh" --once \
+        >"$copied_root/scan-a.log" 2>&1 &
+    local scan_a=$!
+    env -u STALL_ROOT STALL_NOW="$(epoch '2026-05-15T01:00:00')" \
+        STALL_PANE_STATES_OVERRIDE='{}' STALL_TEST_STATE_LOCK_HOLD_SEC=0.2 \
+        bash "$copied_root/scripts/stall_detector.sh" --once \
+        >"$copied_root/scan-b.log" 2>&1 &
+    local scan_b=$!
+    wait "$scan_a"
+    wait "$scan_b"
+
+    run python3 - "$copied_root/queue/stall_detector_state.yaml" <<'PYEOF'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1])) or {}
+entry = (doc.get("resume_notifications") or {}).get("ashigaru1") or {}
+assert entry.get("delivered") is True, entry
+assert entry.get("dedup_key", "").startswith("stall-resume:ashigaru1:fixture_assigned_task:")
+PYEOF
+    [ "$status" -eq 0 ]
+}
+
+@test "overlapping alert commits merge records and claim one Karo notification" {
+    local alerts_file="$STALL_ROOT/queue/stall_alerts.yaml"
+    printf 'alerts: []\n' > "$alerts_file"
+    run python3 - "$PROJECT_ROOT/scripts" "$alerts_file" <<'PYEOF'
+import copy
+import sys
+import threading
+import yaml
+
+sys.path.insert(0, sys.argv[1])
+from stall_state import merge_alerts
+
+path = sys.argv[2]
+now = "2026-05-15T01:00:00+09:00"
+
+def proposal(key, evidence):
+    return [{
+        "key": key,
+        "agent": "ashigaru1",
+        "task_id": key,
+        "kind": "assigned_no_progress",
+        "severity": "P2",
+        "first_seen": now,
+        "last_seen": now,
+        "last_notified": now,
+        "count": 1,
+        "status": "open",
+        "evidence": evidence,
+    }]
+
+early = proposal("earliest-key", "older observation")
+early[0]["first_seen"] = "2026-05-15T00:00:00+09:00"
+early[0]["last_seen"] = "2026-05-15T00:30:00+09:00"
+merge_alerts(path, [], early, {"earliest-key"}, [], early[0]["last_seen"], 30)
+late = proposal("earliest-key", "newer observation")
+late[0]["first_seen"] = "2026-05-15T00:45:00+09:00"
+late[0]["last_seen"] = "2026-05-15T01:00:00+09:00"
+merge_alerts(path, early, late, {"earliest-key"}, [], late[0]["last_seen"], 30)
+doc = yaml.safe_load(open(path, encoding="utf-8")) or {}
+earliest = [a for a in doc.get("alerts", []) if a.get("key") == "earliest-key"]
+assert earliest[0].get("first_seen") == "2026-05-15T00:00:00+09:00", earliest
+
+same_results = []
+def same_worker():
+    same_results.append(merge_alerts(
+        path, [], proposal("same-key", "same observation"), {"same-key"},
+        [{"key": "same-key", "severity": "P2", "summary": "same", "dedup_key": "stall-alert:same-key"}],
+        now, 30,
+    ))
+
+threads = [threading.Thread(target=same_worker) for _ in range(2)]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()
+assert sum(len(result[1]) for result in same_results) == 1, same_results
+claimed = [claim for result in same_results for claim in result[1]]
+assert claimed[0].get("dedup_key") == "stall-alert:same-key:1", claimed
+doc = yaml.safe_load(open(path, encoding="utf-8")) or {}
+same = [a for a in doc.get("alerts", []) if a.get("key") == "same-key"]
+assert len(same) == 1 and same[0].get("count") == 1, same
+
+with open(path, "w", encoding="utf-8") as stream:
+    yaml.safe_dump({"alerts": []}, stream, sort_keys=False)
+distinct_results = []
+def distinct_worker(key):
+    distinct_results.append(merge_alerts(
+        path, [], proposal(key, key), {key},
+        [{"key": key, "severity": "P2", "summary": key, "dedup_key": f"stall-alert:{key}"}],
+        now, 30,
+    ))
+
+threads = [threading.Thread(target=distinct_worker, args=(key,)) for key in ("key-a", "key-b")]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()
+assert sum(len(result[1]) for result in distinct_results) == 2, distinct_results
+doc = yaml.safe_load(open(path, encoding="utf-8")) or {}
+assert {a.get("key") for a in doc.get("alerts", [])} == {"key-a", "key-b"}, doc
+PYEOF
+    [ "$status" -eq 0 ]
+}
+
+@test "alert observations are monotonic across stale active and resolving scans" {
+    local alerts_file="$STALL_ROOT/queue/stall_alerts.yaml"
+    printf 'alerts: []\n' > "$alerts_file"
+    run python3 - "$PROJECT_ROOT/scripts" "$alerts_file" <<'PYEOF'
+import sys
+import yaml
+
+sys.path.insert(0, sys.argv[1])
+from stall_state import merge_alerts
+
+path = sys.argv[2]
+
+def record(status, observed, last_notified):
+    return [{
+        "key": "monotonic-key",
+        "agent": "ashigaru1",
+        "task_id": "monotonic-task",
+        "kind": "assigned_no_progress",
+        "severity": "P2",
+        "first_seen": "2026-05-15T00:00:00+09:00",
+        "last_seen": observed,
+        "observed_at": observed,
+        "last_notified": last_notified,
+        "count": 1,
+        "status": status,
+        "evidence": status,
+    }]
+
+def intent():
+    return [{
+        "key": "monotonic-key",
+        "severity": "P2",
+        "summary": "monotonic",
+        "dedup_key": "stall-alert:monotonic-key",
+    }]
+
+def current():
+    return (yaml.safe_load(open(path, encoding="utf-8")) or {}).get("alerts", [])
+
+# A newer resolution must not be reopened by an older active scan.
+seed = record("open", "2026-05-15T00:00:00+09:00", "2026-05-15T00:00:00+09:00")
+seed[0]["last_seen"] = "2026-05-15T01:00:00+09:00"
+merge_alerts(path, [], seed, {"monotonic-key"}, intent(), seed[0]["observed_at"], 30)
+resolved = record("resolved", "2026-05-15T02:00:00+09:00", "2026-05-15T02:00:00+09:00")
+resolved[0]["last_seen"] = "2026-05-15T00:30:00+09:00"
+merge_alerts(path, seed, resolved, set(), [], resolved[0]["observed_at"], 30)
+assert current()[0]["last_seen"] == "2026-05-15T01:00:00+09:00", current()
+stale_active = record("open", "2026-05-15T01:00:00+09:00", "2026-05-15T01:00:00+09:00")
+result = merge_alerts(path, seed, stale_active, {"monotonic-key"}, intent(), stale_active[0]["observed_at"], 30)
+assert result[1] == [], result
+alert = current()[0]
+# An exact observation tie is deterministic: terminal resolution wins in both
+# commit orders rather than depending on which contender acquired the lock.
+assert alert["status"] == "resolved", alert
+assert alert["last_notified"] == "2026-05-15T02:00:00+09:00", alert
+
+# Conversely, a newer active observation must not be closed by an older resolver.
+with open(path, "w", encoding="utf-8") as stream:
+    yaml.safe_dump({"alerts": []}, stream, sort_keys=False)
+merge_alerts(path, [], seed, {"monotonic-key"}, intent(), seed[0]["observed_at"], 30)
+active = record("open", "2026-05-15T02:00:00+09:00", "2026-05-15T02:00:00+09:00")
+merge_alerts(path, seed, active, {"monotonic-key"}, intent(), active[0]["observed_at"], 30)
+stale_resolved = record("resolved", "2026-05-15T01:00:00+09:00", "2026-05-15T01:00:00+09:00")
+result = merge_alerts(path, active, stale_resolved, set(), [], stale_resolved[0]["observed_at"], 30)
+assert result[1] == [], result
+alert = current()[0]
+assert alert["status"] == "open", alert
+assert alert["last_notified"] == "2026-05-15T02:00:00+09:00", alert
+
+# Equal observed_at commits choose terminal resolution deterministically, while
+# first_seen remains monotonic in either commit order after the alert lock is
+# released.
+older = record("open", "2026-05-15T03:00:00+09:00", "2026-05-15T03:00:00+09:00")
+older[0]["first_seen"] = "2026-05-15T00:00:00+09:00"
+newer = record("resolved", "2026-05-15T03:00:00+09:00", "2026-05-15T03:00:00+09:00")
+newer[0]["first_seen"] = "2026-05-15T01:00:00+09:00"
+with open(path, "w", encoding="utf-8") as stream:
+    yaml.safe_dump({"alerts": []}, stream, sort_keys=False)
+merge_alerts(path, [], older, {"monotonic-key"}, [], older[0]["observed_at"], 30)
+merge_alerts(path, older, newer, set(), [], newer[0]["observed_at"], 30)
+alert = current()[0]
+assert alert["status"] == "resolved", alert
+assert alert["first_seen"] == "2026-05-15T00:00:00+09:00", alert
+
+with open(path, "w", encoding="utf-8") as stream:
+    yaml.safe_dump({"alerts": []}, stream, sort_keys=False)
+merge_alerts(path, [], newer, set(), [], newer[0]["observed_at"], 30)
+merge_alerts(path, newer, older, {"monotonic-key"}, [], older[0]["observed_at"], 30)
+alert = current()[0]
+assert alert["status"] == "resolved", alert
+assert alert["first_seen"] == "2026-05-15T00:00:00+09:00", alert
+
+# A losing older observation still contributes its earlier first_seen, in both
+# arrival orders.  Status follows the newer observation generation.
+def generation(observed, first_seen):
+    value = record("open", observed, observed)
+    value[0]["first_seen"] = first_seen
+    return value
+
+older_generation = generation(
+    "2026-05-15T04:00:00+09:00", "2026-05-15T00:00:00+09:00")
+newer_generation = generation(
+    "2026-05-15T05:00:00+09:00", "2026-05-15T01:00:00+09:00")
+with open(path, "w", encoding="utf-8") as stream:
+    yaml.safe_dump({"alerts": []}, stream, sort_keys=False)
+merge_alerts(path, [], newer_generation, {"monotonic-key"}, [],
+             newer_generation[0]["observed_at"], 30)
+merge_alerts(path, newer_generation, older_generation, {"monotonic-key"}, [],
+             older_generation[0]["observed_at"], 30)
+assert current()[0]["first_seen"] == "2026-05-15T00:00:00+09:00", current()
+
+with open(path, "w", encoding="utf-8") as stream:
+    yaml.safe_dump({"alerts": []}, stream, sort_keys=False)
+merge_alerts(path, [], older_generation, {"monotonic-key"}, [],
+             older_generation[0]["observed_at"], 30)
+merge_alerts(path, older_generation, newer_generation, {"monotonic-key"}, [],
+             newer_generation[0]["observed_at"], 30)
+assert current()[0]["first_seen"] == "2026-05-15T00:00:00+09:00", current()
+PYEOF
+    [ "$status" -eq 0 ]
+}
+
+@test "short state transaction preserves resume delivery and RCA dispatch across a scan" {
+    load_fixture rca_elapsed
+    cat > "$STALL_ROOT/queue/stall_detector_state.yaml" <<'EOF'
+last_scan: null
+last_error: null
+scan_count: 0
+pane_idle_streak: {}
+worktree_progress: {}
+gunshi2_escalations: {}
+gunshi2_capacity_notices: {}
+rca_parent_cooldowns: {}
+rca_elapsed:
+  direct_lord_rca_shortcut_20260710|rca_direct_01:
+    parent_cmd: direct_lord_rca_shortcut_20260710
+    family_id: rca_direct_01
+    started_at: "2026-05-15T00:00:00+09:00"
+    checkpoint: {state: pending, notified_at: null}
+    escalation: {state: pending, due_at: null, dispatched_at: null, gunshi2_task_id: null}
+resume_notifications:
+  ashigaru1:
+    task_id: rca_probe_01
+    episode_key: "ashigaru1:rca_probe_01:2026-05-15T00:00:00+09:00"
+    dedup_key: "stall-resume:ashigaru1:rca_probe_01:2026-05-15T00:00:00+09:00"
+    progress_at: "2026-05-15T00:00:00+09:00"
+    delivered: false
+EOF
+
+    env STALL_ROOT="$STALL_ROOT" \
+        STALL_NOW="$(epoch '2026-05-15T01:00:00')" \
+        STALL_PANE_STATES_OVERRIDE='{"ashigaru1":"busy"}' \
+        STALL_TEST_STATE_LOCK_HOLD_SEC=0.4 \
+        bash "$DETECTOR" --once >"$STALL_ROOT/scan.log" 2>&1 &
+    local scan_pid=$!
+    sleep 0.1
+    run python3 "$PROJECT_ROOT/scripts/stall_state.py" mark-delivered \
+        "$STALL_ROOT/queue/stall_detector_state.yaml" ashigaru1 rca_probe_01 \
+        "ashigaru1:rca_probe_01:2026-05-15T00:00:00+09:00" \
+        "2026-05-15T00:00:00+09:00" \
+        "stall-resume:ashigaru1:rca_probe_01:2026-05-15T00:00:00+09:00"
+    [ "$status" -eq 0 ]
+    run python3 "$PROJECT_ROOT/scripts/stall_state.py" mark-rca \
+        "$STALL_ROOT/queue/stall_detector_state.yaml" \
+        direct_lord_rca_shortcut_20260710 rca_direct_01 P1 \
+        "2026-05-15T01:00:00+09:00" gunshi2_escalation_test 360
+    [ "$status" -eq 0 ]
+    wait "$scan_pid"
+
+    run python3 - "$STALL_ROOT/queue/stall_detector_state.yaml" <<'PYEOF'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1])) or {}
+resume = (doc.get("resume_notifications") or {}).get("ashigaru1") or {}
+rca = (doc.get("rca_elapsed") or {}).get("direct_lord_rca_shortcut_20260710|rca_direct_01") or {}
+assert resume.get("delivered") is True, resume
+assert (rca.get("escalation") or {}).get("state") == "dispatched", rca
+assert (doc.get("scan_count") or 0) == 1, doc
+PYEOF
+    [ "$status" -eq 0 ]
+}
+
 # ═══════════════════════════════════════════════════════════════
 # kind: idle_with_active_task
 # ═══════════════════════════════════════════════════════════════

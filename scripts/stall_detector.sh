@@ -19,13 +19,11 @@
 #   STALL_NOW=<epoch>  「現在時刻」を固定する (閾値テスト用)
 #   STALL_PANE_STATES_OVERRIDE=<json>  pane 状態を tmux 非依存で固定する
 #       (例: '{"ashigaru1":"idle"}'。worktree progress fixture の idle streak 制御用)
-#   STALL_ROOT が実 repo と異なる場合は Karo inbox への実通知を抑止し、
+#   STALL_ROOT が実 repo と異なる場合は Karo/target inbox への実通知を抑止し、
 #   stall_alerts.yaml への append のみ行う (test 隔離)。
+#   queue/stall_detector.heartbeat は正常 scan 完了後に atomic replace される。
 #
-# v1 scope 外 (Phase 2):
-#   - watcher_supervisor.sh 統合による自動起動    (ashigaru6)
-#   - bats unit/e2e tests                        (ashigaru5)
-#   - CLAUDE.md / instructions 更新              (ashigaru4)
+# v1 scope 外:
 #   - ntfy / phone 通知 (殿裁可)。secondary escalation の hook point のみ構造化。
 # ═══════════════════════════════════════════════════════════════
 
@@ -55,6 +53,8 @@ LOG_DIR="${ROOT}/logs"
 LOG_FILE="${LOG_DIR}/stall_detector.log"
 STATE_FILE="${ROOT}/queue/stall_detector_state.yaml"
 ALERTS_FILE="${ROOT}/queue/stall_alerts.yaml"
+HEARTBEAT_FILE="${ROOT}/queue/stall_detector.heartbeat"
+STARTUP_RECEIPT_FILE="${STALL_DETECTOR_RECOVERY_FILE:-}"
 mkdir -p "$LOG_DIR" "${ROOT}/queue"
 
 # ── python 実体 (既存 script 作法に合わせ .venv を優先) ──
@@ -98,6 +98,65 @@ shutdown() {
     exit 0
 }
 trap shutdown SIGTERM SIGINT
+
+# A supervisor replacement is not considered healthy until one detector scan
+# has committed state and published its heartbeat.  The supervisor writes the
+# replacement PID into a small key/value receipt; this function records the
+# first successful scan for that PID (or its wrapper parent) under the same
+# receipt lock.  A pre-first-scan death therefore remains distinguishable from
+# a healthy replacement and can be retried after startup grace.
+record_startup_scan_receipt() {
+    local receipt_file="${STARTUP_RECEIPT_FILE:-}"
+    local state_file marker replacement_pid state_snapshot scan_count last_scan
+    local tmp line found_pid=0 found_at=0 found_fingerprint=0
+    [ -n "$receipt_file" ] || return 0
+    [ -f "$receipt_file" ] || return 0
+    marker="$(<"$receipt_file")"
+    replacement_pid="$(printf '%s\n' "$marker" | sed -n 's/^replacement_pid=//p' | head -n 1 || true)"
+    if [ -z "$replacement_pid" ] || {
+        [ "$replacement_pid" != "$$" ] && [ "$replacement_pid" != "${PPID:-}" ];
+    }; then
+        return 0
+    fi
+    state_file="${STALL_DETECTOR_STATE:-${ROOT}/queue/stall_detector_state.yaml}"
+    state_snapshot=""
+    [ -f "$state_file" ] && state_snapshot="$(<"$state_file")"
+    scan_count="$(printf '%s\n' "$state_snapshot" | sed -n 's/^scan_count:[[:space:]]*//p' | head -n 1 || true)"
+    last_scan="$(printf '%s\n' "$state_snapshot" | sed -n 's/^last_scan:[[:space:]]*//p' | head -n 1 || true)"
+    exec 8>>"${receipt_file}.lock"
+    flock -n 8 || { exec 8>&-; return 0; }
+    marker="$(<"$receipt_file")"
+    replacement_pid="$(printf '%s\n' "$marker" | sed -n 's/^replacement_pid=//p' | head -n 1 || true)"
+    if [ "$replacement_pid" != "$$" ] && [ "$replacement_pid" != "${PPID:-}" ]; then
+        flock -u 8
+        exec 8>&-
+        return 0
+    fi
+    tmp="${receipt_file}.tmp.scan.$$"
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            first_scan_pid=*)
+                found_pid=1
+                [ -n "${line#first_scan_pid=}" ] || line="first_scan_pid=$replacement_pid"
+                ;;
+            first_scan_at=*)
+                found_at=1
+                [ -n "${line#first_scan_at=}" ] || line="first_scan_at=$(date -Iseconds)"
+                ;;
+            first_scan_fingerprint=*)
+                found_fingerprint=1
+                [ -n "${line#first_scan_fingerprint=}" ] || line="first_scan_fingerprint=${scan_count:-unknown}:${last_scan:-unknown}"
+                ;;
+        esac
+        printf '%s\n' "$line"
+    done <<< "$marker" > "$tmp"
+    [ "$found_pid" -eq 1 ] || printf 'first_scan_pid=%s\n' "$replacement_pid" >> "$tmp"
+    [ "$found_at" -eq 1 ] || printf 'first_scan_at=%s\n' "$(date -Iseconds)" >> "$tmp"
+    [ "$found_fingerprint" -eq 1 ] || printf 'first_scan_fingerprint=%s:%s\n' "${scan_count:-unknown}" "${last_scan:-unknown}" >> "$tmp"
+    mv -f "$tmp" "$receipt_file"
+    flock -u 8
+    exec 8>&-
+}
 
 # ─── pane idle/busy 判定 (lib/agent_status.sh を再利用) ───
 # 軍師 infrastructure_findings 指摘どおり共有ライブラリの関数を使う。
@@ -163,6 +222,21 @@ escalate_secondary() {
 }
 
 # ─── 1 回の scan ───
+persist_resume_delivery() {
+    local resume_agent="$1"
+    local resume_task="$2"
+    local resume_episode="$3"
+    local resume_progress="$4"
+    local resume_dedup="$5"
+
+    # The detector child intentionally cannot mark delivery before the mailbox
+    # write.  This helper is the short post-delivery commit transaction; it
+    # re-reads current state and refuses to touch a newer episode.
+    "$PYTHON" "$SCRIPT_DIR/scripts/stall_state.py" mark-delivered \
+        "$STATE_FILE" "$resume_agent" "$resume_task" "$resume_episode" \
+        "$resume_progress" "$resume_dedup"
+}
+
 run_scan() {
     local pane_states
     # テスト用フック: STALL_PANE_STATES_OVERRIDE が設定されていれば tmux capture を
@@ -180,6 +254,7 @@ run_scan() {
     #   SUMMARY<TAB><scan 要約>
     #   NOTIFY<TAB><severity><TAB><karo へ送る要約>
     #   GUNSHI2<TAB><parent_cmd><TAB><severity><TAB><kind><TAB><agent><TAB><task_id><TAB><summary>
+    #   RESUME<TAB><agent><TAB><task_id><TAB><episode_key><TAB><last_progress_at>
     #   WARN<TAB><parse warning 等>
     local scan_out
     set +e
@@ -189,6 +264,9 @@ run_scan() {
         STALL_NOW="$now_override" \
         STALL_STATE_FILE="$STATE_FILE" \
         STALL_ALERTS_FILE="$ALERTS_FILE" \
+        STALL_HEARTBEAT_FILE="$HEARTBEAT_FILE" \
+        STALL_COMMIT_LOCK_FILE="${STALL_DETECTOR_COMMIT_LOCK:-${ROOT}/queue/stall_detector_commit.lock}" \
+        STALL_STATE_HELPER_DIR="$SCRIPT_DIR/scripts" \
         STALL_IS_REAL_ROOT="$IS_REAL_ROOT" \
         STALL_CAN_WRITE_GUNSHI2="$CAN_WRITE_GUNSHI2" \
         STALL_SCAN_INTERVAL_SEC="$SCAN_INTERVAL_SEC" \
@@ -197,11 +275,14 @@ run_scan() {
         GUNSHI2_ESCALATION_COOLDOWN_MIN="${GUNSHI2_ESCALATION_COOLDOWN_MIN:-360}" \
         "$PYTHON" - <<'PYEOF'
 import datetime
+import copy
+import fcntl
 import json
 import os
 import re
 import subprocess
 import sys
+import time
 import traceback
 
 try:
@@ -211,11 +292,19 @@ except Exception as e:  # pragma: no cover
     print("SUMMARY\tscan aborted (no yaml module)")
     sys.exit(0)
 
+sys.path.insert(0, os.environ["STALL_STATE_HELPER_DIR"])
+from stall_state import merge_alerts, merge_scan, snapshot  # noqa: E402
+
 ROOT = os.environ["STALL_ROOT"]
 IS_REAL_ROOT = os.environ.get("STALL_IS_REAL_ROOT", "0") == "1"
 CAN_WRITE_GUNSHI2 = os.environ.get("STALL_CAN_WRITE_GUNSHI2", "0") == "1"
 STATE_FILE = os.environ["STALL_STATE_FILE"]
 ALERTS_FILE = os.environ["STALL_ALERTS_FILE"]
+HEARTBEAT_FILE = os.environ["STALL_HEARTBEAT_FILE"]
+COMMIT_LOCK_FILE = os.environ.get(
+    "STALL_COMMIT_LOCK_FILE",
+    os.path.join(os.path.dirname(STATE_FILE), "stall_detector_commit.lock"),
+)
 SCAN_INTERVAL_SEC = int(os.environ.get("STALL_SCAN_INTERVAL_SEC", "60") or "60")
 GUNSHI2_ROUNDTRIP_THRESHOLD = int(os.environ.get("GUNSHI2_ROUNDTRIP_THRESHOLD", "8") or "8")
 GUNSHI2_REDO_THRESHOLD = int(os.environ.get("GUNSHI2_REDO_THRESHOLD", "3") or "3")
@@ -241,6 +330,7 @@ BLOCKED_P0_MIN = 60           # blocked_report: P0 after 60m
 ASSIGNED_DEFAULT_MIN = 45     # assigned_no_progress: default
 ASSIGNED_LONG_MIN = 90        # build/test/full_simulate/simulate/e2e
 ASSIGNED_GUNSHI_MIN = 60      # gunshi L5/L6 analysis
+ASSIGNED_RESUME_MIN = 60      # assigned task: target-agent resume/report nudge
 ASSIGNED_P1_MIN = 120         # assigned_no_progress: P1 escalation
 IDLE_ACTIVE_MIN = 30          # idle_with_active_task
 UNREAD_IDLE_MIN = 15          # agent_unread_unprocessed: idle/unknown/absent
@@ -280,10 +370,26 @@ REVIEW_NON_TERMINAL_TOKENS = (
 
 OUT = []
 WARNINGS = []
+ALERT_NOTIFY_INTENTS = []
 
 
 def emit(kind, *parts):
     OUT.append(kind + "\t" + "\t".join(str(p) for p in parts))
+
+
+def queue_alert_notify(key, severity, summary):
+    """Queue an alert notification until the alert CAS commit wins."""
+    ALERT_NOTIFY_INTENTS.append({
+        "key": str(key),
+        "severity": str(severity),
+        "summary": str(summary),
+        "dedup_key": f"stall-alert:{key}",
+    })
+
+
+def emit_karo_notify(severity, dedup_key, summary):
+    """Emit a non-alert Karo notification with a stable dedup family."""
+    emit("NOTIFY", severity, dedup_key, summary)
 
 
 def parse_ts(s):
@@ -311,7 +417,14 @@ def parse_ts(s):
 
 
 def iso(dt):
-    return dt.astimezone(LOCAL_TZ).replace(microsecond=0).isoformat()
+    local = dt.astimezone(LOCAL_TZ)
+    # Runtime observations need a generation finer than wall-clock seconds so
+    # an active and a resolving scan in one second do not become an arrival-
+    # order race.  Preserve compact second-aligned spelling for fixtures and
+    # legacy YAML compatibility.
+    if local.microsecond:
+        return local.isoformat(timespec="microseconds")
+    return local.isoformat()
 
 
 def minutes_since(dt):
@@ -356,115 +469,208 @@ def _report_entry_fields(entry, blocker_token=False):
     }
 
 
-def load_report_latest(agent):
+REPORT_FIELDS = {
+    "id", "worker_id", "task_id", "parent_cmd", "timestamp", "status", "verdict",
+    "summary", "result", "classification", "follow_up", "blocker",
+    "blocked_by", "redo_of", "reprobe_of", "description", "message",
+    "event", "family_id", "outcome",
+}
+REPORT_RECORD_START_FIELDS = {"id", "worker_id", "task_id", "event"}
+REPORT_FIELD_MAX = 4096
+REPORT_LINE_MAX = 65536
+
+
+def _report_scalar(raw):
+    """Decode only the small YAML scalar forms needed by report contracts."""
+    value = (raw or "").strip()
+    if not value or value in ("|", ">", "|-", ">-", "|+", ">+"):
+        return ""
+    if value in ("null", "Null", "NULL", "~"):
+        return None
+    if value[0:1] == '"' and value[-1:] == '"':
+        try:
+            return json.loads(value)
+        except Exception:
+            return value[1:-1]
+    if value[0:1] == "'" and value[-1:] == "'":
+        return value[1:-1].replace("''", "'")
+    # YAML comments are comments only when separated from a plain scalar.
+    value = re.sub(r"\s+#.*$", "", value).strip()
+    return value[:REPORT_FIELD_MAX]
+
+
+def _report_record_value(record, key, value):
+    if key not in REPORT_FIELDS:
+        return
+    value = _report_scalar(value)
+    if value is not None:
+        value = str(value)[:REPORT_FIELD_MAX]
+    if key == "verdict":
+        record["verdict"] = value
+        if not record.get("status"):
+            record["status"] = value
+    else:
+        record[key] = value
+    if key in ("blocker", "blocked_by"):
+        record["_blocker_token"] = True
+    if isinstance(value, str) and "BLOCKER" in value.upper():
+        record["_blocker_token"] = True
+
+
+def _report_public_record(record):
+    if not isinstance(record, dict):
+        return None
+    public = {k: v for k, v in record.items() if not k.startswith("_")}
+    if record.get("_blocker_token"):
+        public["_blocker_token"] = True
+    if not any(public.get(k) is not None for k in
+               ("task_id", "timestamp", "status", "verdict", "event")):
+        return None
+    return public
+
+
+def iter_report_entries(path):
+    """Yield bounded report records without handing a corpus to PyYAML.
+
+    Reports are append-only, often multi-document YAML, and can exceed 15 MB.
+    The detector only needs a finite set of scalar fields, so this extractor
+    tracks list-entry boundaries and same-level mapping fields while reading
+    one line at a time.  It is deliberately fail-soft: malformed syntax still
+    exposes lexical status/timestamp/task fields instead of blocking a scan.
     """
-    queue/reports/<agent>_report.yaml の「最新 entry」を robust に読む。
-    report YAML は頻繁に malformed / multi-document ゆえ:
-      1. yaml.safe_load_all で構造解析 (multi-doc 対応)。candidate を timestamp で最新化。
-      2. 失敗時は indent<=2 の status/timestamp/task_id を regex で最後出現抽出 (fallback)。
-    どちらも不能なら None (parse 失敗は WARN に出し、その entry は skip)。
-    """
-    path = os.path.join(ROOT, "queue", "reports", f"{agent}_report.yaml")
+    key_re = re.compile(r"^(?P<indent>\s*)(?P<key>[A-Za-z_][A-Za-z0-9_-]*):(?:\s*(?P<value>.*?))?\s*$")
+    list_re = re.compile(r"^(?P<indent>\s*)-\s+(?:(?P<key>[A-Za-z_][A-Za-z0-9_-]*):(?:\s*(?P<value>.*?))?)?\s*$")
+    current = None
+    record_indent = None
+    field_indent = None
+    block_key = None
+    block_indent = None
+    block_parts = []
+
+    def flush_block():
+        nonlocal block_key, block_indent, block_parts, current
+        if block_key is not None and current is not None:
+            _report_record_value(current, block_key, " ".join(block_parts))
+        block_key = None
+        block_indent = None
+        block_parts = []
+
+    def flush_record():
+        nonlocal current, record_indent, field_indent
+        flush_block()
+        result = _report_public_record(current)
+        current = None
+        record_indent = None
+        field_indent = None
+        return result
+
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            text = f.read()
+        with open(path, "r", encoding="utf-8", errors="replace") as stream:
+            for raw_line in stream:
+                line = raw_line[:REPORT_LINE_MAX].rstrip("\r\n")
+                stripped = line.strip()
+                if stripped in ("---", "..."):
+                    result = flush_record()
+                    if result is not None:
+                        yield result
+                    continue
+
+                # Complete a bounded block scalar before processing its first
+                # dedented mapping line.  No block can grow without a bound.
+                line_indent = len(line) - len(line.lstrip(" "))
+                if block_key is not None:
+                    if not stripped or line_indent > (block_indent or 0):
+                        if stripped and len(block_parts) < 64:
+                            block_parts.append(stripped[:REPORT_FIELD_MAX])
+                        continue
+                    flush_block()
+
+                list_match = list_re.match(line)
+                if list_match and list_match.group("key") in REPORT_RECORD_START_FIELDS:
+                    item_indent = len(list_match.group("indent"))
+                    if current is not None and item_indent <= (record_indent or 0):
+                        result = flush_record()
+                        if result is not None:
+                            yield result
+                    if current is None:
+                        current = {"_blocker_token": False}
+                        record_indent = item_indent
+                        field_indent = item_indent + 2
+                    key = list_match.group("key")
+                    value = list_match.group("value") or ""
+                    _report_record_value(current, key, value)
+                    if value.strip() in ("|", ">", "|-", ">-", "|+", ">+"):
+                        block_key = key
+                        block_indent = field_indent
+                    continue
+
+                match = key_re.match(line)
+                if not match:
+                    continue
+                indent = len(match.group("indent"))
+                key = match.group("key")
+                value = match.group("value") or ""
+
+                if current is None:
+                    # A singular report mapping (report: {task_id: ...}) or a
+                    # top-level report document has no '-' marker.  Start it
+                    # only on identity fields, never on nested status fields.
+                    if key in REPORT_RECORD_START_FIELDS or (key in {
+                            "parent_cmd", "timestamp", "status", "verdict"}
+                            and indent <= 2):
+                        current = {"_blocker_token": False}
+                        record_indent = max(0, indent - 2)
+                        field_indent = indent
+                    else:
+                        continue
+                elif indent < (field_indent or 0):
+                    result = flush_record()
+                    if result is not None:
+                        yield result
+                    if key not in REPORT_RECORD_START_FIELDS and key not in {
+                            "parent_cmd", "timestamp", "status", "verdict"}:
+                        continue
+                    current = {"_blocker_token": False}
+                    record_indent = max(0, indent - 2)
+                    field_indent = indent
+                elif indent != (field_indent or 0):
+                    # Nested mappings (for example root_instruction_gate.status)
+                    # are intentionally ignored.
+                    continue
+
+                _report_record_value(current, key, value)
+                if value.strip() in ("|", ">", "|-", ">-", "|+", ">+"):
+                    block_key = key
+                    block_indent = field_indent
+
+        result = flush_record()
+        if result is not None:
+            yield result
     except FileNotFoundError:
+        return
+    except Exception as exc:
+        WARNINGS.append(f"stream report parse failed {os.path.basename(path)}: {str(exc).splitlines()[0]}")
+        result = flush_record()
+        if result is not None:
+            yield result
+
+
+def load_report_latest(agent):
+    """Return the latest bounded report record for an agent."""
+    path = os.path.join(ROOT, "queue", "reports", f"{agent}_report.yaml")
+    latest = None
+    for entry in iter_report_entries(path):
+        if latest is None or (
+                (parse_ts(entry.get("timestamp")) or MIN_DT)
+                >= (parse_ts(latest.get("timestamp")) or MIN_DT)):
+            latest = entry
+    if latest is None:
         return None
-    except Exception as e:
-        WARNINGS.append(f"read failed {agent}_report.yaml: {e}")
-        return None
-
-    # ── 1. 構造解析 ──
-    try:
-        docs = list(yaml.safe_load_all(text))
-        candidates = []
-        for d in docs:
-            if isinstance(d, dict):
-                r = d.get("report", d)
-                if isinstance(r, list):
-                    candidates.extend([x for x in r if isinstance(x, dict)])
-                elif isinstance(r, dict):
-                    candidates.append(r)
-                # gunshi_report.yaml: top-level dict 自体も timestamp/status を持つ
-                if r is not d and ("timestamp" in d or "status" in d):
-                    candidates.append(d)
-        if candidates:
-            latest = max(candidates,
-                         key=lambda c: parse_ts(c.get("timestamp")) or MIN_DT)
-            return _report_entry_fields(latest)
-    except Exception as e:
-        WARNINGS.append(f"structured parse failed {agent}_report.yaml: "
-                        f"{str(e).splitlines()[0]} — using regex fallback")
-
-    # ── 2. regex fallback (indent 0-2 の report-level field のみ。
-    #       nested の indent>=4 status: は拾わない) ──
-    status = None
-    ts = None
-    task_id = None
-    for line in text.splitlines():
-        m = re.match(r"^ {0,2}status:\s*(.+?)\s*$", line)
-        if m:
-            status = m.group(1).strip().strip('"').strip("'")
-        m = re.match(r"^ {0,2}timestamp:\s*(.+?)\s*$", line)
-        if m:
-            ts = m.group(1).strip().strip('"').strip("'")
-        m = re.match(r"^ {0,2}task_id:\s*(.+?)\s*$", line)
-        if m:
-            task_id = m.group(1).strip().strip('"').strip("'")
-    if status is None and ts is None:
-        WARNINGS.append(f"unparseable report {agent}_report.yaml — skipped")
-        return None
-    has_blocker = "BLOCKER" in text
-    has_follow_up = bool(re.search(r"^ {0,2}follow_up:\s*\S", text, re.M))
-    return {
-        "status": status or "",
-        "timestamp": ts,
-        "task_id": task_id,
-        "summary": "",
-        "classification": "",
-        "follow_up": True if has_follow_up else None,
-        "_blocker_token": has_blocker,
-    }
-
-
-def iter_report_entries_from_text(text):
-    """report YAML text から timestamp/status/task_id を持つ entry 群を抽出する。"""
-    entries = []
-    try:
-        docs = list(yaml.safe_load_all(text))
-        for d in docs:
-            if not isinstance(d, dict):
-                continue
-            r = d.get("report", d)
-            if isinstance(r, list):
-                entries.extend([x for x in r if isinstance(x, dict)])
-            elif isinstance(r, dict):
-                entries.append(r)
-            if r is not d and ("timestamp" in d or "status" in d):
-                entries.append(d)
-    except Exception:
-        status = None
-        ts = None
-        task_id = None
-        for line in text.splitlines():
-            m = re.match(r"^ {0,2}status:\s*(.+?)\s*$", line)
-            if m:
-                status = m.group(1).strip().strip('"').strip("'")
-            m = re.match(r"^ {0,2}timestamp:\s*(.+?)\s*$", line)
-            if m:
-                ts = m.group(1).strip().strip('"').strip("'")
-            m = re.match(r"^ {0,2}task_id:\s*(.+?)\s*$", line)
-            if m:
-                task_id = m.group(1).strip().strip('"').strip("'")
-        if status is not None or ts is not None:
-            entries.append({"status": status or "", "timestamp": ts, "task_id": task_id})
-    return [e for e in entries if isinstance(e, dict)]
+    return _report_entry_fields(latest, bool(latest.get("_blocker_token")))
 
 
 def latest_report_progress(agent):
-    """agent prefix の report 群から最新 timestamp を返す。
-    Karo/Gunshi は `<agent>_report.yaml` 以外の per-task report も使うため、
-    queue/reports/<agent>_*.yaml まで見る。"""
+    """Find the latest timestamp in an agent's report files, streaming each."""
     reports_dir = os.path.join(ROOT, "queue", "reports")
     try:
         names = os.listdir(reports_dir)
@@ -478,12 +684,7 @@ def latest_report_progress(agent):
         if name != f"{agent}_report.yaml" and not name.startswith(f"{agent}_"):
             continue
         path = os.path.join(reports_dir, name)
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                text = f.read()
-        except Exception:
-            continue
-        for entry in iter_report_entries_from_text(text):
+        for entry in iter_report_entries(path):
             ts = parse_ts(entry.get("timestamp"))
             if ts is not None and (latest is None or ts > latest):
                 latest = ts
@@ -499,50 +700,22 @@ def latest_report_progress(agent):
 
 
 def find_report_for_task(agent, task_id):
-    """指定 task_id に対応する report entry (latest match) を全 entry から探す。
-    review/analysis task は task YAML status が assigned のまま完了 report を出すゆえ、
-    load_report_latest の「最新 entry」だけでは別 task の古い entry を見てしまう恐れがあり、
-    task_id fingerprint で直接 lookup する必要がある (本 fix の (b) 方針)。
-    見つからなければ None。"""
+    """Find the newest matching report entry without materializing the file."""
     if not task_id:
         return None
     path = os.path.join(ROOT, "queue", "reports", f"{agent}_report.yaml")
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            text = f.read()
-    except FileNotFoundError:
+    latest = None
+    latest_ts = None
+    for entry in iter_report_entries(path):
+        if entry.get("task_id") != task_id:
+            continue
+        ts = parse_ts(entry.get("timestamp")) or MIN_DT
+        if latest is None or ts >= latest_ts:
+            latest = entry
+            latest_ts = ts
+    if latest is None:
         return None
-    except Exception as e:
-        WARNINGS.append(f"read failed {agent}_report.yaml (find): {e}")
-        return None
-    try:
-        docs = list(yaml.safe_load_all(text))
-        matches = []
-        for d in docs:
-            if not isinstance(d, dict):
-                continue
-            r = d.get("report", d)
-            if isinstance(r, list):
-                matches.extend(
-                    x for x in r
-                    if isinstance(x, dict) and x.get("task_id") == task_id
-                )
-            elif isinstance(r, dict):
-                if r.get("task_id") == task_id:
-                    matches.append(r)
-                if r is not d and d.get("task_id") == task_id:
-                    matches.append(d)
-        if matches:
-            latest = max(
-                matches,
-                key=lambda c: parse_ts(c.get("timestamp")) or MIN_DT,
-            )
-            return _report_entry_fields(latest)
-    except Exception as e:
-        WARNINGS.append(
-            f"find_report_for_task {agent}: {str(e).splitlines()[0]}"
-        )
-    return None
+    return _report_entry_fields(latest, bool(latest.get("_blocker_token")))
 
 
 def inbox_unread_count(agent):
@@ -712,30 +885,16 @@ def compute_worktree_signature(worktree):
 # ─────────────────────────────────────────────────────────────
 # state / alerts file の読み込み (冪等性 / 再起動耐性)
 # ─────────────────────────────────────────────────────────────
-state = load_yaml_safe(STATE_FILE)
-if not isinstance(state, dict):
-    state = {}
-state.setdefault("pane_idle_streak", {})
-state.setdefault("scan_count", 0)
-state.setdefault("worktree_progress", {})
-state.setdefault("gunshi2_escalations", {})
-state.setdefault("gunshi2_capacity_notices", {})
-state.setdefault("rca_parent_cooldowns", {})
-state.setdefault("rca_elapsed", {})
-if not isinstance(state.get("pane_idle_streak"), dict):
-    state["pane_idle_streak"] = {}
-if not isinstance(state.get("worktree_progress"), dict):
-    state["worktree_progress"] = {}
-if not isinstance(state.get("gunshi2_escalations"), dict):
-    state["gunshi2_escalations"] = {}
-if not isinstance(state.get("gunshi2_capacity_notices"), dict):
-    state["gunshi2_capacity_notices"] = {}
-if not isinstance(state.get("rca_parent_cooldowns"), dict):
-    state["rca_parent_cooldowns"] = {}
-if not isinstance(state.get("rca_elapsed"), dict):
-    state["rca_elapsed"] = {}
-
-
+# Snapshot/initialization is a short transaction.  Report parsing, pane
+# observation and worktree walking happen after this lock is released.
+baseline_state = snapshot(STATE_FILE)
+state = copy.deepcopy(baseline_state)
+# Test-only pause is intentionally after the short snapshot transaction.  It
+# simulates a detector stuck in report/pane work without making recovery wait
+# on STATE_FILE.lock.
+_test_scan_hold = os.environ.get("STALL_TEST_STATE_LOCK_HOLD_SEC", "").strip()
+if _test_scan_hold:
+    time.sleep(float(_test_scan_hold))
 def should_emit_gunshi2_capacity_notice(intent, severity):
     """Deduplicate capacity notices without discarding their pending intent.
 
@@ -767,6 +926,8 @@ if not isinstance(alerts_doc, dict):
 alerts = alerts_doc.get("alerts")
 if not isinstance(alerts, list):
     alerts = []
+baseline_alerts = copy.deepcopy(alerts)
+alerts = copy.deepcopy(alerts)
 # key -> alert dict (open/acked のみ実質追跡。resolved も履歴として残す)
 alerts_by_key = {}
 for a in alerts:
@@ -828,15 +989,64 @@ def add_candidate(agent, task_id, kind, source_ts, severity, evidence, parent_cm
     }
 
 
+def maybe_emit_assigned_resume(agent, task, task_id, last_progress_at,
+                               mins_since_progress):
+    """Emit one target-agent resume/report request per no-progress episode.
+
+    The existing Karo alert remains the authoritative stall alert.  This is a
+    separate, actionable nudge for the worker after 60 minutes since the last
+    observed task/report/worktree progress.  The state is keyed by agent and
+    task; a newer progress timestamp clears the sent marker and re-arms the
+    next episode.  This lane is intentionally independent of pane state: the
+    contract is based on last_progress, while the existing Karo alert retains
+    its own busy-pane false-positive controls.
+    """
+    if mins_since_progress is None:
+        return
+    if mins_since_progress < ASSIGNED_RESUME_MIN:
+        return
+
+    records = state["resume_notifications"]
+    record = records.get(agent)
+    if not isinstance(record, dict) or record.get("task_id") != task_id:
+        record = {}
+
+    progress_iso = iso(last_progress_at) if last_progress_at is not None else None
+    previous_progress = parse_ts(record.get("progress_at"))
+    current_progress = parse_ts(progress_iso)
+    if (current_progress is not None
+            and (previous_progress is None or current_progress > previous_progress)):
+        # A report/worktree/task timestamp advanced: this is a fresh episode.
+        record["delivered"] = False
+        record.pop("delivered_at", None)
+        record.pop("notified_at", None)
+        record.pop("dedup_key", None)
+
+    record["task_id"] = task_id
+    record["progress_at"] = progress_iso
+    if record.get("delivered") is True:
+        records[agent] = record
+        return
+
+    episode_key = f"{agent}:{task_id}:{progress_iso or 'unknown'}"
+    dedup_key = f"stall-resume:{episode_key}"
+    record.update({
+        "episode_key": episode_key,
+        "dedup_key": dedup_key,
+        "progress_at": progress_iso,
+        "delivered": False,
+    })
+    records[agent] = record
+    # Delivery is performed by the shell parent.  Do not mark the episode
+    # delivered here: an inbox_write failure must remain due for the next scan.
+    emit("RESUME", agent, task_id, episode_key, progress_iso or "unknown")
+
+
 RCA_TERMINAL_OUTCOMES = {"completed", "failed", "blocked", "cancelled"}
 
 
 def iter_rca_events():
-    """Read only explicit top-level rca_events records from report YAML files.
-
-    The ordinary report parser deliberately remains unchanged: generic report status,
-    blocked_by, and qc_updates must never stop an RCA family clock.
-    """
+    """Read explicit rca event fields through the bounded report extractor."""
     reports_dir = os.path.join(ROOT, "queue", "reports")
     try:
         names = os.listdir(reports_dir)
@@ -846,14 +1056,8 @@ def iter_rca_events():
         if not name.endswith((".yaml", ".yml")):
             continue
         path = os.path.join(reports_dir, name)
-        doc = load_yaml_safe(path)
-        if not isinstance(doc, dict):
-            continue
-        events = doc.get("rca_events")
-        if not isinstance(events, list):
-            continue
-        for event in events:
-            if isinstance(event, dict):
+        for event in iter_report_entries(path):
+            if isinstance(event, dict) and event.get("event"):
                 yield event
 
 
@@ -1000,10 +1204,15 @@ for agent in AGENTS:
 
 for agent in ASHIGARU + [a for a in AGENTS if a.startswith("gunshi")]:
     task = load_task(agent)
-    rep = load_report_latest(agent)
+    # The report corpus is append-only across task handoffs.  A prior task's
+    # terminal entry must not suppress the resume lane for the currently
+    # assigned task or advance its last_progress clock.  Keep the all-task
+    # latest entry only for the blocked-report compatibility path below.
+    latest_rep = load_report_latest(agent)
     task_status = status_norm(task.get("status")) if task else None
     task_id = (task.get("task_id") if task else None) or "unknown"
     task_ts = parse_ts(task.get("timestamp")) if task else None
+    rep = find_report_for_task(agent, task_id) if task and task_id != "unknown" else latest_rep
     rep_status = status_norm(rep.get("status")) if rep else None
     rep_ts = parse_ts(rep.get("timestamp")) if rep else None
 
@@ -1021,29 +1230,32 @@ for agent in ASHIGARU + [a for a in AGENTS if a.startswith("gunshi")]:
     # ── kind: blocked_report_unresolved ──
     # ashigaru report の最新 entry が blocked-ish。対応 task が report より新しく
     # assigned/terminal に戻っていれば resolved (agent が次の task へ移った含む)。
-    if agent in ASHIGARU and rep is not None and is_blocked_report(rep):
+    blocked_rep = rep if rep is not None else latest_rep
+    blocked_rep_status = status_norm(blocked_rep.get("status")) if blocked_rep else None
+    blocked_rep_ts = parse_ts(blocked_rep.get("timestamp")) if blocked_rep else None
+    if agent in ASHIGARU and blocked_rep is not None and is_blocked_report(blocked_rep):
         resolved = False
         # 後続の done report (= 最新 report 自体が terminal) → resolved
-        if is_terminal_status(rep_status):
+        if is_terminal_status(blocked_rep_status):
             resolved = True
         # 対応 task YAML が report timestamp より新しい → 再 dispatch / 次 task 移行
-        if task_ts is not None and rep_ts is not None and task_ts > rep_ts:
+        if task_ts is not None and blocked_rep_ts is not None and task_ts > blocked_rep_ts:
             if task_status in ("assigned", "done", "idle", "cancelled", "canceled"):
                 resolved = True
         if not resolved:
-            mins = minutes_since(rep_ts)
+            mins = minutes_since(blocked_rep_ts)
             if mins is not None and mins >= BLOCKED_INITIAL_MIN:
                 sev = "P0" if mins >= BLOCKED_P0_MIN else "P1"
-                src = iso(rep_ts) if rep_ts else "unknown"
-                ev = (f"report status='{rep.get('status')}' が {int(mins)}m 未解決。"
+                src = iso(blocked_rep_ts) if blocked_rep_ts else "unknown"
+                ev = (f"report status='{blocked_rep.get('status')}' が {int(mins)}m 未解決。"
                       f"task '{task_id}' status={task_status}。"
-                      f"report 担当 task='{rep.get('task_id')}'。")
+                      f"report 担当 task='{blocked_rep.get('task_id')}'。")
                 add_candidate(agent, task_id, "blocked_report_unresolved",
                               src, sev, ev,
                               parent_cmd=parent_cmd_from_blob(
                                   task.get("parent_cmd") if task else None,
-                                  rep.get("parent_cmd") if rep else None,
-                                  task_id, rep.get("task_id") if rep else None, ev,
+                                  blocked_rep.get("parent_cmd") if blocked_rep else None,
+                                  task_id, blocked_rep.get("task_id") if blocked_rep else None, ev,
                               ))
 
     # assigned 系 (assigned_no_progress / idle_with_active_task) は
@@ -1110,6 +1322,11 @@ for agent in ASHIGARU + [a for a in AGENTS if a.startswith("gunshi")]:
             wp_entry["signature"] = wt_sig
             wp_entry["last_progress_at"] = now_iso
         wp_entry["worktree"] = wt_path
+        prior_progress = parse_ts(wp_entry.get("last_progress_at"))
+        if task_ts is not None and (prior_progress is None or task_ts > prior_progress):
+            # A re-assignment can retain a task_id while advancing its YAML
+            # timestamp. Treat that as progress for the resume episode.
+            wp_entry["last_progress_at"] = iso(task_ts)
     # report 更新も progress 信号: rep_ts が last_progress_at より新しければ採用。
     last_progress_at = parse_ts(wp_entry.get("last_progress_at")) or task_ts
     if rep_ts is not None and (last_progress_at is None or rep_ts > last_progress_at):
@@ -1118,6 +1335,14 @@ for agent in ASHIGARU + [a for a in AGENTS if a.startswith("gunshi")]:
     mins_since_progress = minutes_since(last_progress_at)
     if mins_since_progress is None:
         mins_since_progress = mins_assigned
+
+    # 60m assigned-no-progress liveness lane: keep the existing Karo alert
+    # below intact, but give the target agent one deduplicated instruction to
+    # re-read its task and immediately report progress or a blocker.
+    if not latest_report_terminal:
+        maybe_emit_assigned_resume(
+            agent, task, task_id, last_progress_at, mins_since_progress,
+        )
 
     # ── kind: assigned_no_progress ──
     # task assigned かつ task ts 以後 report 更新なし + worktree 進捗なし +
@@ -1259,8 +1484,12 @@ for agent in ASHIGARU + [a for a in AGENTS if a.startswith("gunshi")]:
         continue
     if elapsed >= checkpoint_after and entry["checkpoint"].get("state") == "pending":
         entry["checkpoint"] = {"state": "notified", "notified_at": now_iso}
-        emit("NOTIFY", "P3", (f"[P3] rca_checkpoint_due — {agent}:{task.get('task_id')} "
-                                f"family={family} parent_cmd={parent}; elapsed={int(elapsed)}m。"))
+        emit_karo_notify(
+            "P3",
+            f"rca-checkpoint:{agent}:{task.get('task_id')}:{family}",
+            (f"[P3] rca_checkpoint_due — {agent}:{task.get('task_id')} "
+             f"family={family} parent_cmd={parent}; elapsed={int(elapsed)}m。"),
+        )
     if elapsed < escalate_after:
         continue
     esc = entry["escalation"]
@@ -1306,8 +1535,12 @@ for agent in ASHIGARU + [a for a in AGENTS if a.startswith("gunshi")]:
         if should_emit_gunshi2_capacity_notice(f"rca:{parent}:{family}", rca_severity):
             esc["notified_at"] = now_iso
             esc["repeat_after_min"] = REPEAT_COOLDOWN_MIN
-            emit("NOTIFY", rca_severity, (f"[{rca_severity}] rca_gunshi2_capacity — family={family} parent_cmd={parent} "
-                                    f"is due after {int(elapsed)}m; Gunshi2 slot is assigned to another case。"))
+            emit_karo_notify(
+                rca_severity,
+                f"gunshi2-capacity:rca:{parent}:{family}",
+                (f"[{rca_severity}] rca_gunshi2_capacity — family={family} parent_cmd={parent} "
+                 f"is due after {int(elapsed)}m; Gunshi2 slot is assigned to another case。"),
+            )
         continue
     # Test roots record emitted intent for deterministic no-duplicate tests.
     # A real root remains due until the outer writer has atomically installed
@@ -1413,23 +1646,25 @@ def collect_recent_parent_cmd_metrics():
         count_blob(blob, ts=ts, source=f"task/{os.path.basename(path)}")
 
     for path in iter_yaml_files("queue", "reports") or []:
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                text = f.read()
-        except Exception:
-            continue
-        for entry in iter_report_entries_from_text(text):
+        saw_entry = False
+        for entry in iter_report_entries(path):
+            saw_entry = True
             ts = parse_ts(entry.get("timestamp"))
             blob = " ".join(str(entry.get(k, "")) for k in (
                 "task_id", "parent_cmd", "status", "summary", "result", "redo_of",
             ))
             count_blob(blob, ts=ts, source=f"report/{os.path.basename(path)}")
-        # malformed report fallback: count file once if it mentions a cmd and is recent by mtime.
-        try:
-            mtime_dt = datetime.datetime.fromtimestamp(os.path.getmtime(path), LOCAL_TZ)
-        except OSError:
-            mtime_dt = None
-        count_blob(text, ts=mtime_dt, source=f"report_text/{os.path.basename(path)}")
+        # Malformed reports still get a bounded lexical fallback, streamed one
+        # line at a time.  Never read the full corpus into a single string.
+        if not saw_entry:
+            try:
+                mtime_dt = datetime.datetime.fromtimestamp(os.path.getmtime(path), LOCAL_TZ)
+                with open(path, "r", encoding="utf-8", errors="replace") as stream:
+                    for line in stream:
+                        count_blob(line[:REPORT_FIELD_MAX], ts=mtime_dt,
+                                   source=f"report_text/{os.path.basename(path)}")
+            except OSError:
+                pass
 
     return metrics
 
@@ -1451,9 +1686,13 @@ def gunshi2_should_escalate(parent_cmd, severity, kind):
             return False
         if status_norm(task.get("status")) == "assigned":
             if should_emit_gunshi2_capacity_notice(f"generic:{parent_cmd}:{kind}", "P1"):
-                emit("NOTIFY", "P1", (f"[P1] gunshi2_capacity — parent_cmd={parent_cmd} の "
-                                        f"{kind} escalation は保留。Gunshi2 は "
-                                        f"{task.get('parent_cmd')} を実行中で上書きしない。"))
+                emit_karo_notify(
+                    "P1",
+                    f"gunshi2-capacity:generic:{parent_cmd}:{kind}",
+                    (f"[P1] gunshi2_capacity — parent_cmd={parent_cmd} の "
+                     f"{kind} escalation は保留。Gunshi2 は "
+                     f"{task.get('parent_cmd')} を実行中で上書きしない。"),
+                )
             return False
     if severity in ("P0", "P1") and kind in PRIMARY_KINDS:
         return True
@@ -1517,6 +1756,7 @@ for parent, req in gunshi2_requests.items():
 #    (v1 は家老 ack 機構未実装ゆえ target 更新時 auto-resolve でよい — 軍師 state_model)
 # ─────────────────────────────────────────────────────────────
 SEV_RANK = {"P3": 0, "P2": 1, "P1": 2, "P0": 3}
+active_alert_keys = set(current.keys())
 
 
 def should_notify(alert, new_severity):
@@ -1542,6 +1782,7 @@ for key, cand in current.items():
             "severity": cand["severity"],
             "first_seen": now_iso,
             "last_seen": now_iso,
+            "observed_at": now_iso,
             "last_notified": now_iso,
             "count": 1,
             "status": "open",
@@ -1549,10 +1790,14 @@ for key, cand in current.items():
         }
         alerts.append(alert)
         alerts_by_key[key] = alert
-        emit("NOTIFY", cand["severity"],
-             f"[{cand['severity']}] {cand['kind']} — {cand['agent']}: {cand['evidence']}")
+        queue_alert_notify(
+            key,
+            cand["severity"],
+            f"[{cand['severity']}] {cand['kind']} — {cand['agent']}: {cand['evidence']}",
+        )
     else:
         existing["last_seen"] = now_iso
+        existing["observed_at"] = now_iso
         existing["evidence"] = cand["evidence"]
         existing["status"] = "open"
         notify = should_notify(existing, cand["severity"])
@@ -1562,9 +1807,12 @@ for key, cand in current.items():
         if notify:
             existing["last_notified"] = now_iso
             existing["count"] = int(existing.get("count", 1) or 1) + 1
-            emit("NOTIFY", existing["severity"],
-                 f"[{existing['severity']}] {existing['kind']} — "
-                 f"{existing['agent']} (再通知#{existing['count']}): {cand['evidence']}")
+            queue_alert_notify(
+                key,
+                existing["severity"],
+                f"[{existing['severity']}] {existing['kind']} — "
+                f"{existing['agent']} (再通知#{existing['count']}): {cand['evidence']}",
+            )
 
 # auto-resolve: open な primary alert で current に無いもの
 for alert in alerts:
@@ -1575,6 +1823,8 @@ for alert in alerts:
     if alert.get("status") == "open" and alert.get("key") not in current:
         alert["status"] = "resolved"
         alert["last_seen"] = now_iso
+        alert["observed_at"] = now_iso
+        alert["resolved_at"] = now_iso
         emit("WARN", f"auto-resolved: {alert.get('key')} "
                      f"(target updated / no longer stalling)")
 
@@ -1613,6 +1863,7 @@ for alert in list(alerts):
             "severity": "P0",
             "first_seen": now_iso,
             "last_seen": now_iso,
+            "observed_at": now_iso,
             "last_notified": now_iso,
             "count": 1,
             "status": "open",
@@ -1620,18 +1871,27 @@ for alert in list(alerts):
         }
         alerts.append(ku)
         alerts_by_key[ku_key] = ku
-        emit("NOTIFY", "P0",
-             f"[P0] karo_unresponsive_to_stall_alert — karo: {ev}")
+        active_alert_keys.add(ku_key)
+        queue_alert_notify(
+            ku_key,
+            "P0",
+            f"[P0] karo_unresponsive_to_stall_alert — karo: {ev}",
+        )
     else:
         ku_existing["last_seen"] = now_iso
+        ku_existing["observed_at"] = now_iso
         ku_existing["evidence"] = ev
         ku_existing["status"] = "open"
+        active_alert_keys.add(ku_key)
         if should_notify(ku_existing, "P0"):
             ku_existing["last_notified"] = now_iso
             ku_existing["count"] = int(ku_existing.get("count", 1) or 1) + 1
-            emit("NOTIFY", "P0",
-                 f"[P0] karo_unresponsive_to_stall_alert — "
-                 f"karo (再通知#{ku_existing['count']}): {ev}")
+            queue_alert_notify(
+                ku_key,
+                "P0",
+                f"[P0] karo_unresponsive_to_stall_alert — "
+                f"karo (再通知#{ku_existing['count']}): {ev}",
+            )
 
 # karo_unresponsive の auto-resolve: 元 primary alert が resolved なら解決扱い
 for alert in alerts:
@@ -1645,6 +1905,8 @@ for alert in alerts:
     if primary is None or primary.get("status") != "open":
         alert["status"] = "resolved"
         alert["last_seen"] = now_iso
+        alert["observed_at"] = now_iso
+        alert["resolved_at"] = now_iso
         emit("WARN", f"auto-resolved: {alert.get('key')} (primary resolved)")
 
 # ─────────────────────────────────────────────────────────────
@@ -1667,9 +1929,47 @@ def atomic_write(path, data):
     os.replace(tmp, path)
 
 
+def atomic_write_text(path, text):
+    tmp = f"{path}.tmp.{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
 try:
-    atomic_write(ALERTS_FILE, {"alerts": alerts})
-    atomic_write(STATE_FILE, state)
+    # Alert ownership is a separate short transaction.  The helper re-reads
+    # ALERTS_FILE.lock and returns only notifications won by this scan; an
+    # overlapping detector therefore cannot lose an alert update or duplicate
+    # the same Karo notification.
+    alerts, claimed_alert_notifications = merge_alerts(
+        ALERTS_FILE,
+        baseline_alerts,
+        alerts,
+        active_alert_keys,
+        ALERT_NOTIFY_INTENTS,
+        now_iso,
+        REPEAT_COOLDOWN_MIN,
+    )
+    for claimed in claimed_alert_notifications:
+        emit("NOTIFY", claimed["severity"], claimed["dedup_key"], claimed["summary"])
+    # Merge only after the blocking scan is complete.  The helper re-reads
+    # current state under a short lock and preserves delivery/RCA commits made
+    # while this scan was outside the lock.
+    # The supervisor takes this same short commit lock for its final
+    # state/heartbeat observation.  State and heartbeat remain separate files,
+    # but no recovery decision can observe the gap between their commits.
+    os.makedirs(os.path.dirname(COMMIT_LOCK_FILE) or ".", exist_ok=True)
+    with open(COMMIT_LOCK_FILE, "a+", encoding="utf-8") as commit_lock:
+        fcntl.flock(commit_lock.fileno(), fcntl.LOCK_EX)
+        state = merge_scan(STATE_FILE, baseline_state, state, now_iso)
+        # The supervisor watches this file, not process existence alone.  Write
+        # it only after state is durable and replace it atomically so a reader
+        # never observes a partial heartbeat.  The content is the committed
+        # generation's last_scan, so state and heartbeat identify one scan even
+        # when a delayed writer completes after a newer scan was observed.
+        heartbeat_at = parse_ts(state.get("last_scan")) or NOW
+        atomic_write_text(HEARTBEAT_FILE, f"{int(heartbeat_at.timestamp())}\n")
+        fcntl.flock(commit_lock.fileno(), fcntl.LOCK_UN)
 except Exception as e:
     WARNINGS.append(f"state write failed: {e}")
     traceback.print_exc(file=sys.stderr)
@@ -1713,16 +2013,18 @@ PYEOF
                 IFS=$'\t' read -r parent_cmd g2_severity g2_kind g2_agent g2_task g2_summary <<< "$rest"
                 if [ "$CAN_WRITE_GUNSHI2" -eq 1 ]; then
                     local g2_write_rc=0
-                    "$PYTHON" - "$ROOT" "$parent_cmd" "$g2_severity" "$g2_kind" "$g2_agent" "$g2_task" "$g2_summary" <<'PYEOF' || g2_write_rc=$?
+                    "$PYTHON" - "$ROOT" "$parent_cmd" "$g2_severity" "$g2_kind" "$g2_agent" "$g2_task" "$g2_summary" \
+                        "$SCRIPT_DIR/scripts/stall_state.py" <<'PYEOF' || g2_write_rc=$?
 import datetime
 import fcntl
 import os
 import re
+import subprocess
 import sys
 
 import yaml
 
-root, parent_cmd, severity, kind, agent, task_id, summary = sys.argv[1:8]
+root, parent_cmd, severity, kind, agent, task_id, summary, state_helper = sys.argv[1:9]
 path = os.path.join(root, "queue", "tasks", "gunshi2.yaml")
 state_path = os.path.join(root, "queue", "stall_detector_state.yaml")
 test_now = os.environ.get("STALL_NOW")
@@ -1793,68 +2095,19 @@ tmp = f"{path}.tmp.{os.getpid()}"
 with open(tmp, "w", encoding="utf-8") as f:
     yaml.safe_dump(doc, f, allow_unicode=True, sort_keys=False)
 os.replace(tmp, path)
-# The task is now durable.  Record the RCA-specific raw-parent cooldown before
-# releasing the dispatch lock, so another family cannot race a fresh dispatch.
 if rca_context is not None:
-    state_lock = open(state_path + ".lock", "a+", encoding="utf-8")
-    fcntl.flock(state_lock.fileno(), fcntl.LOCK_EX)
-    try:
-        try:
-            with open(state_path, encoding="utf-8") as f:
-                state = yaml.safe_load(f) or {}
-        except FileNotFoundError:
-            state = {}
-        cooldowns = state.setdefault("rca_parent_cooldowns", {})
-        dispatched = dispatched_now
-        expires = dispatched + datetime.timedelta(
-            minutes=int(os.environ.get("GUNSHI2_ESCALATION_COOLDOWN_MIN", "360") or "360"))
-        cooldowns[parent_cmd] = {
-            "family_id": rca_context["family_id"],
-            "severity": severity,
-            "dispatched_at": dispatched.isoformat(),
-            "expires_at": expires.isoformat(),
-        }
-        state_tmp = f"{state_path}.tmp.rca-parent.{os.getpid()}"
-        with open(state_tmp, "w", encoding="utf-8") as f:
-            yaml.safe_dump(state, f, allow_unicode=True, sort_keys=False)
-        os.replace(state_tmp, state_path)
-    finally:
-        fcntl.flock(state_lock.fileno(), fcntl.LOCK_UN)
-        state_lock.close()
+    cooldown_min = int(os.environ.get("GUNSHI2_ESCALATION_COOLDOWN_MIN", "360") or "360")
+    result = subprocess.run([
+        sys.executable, state_helper, "mark-rca", state_path, parent_cmd,
+        rca_context["family_id"], severity, now, doc["task"]["task_id"],
+        str(cooldown_min),
+    ], check=False)
+    if result.returncode != 0:
+        raise SystemExit(result.returncode)
 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 lock.close()
 PYEOF
                     if [ "$g2_write_rc" -eq 0 ]; then
-                        if [ "$g2_kind" = "rca_elapsed_120m" ]; then
-                            "$PYTHON" - "$STATE_FILE" "$ROOT" "$parent_cmd" "$g2_summary" <<'PYEOF' || true
-import os, re, sys, yaml
-path, root, parent, summary = sys.argv[1:5]
-m = re.search(r"family=([^; ]+)", summary)
-if not m:
-    raise SystemExit(0)
-family = m.group(1)
-try:
-    with open(path, encoding="utf-8") as f:
-        state = yaml.safe_load(f) or {}
-except FileNotFoundError:
-    state = {}
-entry = (state.get("rca_elapsed") or {}).get(f"{parent}|{family}")
-if isinstance(entry, dict):
-    esc = entry.setdefault("escalation", {})
-    try:
-        with open(os.path.join(root, "queue", "tasks", "gunshi2.yaml"), encoding="utf-8") as f:
-            task_id = ((yaml.safe_load(f) or {}).get("task") or {}).get("task_id")
-    except Exception:
-        task_id = None
-    esc["state"] = "dispatched"
-    esc["dispatched_at"] = __import__("datetime").datetime.now().astimezone().replace(microsecond=0).isoformat()
-    esc["gunshi2_task_id"] = task_id
-    tmp = f"{path}.tmp.rca.{os.getpid()}"
-    with open(tmp, "w", encoding="utf-8") as f:
-        yaml.safe_dump(state, f, allow_unicode=True, sort_keys=False)
-    os.replace(tmp, path)
-PYEOF
-                        fi
                         local g2_msg
                         g2_msg="[stall_detector gunshi2 escalation] ${parent_cmd}: ${g2_kind}/${g2_severity} を検知。queue/tasks/gunshi2.yaml を読み、打開策を一度上奏せよ。trigger=${g2_agent}:${g2_task}"
                         # Fixture writers may exercise task/state persistence,
@@ -1884,46 +2137,78 @@ PYEOF
                     log "GUNSHI2 (test-mode, task write suppressed): $rest"
                 fi
                 ;;
+            RESUME)
+                # rest = "<agent>\t<task_id>\t<episode_key>\t<last_progress_at>"
+                local resume_agent resume_task resume_episode resume_progress resume_dedup
+                local resume_summary resume_summary_parts
+                IFS=$'\t' read -r resume_agent resume_task resume_episode resume_progress <<< "$rest"
+                resume_dedup="stall-resume:${resume_episode}"
+                resume_summary_parts=(
+                    "Re-read queue/tasks/${resume_agent}.yaml and verify task_id=${resume_task} "
+                    "is still assigned before resuming. Before another long work interval, "
+                    "write exactly one normal own progress or blocker report with concrete "
+                    "evidence or an exact blocker/unblock request, then resume only authorized work. "
+                    "DEDUP_KEY=${resume_dedup}"
+                )
+                resume_summary="${resume_summary_parts[*]}"
+                local resume_delivered=0
+                if [ "$IS_REAL_ROOT" -eq 1 ]; then
+                    # This is the only target-agent delivery path.  The message
+                    # type is deliberately not task_assigned: inbox_watcher
+                    # therefore nudges without invoking a context reset.
+                    if DEDUP_KEY="${resume_dedup}" \
+                        bash "${SCRIPT_DIR}/scripts/inbox_write.sh" \
+                        "$resume_agent" "$resume_summary" stall_resume_required stall_detector \
+                        >/dev/null 2>&1; then
+                        resume_delivered=1
+                    log "RESUME delivered type=stall_resume_required $resume_agent task=$resume_task episode=$resume_episode dedup=$resume_dedup"
+                    else
+                        log "ERROR: resume inbox_write.sh failed for $resume_agent task=$resume_task"
+                    fi
+                else
+                    # Fixture roots must never send to a live agent inbox.
+                    resume_delivered=1
+                    log "RESUME (test-mode, inbox suppressed) type=stall_resume_required $resume_agent task=$resume_task episode=$resume_episode dedup=$resume_dedup message=$resume_summary"
+                fi
+                if [ "$resume_delivered" -eq 1 ]; then
+                    if ! persist_resume_delivery "$resume_agent" "$resume_task" \
+                        "$resume_episode" "$resume_progress" "$resume_dedup"; then
+                        log "WARN: resume delivery committed but state persist failed for $resume_agent task=$resume_task episode=$resume_episode"
+                    fi
+                fi
+                ;;
             NOTIFY)
-                # rest = "<severity>\t<summary>"
-                local severity summary
-                severity="${rest%%$'\t'*}"
-                summary="${rest#*$'\t'}"
+                # rest = "<severity>\t<dedup_key>\t<summary>".  Accept the
+                # legacy two-field form for retained fixture/core wrappers.
+                local severity dedup_key summary notify_rc
+                IFS=$'\t' read -r severity dedup_key summary <<< "$rest"
+                if [ -z "${summary:-}" ]; then
+                    summary="$dedup_key"
+                    dedup_key=""
+                fi
                 notify_count=$((notify_count + 1))
                 if [ "$IS_REAL_ROOT" -eq 1 ]; then
-                    if bash "${SCRIPT_DIR}/scripts/inbox_write.sh" \
-                        karo "$summary" stall_alert stall_detector >/dev/null 2>&1; then
+                    if [ -n "$dedup_key" ]; then
+                        if DEDUP_KEY="$dedup_key" bash "${SCRIPT_DIR}/scripts/inbox_write.sh" \
+                            karo "$summary" stall_alert stall_detector >/dev/null 2>&1; then
+                            notify_rc=0
+                        else
+                            notify_rc=$?
+                        fi
+                    else
+                        if bash "${SCRIPT_DIR}/scripts/inbox_write.sh" \
+                            karo "$summary" stall_alert stall_detector >/dev/null 2>&1; then
+                            notify_rc=0
+                        else
+                            notify_rc=$?
+                        fi
+                    fi
+                    if [ "$notify_rc" -eq 0 ]; then
                         log "NOTIFY karo ($severity): $summary"
                     else
                         log "ERROR: inbox_write.sh karo failed for: $summary"
                     fi
 
-                    # ─────────────────────────────────────────────────────
-                    # 2026-05-18 殿 mandate Option A: stall_detector が
-                    # `idle_with_active_task` / `assigned_no_progress` 検知時、
-                    # karo alert に加えて target agent inbox にも auto-recovery
-                    # message を送信し、家老の手動 wake-up なしで agent 復帰可能に。
-                    # Watchdog 30s timer 終了後の long-idle stall (W14 Wave 2
-                    # で 4 件同時発生) を完全自動で救う設計。
-                    # summary format: `[P2] <kind> — <agent>: ...`
-                    # ─────────────────────────────────────────────────────
-                    local stall_kind stall_agent
-                    stall_kind=$(echo "$summary" | grep -oE '\] [a-z_]+ —' | sed 's/^\] //; s/ —$//' | head -1)
-                    stall_agent=$(echo "$summary" | grep -oE '— ashigaru[0-9]+:' | sed 's/^— //; s/:$//' | head -1)
-                    if [ -n "$stall_kind" ] && [ -n "$stall_agent" ]; then
-                        case "$stall_kind" in
-                            idle_with_active_task|assigned_no_progress)
-                                local wake_msg
-                                wake_msg="[stall_detector auto-wake] ${stall_kind} 検知 — queue/tasks/${stall_agent}.yaml を読んで assigned/in-progress task を再開せよ。worktree に未 commit work あれば build/test verify + commit + 報告 (karo+gunshi 並行) で完了せよ。詳細 stall summary: ${summary}"
-                                if bash "${SCRIPT_DIR}/scripts/inbox_write.sh" \
-                                    "$stall_agent" "$wake_msg" task_assigned stall_detector >/dev/null 2>&1; then
-                                    log "AUTO-WAKE $stall_agent ($stall_kind, severity=$severity)"
-                                else
-                                    log "ERROR: auto-wake inbox_write.sh failed for $stall_agent"
-                                fi
-                                ;;
-                        esac
-                    fi
                 else
                     log "NOTIFY (test-mode, inbox suppressed) ($severity): $summary"
                 fi
@@ -1945,16 +2230,14 @@ ensure_state_files() {
         printf 'alerts: []\n' > "$ALERTS_FILE"
         log "initialized $ALERTS_FILE"
     fi
+    # State initialization uses the same short transaction helper as scan
+    # snapshot/merge and post-dispatch writers.  Never create STATE_FILE with a
+    # lock-free shell redirect.
     if [ ! -f "$STATE_FILE" ]; then
-        cat > "$STATE_FILE" <<EOF
-last_scan: null
-last_error: null
-scan_count: 0
-pane_idle_streak: {}
-worktree_progress: {}
-gunshi2_escalations: {}
-EOF
+        "$PYTHON" "$SCRIPT_DIR/scripts/stall_state.py" ensure "$STATE_FILE"
         log "initialized $STATE_FILE"
+    else
+        "$PYTHON" "$SCRIPT_DIR/scripts/stall_state.py" ensure "$STATE_FILE"
     fi
 }
 
@@ -1973,6 +2256,7 @@ main() {
     if [ "$once" -eq 1 ]; then
         log "stall_detector --once (root=$ROOT real=$IS_REAL_ROOT)"
         run_scan
+        record_startup_scan_receipt
         log "stall_detector --once complete"
         exit 0
     fi
@@ -1980,6 +2264,7 @@ main() {
     log "stall_detector daemon start (interval=${SCAN_INTERVAL_SEC}s root=$ROOT real=$IS_REAL_ROOT)"
     while [ "$RUNNING" -eq 1 ]; do
         run_scan
+        record_startup_scan_receipt
         # graceful shutdown 応答性のため sleep を細切れにする
         local slept=0
         while [ "$slept" -lt "$SCAN_INTERVAL_SEC" ] && [ "$RUNNING" -eq 1 ]; do
