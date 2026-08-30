@@ -1,0 +1,38 @@
+# Conditional execution_contract example for a task that owns a worktree lane.
+# Add this mapping under an assigned task only when the task performs source
+# edits, uses a worktree, builds, runs, or produces/consumes an artifact.
+# Replace every placeholder with a task-specific binding before assignment.
+# The top-level writable_paths field is the assignment authority; the nested
+# field is an exact copy and must never be independently derived or merged.
+writable_paths: ['<exact disjoint paths>']
+execution_contract:
+  mode: worktree_lane
+  milestone_id: '<stable descriptive id>'
+  lane_id: '<unique within milestone>'
+  lane_kind: '<source|fixture|generic_build|reference_build|candidate_build|analyzer_prep|runtime|integration|qc>'
+  repository:
+    root: '<canonical repository absolute path>'
+    base_sha: '<exact 40-hex SHA>'
+    branch: 'lane/<parent_cmd>/<milestone_id>/<lane_id>'
+    worktree_path: '<exact absolute path or null for artifact-only lane>'
+  owner: '<same as task.agent>'
+  writable_paths: ['<exact disjoint paths>']
+  build_root: '<exact fresh absolute path or null>'
+  runtime_root: '<exact fresh absolute path or null>'
+  shared_read_only: ['<exact cache/input roots>']
+  exclusive_resources: ['<lease ids, empty list allowed>']
+  consumes:
+    - artifact_id: '<id>'
+      sha256: '<exact or produced-by binding>'
+      producer_lane: '<lane_id>'
+  produces:
+    - artifact_id: '<id>'
+      path: '<exact path>'
+      acceptance: '<testable gate>'
+  depends_on: ['<accepted artifact/lane ids>']
+  unblocks: ['<pending task ids>']
+  failure_policy:
+    family: '<source|configure|build|launcher|reference_runtime|candidate_runtime|analyzer|qc>'
+    fresh_root_required: true
+    reuse_allowed: ['<artifact ids with exact conditions>']
+  qc_target: '<gunshi|gunshi2>'

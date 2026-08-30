@@ -382,6 +382,59 @@ System manages ALL white-collar work, not just self-improvement. Project folders
 6. **毎報告で再充填する**: 一つのレーンが完了・失敗・blockedになった都度、ロードマップと空き足軽を再確認し、解放された後続または別の独立レーンを直ちに差配する。全レーン完了まで待ってから次を考える運用は禁止する。
 7. **速度より衝突回避を優先する境界**: owner intersectionが不明、同一成果物へ書込み、前工程の仕様が未確定、または実行資源が排他的な場合は並列化しない。最小のdiscriminatorまたはread-only監査を先に割り当て、境界確定後に並列度を上げる。
 
+## Karo Worktree Lane Contract (project-neutral)
+
+新規taskがsource edit、worktree、build（generic buildを含む）、runtime、artifact producer/consumerのいずれかを含む場合、条件付きで`execution_contract`を必須とする。既存のassigned/done履歴は遡及migrationしない。
+
+### Activation and retained task fields
+
+- `execution_contract`は上記の条件を満たす新規taskにのみ追加する。
+- 既存top-level fields（`task_id`、`parent_cmd`、`agent`、`status`、`purpose`、`acceptance_criteria`、`writable_paths`、`prohibited`、`report`）はそのまま保持し、契約mappingで置き換えない。
+- top-level task fieldの`writable_paths`をassignment authorityとする。`execution_contract.writable_paths`は必須であり、top-level値と順序を含めてexact equalでなければならない。欠落・型不正・不一致のtaskは、値を推測・mergeせずassignment前にfail-closeする。
+- `owner`は常に`task.agent`と一致させ、書込み対象はexact disjoint pathsで宣言する。
+
+### Conditional execution contract
+
+条件が有効なtaskは、次の全fieldを一つの`execution_contract` mappingとして持つ。placeholderは実taskの確定値へ置換し、未確定のowner、branch、worktree、build/runtime root、leaseを推測で埋めない。`lane_kind`は`source`、`fixture`、`generic_build`、`reference_build`、`candidate_build`、`analyzer_prep`、`runtime`、`integration`、`qc`のいずれかとする。
+
+```yaml
+execution_contract:
+  mode: worktree_lane
+  milestone_id: '<stable descriptive id>'
+  lane_id: '<unique within milestone>'
+  lane_kind: '<source|fixture|generic_build|reference_build|candidate_build|analyzer_prep|runtime|integration|qc>'
+  repository:
+    root: '<canonical repository absolute path>'
+    base_sha: '<exact 40-hex SHA>'
+    branch: 'lane/<parent_cmd>/<milestone_id>/<lane_id>'
+    worktree_path: '<exact absolute path or null for artifact-only lane>'
+  owner: '<same as task.agent>'
+  writable_paths: ['<exact copy of top-level writable_paths>']
+  build_root: '<exact fresh absolute path or null>'
+  runtime_root: '<exact fresh absolute path or null>'
+  shared_read_only: ['<exact cache/input roots>']
+  exclusive_resources: ['<lease ids, empty list allowed>']
+  consumes:
+    - {artifact_id: '<id>', sha256: '<exact or produced-by binding>', producer_lane: '<lane_id>'}
+  produces:
+    - {artifact_id: '<id>', path: '<exact path>', acceptance: '<testable gate>'}
+  depends_on: ['<accepted artifact/lane ids>']
+  unblocks: ['<pending task ids>']
+  failure_policy:
+    family: '<source|configure|build|launcher|reference_runtime|candidate_runtime|analyzer|qc>'
+    fresh_root_required: true
+    reuse_allowed: ['<artifact ids with exact conditions>']
+  qc_target: '<gunshi|gunshi2>'
+```
+
+### Lane boundaries and pending work
+
+- concurrently assigned owners間では、`writable_paths`、`build_root`、`runtime_root`の非null path scopeをそれぞれintersection 0にする。同一成果物を複数laneが同時更新してはならない。
+- `exclusive_resources`はpath境界とは別の直列化領域である。同一lease IDを要求するlaneの宣言は許容するが、そのIDを共有するlaneは`assigned`・`held`・`executing`のいずれの状態でも同時に存在させず、schedulerが一件ずつ分離する。leaseの共有宣言をpath intersection 0の規則と混同しない。
+- `consumes`は入力artifactのidentityとproducer laneを束縛し、`produces`は成果物pathとtestable acceptanceを束縛する。`depends_on`は受理済みのartifact/laneだけを列挙し、`unblocks`は依存解除するpending taskだけを列挙する。
+- blocked workは`queue/tasks/pending.yaml`へ`status: pending_blocked`の`planned_execution_contract`として保持する。releaseまで`agent`、branch、worktree、exclusive leaseを確保せず、assigned化した時点で上記full contractを具体化する。
+- task statusの正本は既存のStatus Referenceに従い、Ashigaru activeは`assigned`・`blocked`・`done`・`failed`、idle placeholderは`task_id: null`のときだけ`idle`、pending queueは`pending_blocked`とする。新statusは追加しない。
+
 # Batch Processing Protocol (all agents)
 
 When processing large datasets (30+ items requiring individual web search, API calls, or LLM generation), follow this protocol. Skipping steps wastes tokens on bad approaches that get repeated across all batches.

@@ -26,6 +26,20 @@ setup_file() {
     [ -d "$PROJECT_ROOT/instructions/common" ] || return 1
     [ -d "$PROJECT_ROOT/instructions/cli_specific" ] || return 1
 
+    # Capture the staged preimage before the setup generator can repair working-tree bytes.
+    local pre_generator_hashes="$BATS_FILE_TMPDIR/worktree-lane-pre-generator-hashes"
+    : > "$pre_generator_hashes"
+    for file in \
+        "$PROJECT_ROOT/CLAUDE.md" \
+        "$PROJECT_ROOT/AGENTS.md" \
+        "$PROJECT_ROOT/.github/copilot-instructions.md" \
+        "$PROJECT_ROOT/agents/default/system.md"; do
+        relative_path="${file#"$PROJECT_ROOT"/}"
+        git -C "$PROJECT_ROOT" cat-file -e ":$relative_path" || return 1
+        staged_hash="$(git -C "$PROJECT_ROOT" show ":$relative_path" | sha256sum | awk '{print $1}')"
+        printf '%s  %s\n' "$staged_hash" "$file" >> "$pre_generator_hashes"
+    done
+
     # ビルド実行（全テストの前に1回のみ）
     bash "$BUILD_SCRIPT" > /dev/null 2>&1 || true
 }
@@ -340,6 +354,228 @@ for path in targets:
     assert path.is_file(), f"missing generated output: {path}"
     assert section(path) == canonical, f"stale or divergent Outcome-First section: {path}"
 PYEOF
+}
+
+@test "content: project-neutral worktree lane section is full-section byte-identical at H1/H2 boundary [cmd_039]" {
+    PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+from pathlib import Path
+import os
+
+project_root = Path(os.environ["PROJECT_ROOT"])
+header = "## Karo Worktree Lane Contract (project-neutral)"
+targets = [
+    project_root / "CLAUDE.md",
+    project_root / "AGENTS.md",
+    project_root / ".github/copilot-instructions.md",
+    project_root / "agents/default/system.md",
+]
+
+
+def heading_level(line: bytes):
+    text = line.decode("utf-8").rstrip("\r\n")
+    if not text.startswith("#"):
+        return None
+    level = len(text) - len(text.lstrip("#"))
+    if 1 <= level <= 6 and text[level:level + 1] == " ":
+        return level
+    return None
+
+
+def section_bytes(path: Path) -> bytes:
+    lines = path.read_bytes().splitlines(keepends=True)
+    starts = [
+        index
+        for index, line in enumerate(lines)
+        if line.decode("utf-8").rstrip("\r\n") == header
+    ]
+    assert len(starts) == 1, f"{path}: expected one contract header, got {len(starts)}"
+    start = starts[0]
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        level = heading_level(lines[index])
+        if level is not None and level <= 2:
+            end = index
+            break
+    assert end < len(lines), f"{path}: contract section has no H1/H2 boundary"
+    return b"".join(lines[start:end])
+
+
+canonical = section_bytes(targets[0])
+for path in targets[1:]:
+    assert section_bytes(path) == canonical, f"{path}: contract section byte drift"
+PYEOF
+}
+
+@test "contract: worktree lane template parses exact nested schema/types and enums [cmd_039]" {
+    PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - "$PROJECT_ROOT/templates/task_worktree_lane.yaml" <<'PYEOF'
+from pathlib import Path
+import sys
+import yaml
+
+template_path = Path(sys.argv[1])
+document = yaml.safe_load(template_path.read_text(encoding="utf-8"))
+
+
+def mapping(value, name):
+    assert isinstance(value, dict), f"{name}: expected mapping, got {type(value).__name__}"
+    return value
+
+
+def exact_keys(value, expected, name):
+    value = mapping(value, name)
+    assert set(value) == set(expected), f"{name}: unexpected schema {set(value)}"
+
+
+def string_list(value, name):
+    assert isinstance(value, list), f"{name}: expected list"
+    assert all(isinstance(item, str) for item in value), f"{name}: expected string items"
+
+
+def placeholder_options(value, expected, name):
+    assert isinstance(value, str), f"{name}: expected string enum placeholder"
+    assert value.startswith("<") and value.endswith(">"), f"{name}: enum placeholder missing"
+    actual = set(value[1:-1].split("|"))
+    assert actual == set(expected), f"{name}: enum {actual} != {set(expected)}"
+
+
+exact_keys(document, {"writable_paths", "execution_contract"}, "document")
+top_paths = document["writable_paths"]
+string_list(top_paths, "writable_paths")
+
+contract = mapping(document["execution_contract"], "execution_contract")
+exact_keys(
+    contract,
+    {
+        "mode", "milestone_id", "lane_id", "lane_kind", "repository", "owner",
+        "writable_paths", "build_root", "runtime_root", "shared_read_only",
+        "exclusive_resources", "consumes", "produces", "depends_on", "unblocks",
+        "failure_policy", "qc_target",
+    },
+    "execution_contract",
+)
+assert contract["mode"] == "worktree_lane"
+for field in ("milestone_id", "lane_id", "owner"):
+    assert isinstance(contract[field], str), f"{field}: expected string"
+placeholder_options(
+    contract["lane_kind"],
+    {"source", "fixture", "generic_build", "reference_build", "candidate_build", "analyzer_prep", "runtime", "integration", "qc"},
+    "lane_kind",
+)
+
+repository = contract["repository"]
+exact_keys(repository, {"root", "base_sha", "branch", "worktree_path"}, "repository")
+for field in ("root", "base_sha", "branch"):
+    assert isinstance(repository[field], str), f"repository.{field}: expected string"
+assert repository["worktree_path"] is None or isinstance(repository["worktree_path"], str)
+
+assert contract["writable_paths"] == top_paths, "nested writable_paths must equal assignment authority"
+for field in ("build_root", "runtime_root"):
+    assert contract[field] is None or isinstance(contract[field], str), f"{field}: expected string or null"
+for field in ("shared_read_only", "exclusive_resources", "depends_on", "unblocks"):
+    string_list(contract[field], field)
+
+for field, item_keys in (
+    ("consumes", {"artifact_id", "sha256", "producer_lane"}),
+    ("produces", {"artifact_id", "path", "acceptance"}),
+):
+    items = contract[field]
+    assert isinstance(items, list) and items, f"{field}: expected non-empty list"
+    for index, item in enumerate(items):
+        exact_keys(item, item_keys, f"{field}[{index}]")
+        assert all(isinstance(item[key], str) for key in item_keys), f"{field}[{index}]: expected string values"
+
+failure_policy = contract["failure_policy"]
+exact_keys(failure_policy, {"family", "fresh_root_required", "reuse_allowed"}, "failure_policy")
+placeholder_options(
+    failure_policy["family"],
+    {"source", "configure", "build", "launcher", "reference_runtime", "candidate_runtime", "analyzer", "qc"},
+    "failure_policy.family",
+)
+assert failure_policy["fresh_root_required"] is True
+string_list(failure_policy["reuse_allowed"], "failure_policy.reuse_allowed")
+placeholder_options(contract["qc_target"], {"gunshi", "gunshi2"}, "qc_target")
+PYEOF
+}
+
+@test "contract: project-neutrality is bounded to the contract section [cmd_039]" {
+    PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+from pathlib import Path
+import os
+
+project_root = Path(os.environ["PROJECT_ROOT"])
+header = "## Karo Worktree Lane Contract (project-neutral)"
+forbidden = ("Aspirin3D", "Typhoon", "V6", "Reference200", "Candidate200")
+targets = [
+    project_root / "CLAUDE.md",
+    project_root / "AGENTS.md",
+    project_root / ".github/copilot-instructions.md",
+    project_root / "agents/default/system.md",
+]
+
+
+def heading_level(line: str):
+    line = line.rstrip("\r\n")
+    if not line.startswith("#"):
+        return None
+    level = len(line) - len(line.lstrip("#"))
+    if 1 <= level <= 6 and line[level:level + 1] == " ":
+        return level
+    return None
+
+
+def contract_text(path: Path) -> str:
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    starts = [index for index, line in enumerate(lines) if line.rstrip("\r\n") == header]
+    assert len(starts) == 1, f"{path}: expected one contract header"
+    start = starts[0]
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        level = heading_level(lines[index])
+        if level is not None and level <= 2:
+            end = index
+            break
+    assert end < len(lines), f"{path}: unbounded contract section"
+    return "".join(lines[start:end])
+
+
+for path in targets:
+    section = contract_text(path)
+    for term in forbidden:
+        assert term not in section, f"{path}: project-specific term leaked into contract: {term}"
+PYEOF
+}
+
+@test "idempotent: worktree lane contract reflections remain stable from pre-run through two generator runs [cmd_039]" {
+    local pre_hashes
+    local run1_hashes
+    local run2_hashes
+
+    pre_hashes="$(cat "$BATS_FILE_TMPDIR/worktree-lane-pre-generator-hashes")"
+
+    bash "$BUILD_SCRIPT" > /dev/null 2>&1
+    run1_hashes=$(
+        for file in \
+            "$PROJECT_ROOT/CLAUDE.md" \
+            "$PROJECT_ROOT/AGENTS.md" \
+            "$PROJECT_ROOT/.github/copilot-instructions.md" \
+            "$PROJECT_ROOT/agents/default/system.md"; do
+            sha256sum "$file"
+        done
+    )
+
+    bash "$BUILD_SCRIPT" > /dev/null 2>&1
+    run2_hashes=$(
+        for file in \
+            "$PROJECT_ROOT/CLAUDE.md" \
+            "$PROJECT_ROOT/AGENTS.md" \
+            "$PROJECT_ROOT/.github/copilot-instructions.md" \
+            "$PROJECT_ROOT/agents/default/system.md"; do
+            sha256sum "$file"
+        done
+    )
+
+    [ "$pre_hashes" = "$run1_hashes" ]
+    [ "$run1_hashes" = "$run2_hashes" ]
 }
 
 @test "generator: duplicate Outcome-First target header fails closed [cmd_036]" {
