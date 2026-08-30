@@ -50,6 +50,7 @@ mcp_tools: [Notion, Playwright, GitHub, Sequential Thinking, Memory]
 mcp_usage: "Lazy-loaded. Always ToolSearch before first use."
 
 parallel_principle: "足軽は可能な限り並列投入。家老は統括専念。1人抱え込み禁止。"
+parallel_roadmap_principle: "家老は着手前に現在タスクとロードマップ上の次工程を俯瞰し、依存関係・成果物境界・書込みownerを明示する。混線しない独立レーンは空き足軽へ最大限並列差配し、同一ファイル競合や未解放依存を伴う作業は分離・保留する。"
 std_process: "Strategy→Spec→Test→Implement→Verify を全cmdの標準手順とする"
 critical_thinking_principle: "家老・足軽は盲目的に従わず前提を検証し、代替案を提案する。ただし過剰批判で停止せず、実行可能性とのバランスを保つ。"
 bloom_routing_rule: "config/settings.yamlのbloom_routing設定を確認せよ。autoなら家老はStep 6.5（Bloom Taxonomy L1-L6モデルルーティング）を必ず実行。スキップ厳禁。"
@@ -368,6 +369,18 @@ System manages ALL white-collar work, not just self-improvement. Project folders
 2. **Preflight check**: テスト実行前に前提条件（依存ツール、エージェント稼働状態等）を確認。満たせないなら実行せず報告。
 3. **家老は交通整理**: 家老はワークフローを回す管理職であり、実作業・品質レビュー・採否判断・RCAを抱え込まない。レビュー系は軍師、実行系は足軽へ委譲する。
 4. **E2Eテストは家老が統括**: 家老はE2Eの責任者として、実行計画レビュー・前提確認・最終判定を担当する。実行コマンドは原則として足軽へ委譲する。家老が直接実行してよいのは、全エージェント操作権限・秘密情報・VPS/本番接続・最終gateの一元管理が必要な場合に限る。その場合も理由をreport/dashboardに明記する。
+
+## Karo Roadmap-Aware Maximum Parallelization
+
+家老は高速化のため、個々の受信タスクだけでなく、親cmdの受入条件、現在地、後続工程、保留中の依存解除条件まで見通して差配する。足軽を遊休させず、混線しない範囲で最大限並列投入することを標準とする。
+
+1. **差配前に全体図を作る**: 現在タスクとロードマップ上の直近後続を、`実行可能`・`依存待ち`・`独立preflight/QC準備`に分ける。各サブタスクは親cmdの受入条件または後続解放条件へ直接結び付ける。
+2. **最大並列を既定値とする**: 空き足軽が存在し、成果物・書込み先・実行資源が独立している作業は、調査、実装、環境preflight、再現、証拠収集などのレーンへ分割して同時差配する。一人にまとめて渡すのは、分割不能または調整費が利益を上回る根拠がある場合だけとする。
+3. **混線防止境界を明記する**: 各task YAMLへ対象成果物、書込み可能なpath/owner、read-only領域、依存元、完了時に解放する後続を記す。同一ファイル、同一build root、同一生成物、同一外部資源を複数足軽が同時更新してはならない。
+4. **依存待ちは先行準備へ変換する**: 本実装がblockedでも、独立に実行できる環境確認、入力固定、owner衝突監査、テスト計画、fixture準備は先行並列化する。ただしblocked本体を足軽へ事前割当せず、`queue/tasks/pending.yaml`で保持する。
+5. **統合点を一つにする**: 並列成果はtask/report YAMLを介して集約し、採否・設計判断は軍師、最終受入と次段解放は家老が行う。足軽同士に暗黙の共有状態や口頭前提を持たせない。
+6. **毎報告で再充填する**: 一つのレーンが完了・失敗・blockedになった都度、ロードマップと空き足軽を再確認し、解放された後続または別の独立レーンを直ちに差配する。全レーン完了まで待ってから次を考える運用は禁止する。
+7. **速度より衝突回避を優先する境界**: owner intersectionが不明、同一成果物へ書込み、前工程の仕様が未確定、または実行資源が排他的な場合は並列化しない。最小のdiscriminatorまたはread-only監査を先に割り当て、境界確定後に並列度を上げる。
 
 # Batch Processing Protocol (all agents)
 
