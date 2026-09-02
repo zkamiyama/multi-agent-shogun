@@ -67,6 +67,58 @@ scan_with_gunshi2_writer() {
             bash "$DETECTOR" --once
 }
 
+# write_parent_authority <live_entries> <archive_entries> — install the two
+# command-authority roots in the isolated fixture.  An empty entry string is
+# an explicit empty commands list, not a missing or malformed root.
+write_parent_authority() {
+    local live_entries="${1:-}"
+    local archive_entries="${2:-}"
+    if [ -n "$live_entries" ]; then
+        printf 'commands:\n%s\n' "$live_entries" > "$STALL_ROOT/queue/shogun_to_karo.yaml"
+    else
+        printf 'commands: []\n' > "$STALL_ROOT/queue/shogun_to_karo.yaml"
+    fi
+    if [ -n "$archive_entries" ]; then
+        printf 'commands:\n%s\n' "$archive_entries" > "$STALL_ROOT/queue/shogun_to_karo_archive.yaml"
+    else
+        printf 'commands: []\n' > "$STALL_ROOT/queue/shogun_to_karo_archive.yaml"
+    fi
+}
+
+write_authority_root() {
+    local root_name="$1"
+    local entries="${2:-}"
+    local path="$STALL_ROOT/queue/${root_name}.yaml"
+    if [ -n "$entries" ]; then
+        printf 'commands:\n%s\n' "$entries" > "$path"
+    else
+        printf 'commands: []\n' > "$path"
+    fi
+}
+
+# write_long_interactions <parent>... — create read messages that exceed the
+# generic interaction threshold without activating the ordinary unread lane.
+write_long_interactions() {
+    python3 - "$STALL_ROOT/queue/inbox/ashigaru1.yaml" "$@" <<'PYEOF'
+import sys
+import yaml
+
+messages = []
+for parent in sys.argv[2:]:
+    for index in range(8):
+        messages.append({
+            "id": f"fixture_{parent}_{index}",
+            "timestamp": "2026-05-15T01:00:00+09:00",
+            "from": "fixture",
+            "type": "progress",
+            "message": f"{parent} interaction {index}",
+            "read": True,
+        })
+with open(sys.argv[1], "w", encoding="utf-8") as stream:
+    yaml.safe_dump({"messages": messages}, stream, sort_keys=False)
+PYEOF
+}
+
 # alerts_lines — stall_alerts.yaml の各 alert を
 #   "<agent> <kind> <severity> <status> <count>" 1 行で出す
 alerts_lines() {
@@ -552,7 +604,19 @@ EOF
 
 @test "report extractor streams the current-size report without safe_load_all" {
     load_fixture assigned_no_progress
-    cp "$PROJECT_ROOT/queue/reports/gunshi_report.yaml" \
+    local current_report="$PROJECT_ROOT/queue/reports/gunshi_report.yaml"
+    if [ ! -f "$current_report" ]; then
+        # git worktree add does not materialize ignored queue reports.  Reuse
+        # the canonical repository's read-only current-size corpus when this
+        # fresh lane has no local copy; production-root runs keep the original
+        # path and no fallback is taken.
+        local common_git_dir canonical_root
+        common_git_dir="$(git -C "$PROJECT_ROOT" rev-parse --git-common-dir)"
+        canonical_root="$(cd "$(dirname "$common_git_dir")" && pwd)"
+        current_report="$canonical_root/queue/reports/gunshi_report.yaml"
+    fi
+    [ -f "$current_report" ]
+    cp "$current_report" \
        "$STALL_ROOT/queue/reports/gunshi_report.yaml"
     cat > "$STALL_ROOT/queue/tasks/gunshi.yaml" <<'EOF'
 task:
@@ -1069,4 +1133,304 @@ PYEOF
     scan "2026-05-15T00:30:00" '{"ashigaru1":"idle"}'
     [ "$status" -eq 0 ]
     [ "$(count_alerts)" -eq 0 ]
+}
+
+# ═══════════════════════════════════════════════════════════════
+# generic long-interaction parent authority gate
+# ═══════════════════════════════════════════════════════════════
+
+@test "generic interaction gate allows only unique active live parents and fail-closes all other classifications" {
+    local live_entries archive_entries task_before task_after scan_output
+    live_entries=$'- id: cmd_live_pending\n  status: pending\n- id: cmd_039\n  status: in_progress\n- id: cmd_occupied\n  status: in_progress\n- id: cmd_live_done\n  status: done\n- id: cmd_live_cancelled\n  status: cancelled\n- id: cmd_live_paused\n  status: paused\n- id: cmd_duplicate\n  status: pending\n- id: cmd_duplicate\n  status: in_progress\n- id: cmd_conflict\n  status: in_progress\n- id: cmd_unknown_status\n  status: mystery'
+    archive_entries=$'- id: cmd_archive_done\n  status: done\n- id: cmd_archive_cancelled\n  status: cancelled\n- id: cmd_archive_paused\n  status: paused\n- id: cmd_conflict\n  status: done'
+    write_parent_authority "$live_entries" "$archive_entries"
+    write_long_interactions \
+        cmd_live_pending cmd_039 cmd_live_done \
+        cmd_live_cancelled cmd_live_paused cmd_archive_done \
+        cmd_archive_cancelled cmd_archive_paused cmd_duplicate \
+        cmd_conflict cmd_unknown_status cmd_unknown_id
+    cat > "$STALL_ROOT/queue/tasks/gunshi2.yaml" <<'EOF'
+task:
+  task_id: occupied_fixture_task
+  parent_cmd: cmd_occupied
+  status: assigned
+EOF
+    task_before="$(sha256sum "$STALL_ROOT/queue/tasks/gunshi2.yaml")"
+
+    # The two ACTIVE live entries reach the existing occupied-slot capacity
+    # path; every terminal, malformed, duplicate, conflict, and unknown ID is
+    # excluded before that path is called.
+    scan "2026-05-15T02:00:00" '{}'
+    [ "$status" -eq 0 ]
+    scan_output="$output"
+    task_after="$(sha256sum "$STALL_ROOT/queue/tasks/gunshi2.yaml")"
+    [ "$task_before" = "$task_after" ]
+    [[ "$scan_output" == *"parent authority live_terminal"* ]]
+    [[ "$scan_output" == *"parent authority duplicate_id"* ]]
+    [[ "$scan_output" == *"parent authority conflict"* ]]
+    [[ "$scan_output" == *"parent authority unknown_status"* ]]
+    [[ "$scan_output" == *"parent authority unknown_id"* ]]
+
+    run python3 - "$STALL_ROOT/queue/stall_detector_state.yaml" <<'PYEOF'
+import sys
+import yaml
+
+doc = yaml.safe_load(open(sys.argv[1])) or {}
+notices = doc.get("gunshi2_capacity_notices") or {}
+expected = {
+    "generic:cmd_live_pending:long_interaction_count",
+    "generic:cmd_039:long_interaction_count",
+}
+assert set(notices) == expected, notices
+for key in expected:
+    assert notices[key].get("notified_at"), (key, notices[key])
+PYEOF
+    [ "$status" -eq 0 ]
+}
+
+@test "generic interaction gate never revives archived cmd_012 after stale capacity cooldown across separate scans" {
+    local task_before task_after scan_one scan_two
+    write_parent_authority "" $'- id: cmd_012\n  status: done'
+    write_long_interactions cmd_012
+    cat > "$STALL_ROOT/queue/tasks/gunshi2.yaml" <<'EOF'
+task:
+  task_id: live_cmd039_capacity_task
+  parent_cmd: cmd_039
+  status: assigned
+EOF
+    task_before="$(sha256sum "$STALL_ROOT/queue/tasks/gunshi2.yaml")"
+
+    # Bootstrap the fixture state, then seed only the already-supported stale
+    # capacity record.  The following scans are separate detector processes.
+    scan "2026-05-15T00:00:00" '{}'
+    [ "$status" -eq 0 ]
+    run python3 - "$STALL_ROOT/queue/stall_detector_state.yaml" <<'PYEOF'
+import sys
+import yaml
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as stream:
+    doc = yaml.safe_load(stream) or {}
+key = "generic:cmd_012:long_interaction_count"
+doc.setdefault("gunshi2_capacity_notices", {})[key] = {
+    "notified_at": "2026-05-15T00:00:00+09:00",
+    "repeat_after_min": 30,
+    "severity": "P1",
+}
+with open(path, "w", encoding="utf-8") as stream:
+    yaml.safe_dump(doc, stream, sort_keys=False)
+PYEOF
+    [ "$status" -eq 0 ]
+
+    scan "2026-05-15T02:00:00" '{}'
+    [ "$status" -eq 0 ]
+    scan_one="$output"
+    scan "2026-05-15T02:31:00" '{}'
+    [ "$status" -eq 0 ]
+    scan_two="$output"
+    task_after="$(sha256sum "$STALL_ROOT/queue/tasks/gunshi2.yaml")"
+    [ "$task_before" = "$task_after" ]
+    [[ "$scan_one" != *"cmd_012 long_interaction_count"* ]]
+    [[ "$scan_two" != *"cmd_012 long_interaction_count"* ]]
+    [[ "$scan_one" != *"gunshi2_capacity"* ]]
+    [[ "$scan_two" != *"gunshi2_capacity"* ]]
+    [[ "$scan_one" != *"GUNSHI2"* ]]
+    [[ "$scan_two" != *"GUNSHI2"* ]]
+
+    run python3 - "$STALL_ROOT/queue/stall_detector_state.yaml" <<'PYEOF'
+import sys
+import yaml
+
+doc = yaml.safe_load(open(sys.argv[1])) or {}
+assert doc.get("scan_count") == 3, doc.get("scan_count")
+notice = (doc.get("gunshi2_capacity_notices") or {}).get(
+    "generic:cmd_012:long_interaction_count"
+)
+assert notice and notice.get("notified_at") == "2026-05-15T00:00:00+09:00", notice
+PYEOF
+    [ "$status" -eq 0 ]
+}
+
+@test "authority failure suppresses only generic interaction while ordinary assigned stall remains" {
+    load_fixture assigned_no_progress
+    write_long_interactions cmd_missing_authority
+    printf 'commands: malformed-root\n' > "$STALL_ROOT/queue/shogun_to_karo.yaml"
+    # archive authority is intentionally absent; both root failure modes are
+    # exercised without touching the production command files.
+    scan "2026-05-15T00:50:00" '{"ashigaru1":"idle"}'
+    [ "$status" -eq 0 ]
+    scan "2026-05-15T00:50:00" '{"ashigaru1":"idle"}'
+    [ "$status" -eq 0 ]
+    local scan_output="$output"
+    [[ "$scan_output" == *"parent authority schema_invalid"* ]]
+    [[ "$scan_output" != *"long_interaction_count"* ]]
+    run alerts_lines
+    [ "${#lines[@]}" -eq 1 ]
+    [[ "${lines[0]}" == "ashigaru1 assigned_no_progress P2 open"* ]]
+}
+
+@test "authority failure preserves RCA elapsed and target resume lanes" {
+    load_fixture rca_elapsed
+    write_long_interactions cmd_missing_authority
+    printf 'commands: malformed-root\n' > "$STALL_ROOT/queue/shogun_to_karo.yaml"
+    scan "2026-05-15T02:00:00" '{"ashigaru1":"busy"}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"rca_elapsed_120m"* ]]
+    [[ "$output" == *"RESUME"* ]]
+    [[ "$output" != *"long_interaction_count"* ]]
+}
+
+@test "generic interaction gate emits exactly one free-slot cmd_039 request and dedupes the next scan" {
+    write_parent_authority $'- id: cmd_039\n  status: in_progress' ""
+    write_long_interactions cmd_039
+
+    scan_with_gunshi2_writer "2026-05-15T02:00:00" '{}'
+    [ "$status" -eq 0 ]
+    local first_output="$output"
+    [ "$(grep -c "GUNSHI2 fixture writer assigned" <<< "$first_output" || true)" -eq 1 ]
+    [[ "$first_output" != *"NOTIFY"* ]]
+
+    run python3 - "$STALL_ROOT/queue/tasks/gunshi2.yaml" <<'PYEOF'
+import sys
+import yaml
+
+task = (yaml.safe_load(open(sys.argv[1])) or {}).get("task") or {}
+assert task.get("parent_cmd") == "cmd_039", task
+assert task.get("status") == "assigned", task
+assert (task.get("trigger") or {}).get("kind") == "long_interaction_count", task
+PYEOF
+    [ "$status" -eq 0 ]
+
+    scan_with_gunshi2_writer "2026-05-15T02:00:00" '{}'
+    [ "$status" -eq 0 ]
+    local second_output="$output"
+    [ "$(grep -c "GUNSHI2 fixture writer assigned" <<< "$second_output" || true)" -eq 0 ]
+    [[ "$second_output" != *"long_interaction_count"* ]]
+}
+
+@test "generic interaction gate occupied slot emits one capacity notice and preserves the task" {
+    write_parent_authority $'- id: cmd_039\n  status: in_progress' ""
+    write_long_interactions cmd_039
+    cat > "$STALL_ROOT/queue/tasks/gunshi2.yaml" <<'EOF'
+task:
+  task_id: occupied_cmd039_task
+  parent_cmd: cmd_other
+  status: assigned
+EOF
+    local task_before task_after first_output second_output
+    task_before="$(sha256sum "$STALL_ROOT/queue/tasks/gunshi2.yaml")"
+
+    scan "2026-05-15T02:00:00" '{}'
+    [ "$status" -eq 0 ]
+    first_output="$output"
+    [[ "$first_output" == *"gunshi2_capacity"* ]]
+    [ "$(grep -c "gunshi2_capacity" <<< "$first_output" || true)" -eq 1 ]
+    task_after="$(sha256sum "$STALL_ROOT/queue/tasks/gunshi2.yaml")"
+    [ "$task_before" = "$task_after" ]
+
+    scan "2026-05-15T02:00:00" '{}'
+    [ "$status" -eq 0 ]
+    second_output="$output"
+    [ "$(grep -c "gunshi2_capacity" <<< "$second_output" || true)" -eq 0 ]
+    task_after="$(sha256sum "$STALL_ROOT/queue/tasks/gunshi2.yaml")"
+    [ "$task_before" = "$task_after" ]
+}
+
+@test "generic interaction authority independently fail-closes malformed live YAML" {
+    write_authority_root shogun_to_karo_archive ""
+    printf 'commands: [\n' > "$STALL_ROOT/queue/shogun_to_karo.yaml"
+    write_long_interactions cmd_039
+
+    scan "2026-05-15T02:00:00" '{}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"parent authority schema_invalid"* ]]
+    [[ "$output" == *"live:parse"* ]]
+    [[ "$output" != *"long_interaction_count"* ]]
+    [[ "$output" != *"GUNSHI2"* ]]
+}
+
+@test "generic interaction authority independently fail-closes a missing live root" {
+    write_authority_root shogun_to_karo_archive ""
+    write_long_interactions cmd_039
+
+    scan "2026-05-15T02:00:00" '{}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"parent authority schema_invalid"* ]]
+    [[ "$output" == *"live:missing"* ]]
+    [[ "$output" != *"long_interaction_count"* ]]
+    [[ "$output" != *"GUNSHI2"* ]]
+}
+
+@test "generic interaction authority independently fail-closes a missing archive root" {
+    write_authority_root shogun_to_karo $'- id: cmd_039\n  status: in_progress'
+    write_long_interactions cmd_039
+
+    scan "2026-05-15T02:00:00" '{}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"parent authority schema_invalid"* ]]
+    [[ "$output" == *"archive:missing"* ]]
+    [[ "$output" != *"long_interaction_count"* ]]
+    [[ "$output" != *"GUNSHI2"* ]]
+}
+
+@test "generic interaction authority independently fail-closes live root schema error" {
+    write_authority_root shogun_to_karo "commands: malformed-root"
+    write_authority_root shogun_to_karo_archive ""
+    write_long_interactions cmd_039
+
+    scan "2026-05-15T02:00:00" '{}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"parent authority schema_invalid"* ]]
+    [[ "$output" == *"live:schema"* ]]
+    [[ "$output" != *"long_interaction_count"* ]]
+    [[ "$output" != *"GUNSHI2"* ]]
+}
+
+@test "generic interaction authority independently fail-closes archive root schema error" {
+    write_authority_root shogun_to_karo $'- id: cmd_039\n  status: in_progress'
+    write_authority_root shogun_to_karo_archive "commands: malformed-root"
+    write_long_interactions cmd_039
+
+    scan "2026-05-15T02:00:00" '{}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"parent authority schema_invalid"* ]]
+    [[ "$output" == *"archive:schema"* ]]
+    [[ "$output" != *"long_interaction_count"* ]]
+    [[ "$output" != *"GUNSHI2"* ]]
+}
+
+@test "generic interaction authority excludes an archive duplicate independently" {
+    write_authority_root shogun_to_karo ""
+    write_authority_root shogun_to_karo_archive $'- id: cmd_archive_duplicate\n  status: done\n- id: cmd_archive_duplicate\n  status: paused'
+    write_long_interactions cmd_archive_duplicate
+
+    scan "2026-05-15T02:00:00" '{}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"parent authority duplicate_id"* ]]
+    [[ "$output" != *"long_interaction_count"* ]]
+    [[ "$output" != *"GUNSHI2"* ]]
+}
+
+@test "generic interaction authority excludes an archive conflict independently" {
+    write_authority_root shogun_to_karo $'- id: cmd_archive_conflict\n  status: in_progress'
+    write_authority_root shogun_to_karo_archive $'- id: cmd_archive_conflict\n  status: done'
+    write_long_interactions cmd_archive_conflict
+
+    scan "2026-05-15T02:00:00" '{}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"parent authority conflict"* ]]
+    [[ "$output" != *"long_interaction_count"* ]]
+    [[ "$output" != *"GUNSHI2"* ]]
+}
+
+@test "generic interaction authority excludes an archive unknown status independently" {
+    write_authority_root shogun_to_karo ""
+    write_authority_root shogun_to_karo_archive $'- id: cmd_archive_unknown\n  status: mystery'
+    write_long_interactions cmd_archive_unknown
+
+    scan "2026-05-15T02:00:00" '{}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"parent authority archive_nonterminal"* ]]
+    [[ "$output" != *"long_interaction_count"* ]]
+    [[ "$output" != *"GUNSHI2"* ]]
 }

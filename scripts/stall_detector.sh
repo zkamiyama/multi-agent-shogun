@@ -1594,6 +1594,123 @@ def extract_cmds(value):
     return re.findall(r"\bcmd_[A-Za-z0-9_-]+\b", str(value))
 
 
+PARENT_CMD_ID_RE = re.compile(r"^cmd_[A-Za-z0-9_-]+$")
+PARENT_ACTIVE_STATUSES = {"pending", "in_progress"}
+PARENT_TERMINAL_STATUSES = {"done", "cancelled", "paused"}
+
+
+def _warn_parent_authority(kind, values):
+    """Emit one bounded authority warning for a classification bucket."""
+    samples = sorted({str(value) for value in values if str(value)})
+    if not samples:
+        return
+    sample = ",".join(samples[:5])
+    if len(samples) > 5:
+        sample += ",..."
+    WARNINGS.append(
+        f"parent authority {kind}: count={len(samples)} sample={sample}"
+    )
+
+
+def load_parent_cmd_authority():
+    """Classify parent IDs from the live command queue and its archive.
+
+    The generic interaction metric is derived from historical text, so it is
+    only trustworthy after this independent command-lifecycle check.  A
+    missing, unparsable, or structurally invalid root suppresses the whole
+    generic lane for this scan.  Entry-level unknown statuses, duplicates, and
+    cross-file conflicts remain per-parent fail-closed classifications so a
+    valid active command does not inherit an unrelated invalid entry.
+    """
+    sources = {
+        "live": os.path.join(ROOT, "queue", "shogun_to_karo.yaml"),
+        "archive": os.path.join(ROOT, "queue", "shogun_to_karo_archive.yaml"),
+    }
+    entries_by_source = {source: {} for source in sources}
+    root_errors = []
+    entry_errors = []
+
+    for source, path in sources.items():
+        try:
+            with open(path, "r", encoding="utf-8") as stream:
+                document = yaml.safe_load(stream)
+        except FileNotFoundError:
+            root_errors.append(f"{source}:missing")
+            continue
+        except Exception:
+            root_errors.append(f"{source}:parse")
+            continue
+
+        if not isinstance(document, dict) or not isinstance(document.get("commands"), list):
+            root_errors.append(f"{source}:schema")
+            continue
+
+        source_entries = entries_by_source[source]
+        for index, command in enumerate(document["commands"]):
+            if not isinstance(command, dict):
+                entry_errors.append(f"{source}:entry_{index}")
+                continue
+            raw_id = command.get("id")
+            command_id = raw_id.strip() if isinstance(raw_id, str) else ""
+            raw_status = command.get("status")
+            command_status = status_norm(raw_status) if isinstance(raw_status, str) else ""
+            if (not isinstance(raw_id, str) or raw_id != command_id
+                    or not PARENT_CMD_ID_RE.fullmatch(command_id)):
+                entry_errors.append(f"{source}:entry_{index}")
+                continue
+            source_entries.setdefault(command_id, []).append(command_status)
+
+    if root_errors:
+        _warn_parent_authority("schema_invalid", root_errors)
+        return None
+    _warn_parent_authority("schema_invalid_entry", entry_errors)
+
+    authority = {}
+    duplicate_ids = []
+    conflict_ids = []
+    live_terminal_ids = []
+    unknown_status_ids = []
+    archive_nonterminal_ids = []
+    all_ids = set(entries_by_source["live"]) | set(entries_by_source["archive"])
+    for command_id in sorted(all_ids):
+        live_statuses = entries_by_source["live"].get(command_id, [])
+        archive_statuses = entries_by_source["archive"].get(command_id, [])
+        if len(live_statuses) > 1 or len(archive_statuses) > 1:
+            authority[command_id] = "INVALID"
+            duplicate_ids.append(command_id)
+            continue
+        if live_statuses and archive_statuses:
+            authority[command_id] = "CONFLICT"
+            conflict_ids.append(command_id)
+            continue
+
+        if live_statuses:
+            command_status = live_statuses[0]
+            if command_status in PARENT_ACTIVE_STATUSES:
+                authority[command_id] = "ACTIVE"
+            elif command_status in PARENT_TERMINAL_STATUSES:
+                authority[command_id] = "TERMINAL_EXCLUDE"
+                live_terminal_ids.append(command_id)
+            else:
+                authority[command_id] = "INVALID"
+                unknown_status_ids.append(command_id)
+            continue
+
+        command_status = archive_statuses[0]
+        if command_status in PARENT_TERMINAL_STATUSES:
+            authority[command_id] = "TERMINAL_EXCLUDE"
+        else:
+            authority[command_id] = "INVALID"
+            archive_nonterminal_ids.append(command_id)
+
+    _warn_parent_authority("duplicate_id", duplicate_ids)
+    _warn_parent_authority("conflict", conflict_ids)
+    _warn_parent_authority("live_terminal", live_terminal_ids)
+    _warn_parent_authority("unknown_status", unknown_status_ids)
+    _warn_parent_authority("archive_nonterminal", archive_nonterminal_ids)
+    return authority
+
+
 def collect_recent_parent_cmd_metrics():
     """24h内のinbox/report/task痕跡から parent_cmd のやり取り量を概算する。"""
     cutoff = NOW - datetime.timedelta(hours=24)
@@ -1696,10 +1813,16 @@ def gunshi2_should_escalate(parent_cmd, severity, kind):
             return False
     if severity in ("P0", "P1") and kind in PRIMARY_KINDS:
         return True
+    # The generic long-interaction route is independently authority-gated
+    # below.  Admit only its P1 free-slot request here; keep primary, RCA, and
+    # resume lanes on their existing allowlist.
+    if severity == "P1" and kind == "long_interaction_count":
+        return True
     return False
 
 
 parent_metrics = collect_recent_parent_cmd_metrics()
+parent_authority = load_parent_cmd_authority()
 gunshi2_requests = {}
 for _key, _cand in current.items():
     parent = _cand.get("parent_cmd") or parent_cmd_from_blob(
@@ -1716,7 +1839,17 @@ for _key, _cand in current.items():
             "summary": _cand.get("evidence", ""),
         }
 
+unknown_parent_ids = []
 for parent, metric in parent_metrics.items():
+    # Historical inbox/report/task text is not command authority.  Only a
+    # unique live command in an active status may reach threshold/cooldown or
+    # Gunshi2 capacity/request handling.  Missing or invalid authority returns
+    # None and therefore suppresses this generic lane for the whole scan.
+    classification = parent_authority.get(parent) if parent_authority is not None else None
+    if classification != "ACTIVE":
+        if parent_authority is not None and classification is None:
+            unknown_parent_ids.append(parent)
+        continue
     interactions = int(metric.get("interactions", 0) or 0)
     redos = int(metric.get("redos", 0) or 0)
     if interactions < GUNSHI2_ROUNDTRIP_THRESHOLD and redos < GUNSHI2_REDO_THRESHOLD:
@@ -1735,6 +1868,7 @@ for parent, metric in parent_metrics.items():
             f"redos={redos} threshold={GUNSHI2_REDO_THRESHOLD}, sources={sources}。"
         ),
     })
+_warn_parent_authority("unknown_id", unknown_parent_ids)
 
 for parent, req in gunshi2_requests.items():
     state["gunshi2_escalations"][parent] = {
