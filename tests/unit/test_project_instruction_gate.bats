@@ -131,6 +131,38 @@ YAML
     [[ "$output" == *'bytes_read: 64'* ]]
 }
 
+@test "default gate reads a 44 KiB-plus instruction in full" {
+    local repo="$TEST_TMPDIR/repo"
+    local expected_bytes=$((44 * 1024 + 1))
+    init_repo "$repo"
+    python3 - "$repo/AGENTS.md" <<'PY'
+import sys
+
+path = sys.argv[1]
+size = 44 * 1024 + 1
+prefix = b"FULL_POLICY_PREFIX\n"
+tail = b"\nFULL_POLICY_TAIL\n"
+filler_size = size - len(prefix) - len(tail)
+assert filler_size > 0
+with open(path, "wb") as handle:
+    handle.write(prefix + (b"x" * filler_size) + tail)
+PY
+    : > "$repo/file.txt"
+
+    run env -u PROJECT_INSTRUCTION_GATE_PER_FILE_LIMIT \
+        -u PROJECT_INSTRUCTION_GATE_TOTAL_LIMIT \
+        bash "$GATE" --project demo --target-path "$repo/file.txt"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'per_file_limit: 65536'* ]]
+    [[ "$output" == *'total_limit: 262144'* ]]
+    [[ "$output" == *"bytes_read: $expected_bytes"* ]]
+    [[ "$output" == *"total_bytes_read: $expected_bytes"* ]]
+    [[ "$output" == *'truncated: false'* ]]
+    [[ "$output" != *'truncated: true'* ]]
+    [[ "$output" == *'FULL_POLICY_TAIL'* ]]
+}
+
 @test "nested target resolves to nearest git root and does not read parent instructions" {
     local outer="$TEST_TMPDIR/outer"
     local inner="$outer/vendor/inner"

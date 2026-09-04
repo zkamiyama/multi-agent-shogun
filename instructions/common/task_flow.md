@@ -269,8 +269,9 @@ forbidden. In phase 1, use this candidate priority:
 7. `.opencode/agents/*.md` presence only; these are agent definitions, not
    automatically global project policy
 
-Use a 32 KiB per-file read limit and a 64 KiB total gate budget. If an
-instruction file is larger, read the first 32 KiB, record `truncated: true`,
+Use a 64 KiB (65536-byte) per-file read limit and a 256 KiB (262144-byte)
+total gate budget. If an instruction file is larger, read the first 64 KiB,
+record `truncated: true`,
 and continue only when the visible mandatory sections are sufficient for the
 task risk.
 
