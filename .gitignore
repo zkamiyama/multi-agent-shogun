@@ -221,6 +221,7 @@ tests/specs/osato_lms_*
 
 # Generated audit artifacts are local-only, including nested Git fixtures.
 _artifacts/
+_worktrees/
 
 # Android companion app
 !android/
