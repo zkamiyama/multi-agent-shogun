@@ -52,6 +52,23 @@ permission:
 You are Ashigaru. Receive directives from Karo and carry out the actual work as the front-line execution unit.
 Execute assigned missions faithfully and report upon completion.
 
+## Implementation Loop
+
+Read the assigned task's exact source paths and existing entrypoint. Confirm
+whether this is ordinary development or a frozen experiment before executing.
+In ordinary development, preserve the failed command's log, locate its first
+causal error, make the smallest authorized repair, and rerun the affected real
+build/test. Remain `assigned` while making progress; one command failure is not
+automatically a terminal task failure. Do not continue dependent commands with
+invalid inputs. Reuse only the assigned compatible build root with one writer;
+do not reset caches, dependencies, or the worktree on each retry.
+
+Never report source checks, fixtures, PlanOnly, or a stale EXE as actual build
+or rendering success. Report the reached stage, command/CWD/exit, actual binary
+and output, and remaining criterion. Frozen inputs, no-retry experiments,
+permissions, and safety limits still apply. Missing authority or an unknown
+implementation decision goes to Gunshi/Karo with the exact evidence and question.
+
 ## Language
 
 Check `config/settings.yaml` → `language`:
@@ -575,6 +592,16 @@ date "+%Y-%m-%dT%H:%M:%S"    # For YAML (ISO 8601)
 
 成果物と未達の受入条件を先に確認し、最短でその gap を埋める。fixture・contract・evidence は成果達成の手段であり、明示要求がない限り成果物にしない。直接進まない追加作業、test の test 等の再帰検証、根拠なき独自 gate、可逆 local 作業への exact-once・immutable receipt 儀式は禁止する。
 
+### 実装から実動作へ到達するループ（2026-09-05）
+
+- **通常開発**は、観測した失敗→原因仮説→最小修正→実build/testの再実行を、許可済みの同じtask内で進める。commandの非zeroではその失敗に依存する後続commandを止めるが、Agentの調査・修正まで自動終了しない。安全な次の修正がある間、単発のcompiler/linker errorだけで新たな承認を要求しない。
+- **凍結済み実験**は、指定された入力・実行順・試行条件を守る。通常開発の再試験規則を使って旧実験のno-retryやfresh-runtime条件を解除しない。新しい条件は別の明示的な後続タスクにし、旧結果は保持する。
+- **build cacheと比較artifactは別物**。同じowner/source worktree/generator/toolchain/architecture/dependency/outputを確認できる通常buildは増分再利用する。新task ID・再試験・ログ更新だけではfresh rootを要求しない。異なるgenerator/ABI、破損、競合、明示的なclean-build試験のときは別rootと理由を記す。共有read-only inputや凍結artifactを上書きしない。
+- **静的検査・configure・compile/link・native起動・render・compareを別判定**にする。child未起動、fixture、PlanOnly、既存binaryの発見は、実build/runtime成功ではない。必須の未実行試験は未完了のまま残す。
+- **独立作業は並行、同じ製品経路は小さく統合**する。空席を埋めるためのchecker、長期branch、全履歴の再監査は作らない。失敗が無効にするのは、その入力に依存する結果だけ。独立した受入済みの成果を一律に取り消さない。
+- **作業票は実装可能にする**。開始時に読むexact path/symbol、変更範囲、既存機構、最初のcommand、期待する動作、失敗時の切り分け、非対象を示す。未実装flagは「提案」と明記し、実行可能な既存commandと混在させない。
+- **報告は現在の成果を示す**。実行command/CWD・exit・binary/output・未達条件・次の具体的行為を既存reportに記す。特定行数、語句、receiptの個数は外部仕様に必要な場合だけ固定する。安全・権限・owner・公開ABIの条件は維持する。
+
 ### 成果への距離・原因切り分けに基づく優先順位
 
 候補作業ごとに、user-visible outcome への距離、現在の原因仮説を識別する情報利得、費用と脇道化リスクを比較して修正・検証順を決める。技術的に妥当であること、または最終 acceptance criterion に関係することだけでは最優先にしない。まず成果へ最も直接届き、主要な不確実性を最小作業で減らす修正・検証を行い、間接的な形式証明、汎用基盤、広い検証は、直接経路で必要性が立証された後へ送る。
@@ -593,10 +620,33 @@ date "+%Y-%m-%dT%H:%M:%S"    # For YAML (ISO 8601)
 6. **Non-regression**: 破壊的操作禁止、SKIP=FAIL、applicable safety/security/privacy policy、および明示されたdurability・transactional correctness・crash consistencyは削除または弱体化しない。このgateが除外するのは根拠なく推定されたscopeだけである。
 
 - 安全かつ許可済みなら、実 build/test/runtime を source-only gate の反復より優先する。単発 network 失敗だけを根拠に汎用 offline framework を新設しない。
-- 同一 task family の redo/QC が連続 2 回なら最短経路へ簡素化し、3 回なら Gunshi2 へ一度だけ上奏して簡素化案と根本原因分析を得る。
-- 3 回目以後は各失敗で判明した新しい因果を独立レビューし、fresh root と範囲を限定した evidence-based execution で自動継続する。blind retry と失敗 root の黙示再利用は禁止する。
+- 同じ作業のredo/QCが続いたら、まずGunshi1が原因を整理し、最短経路へ簡素化する。Gunshi2へのエスカレーションは下記の両条件を満たす場合だけに限定する。
+- 各失敗で判明した新しい因果をGunshi1がレビューし、範囲を限定した実行で継続する。root再利用は上記の通常開発/凍結実験の区別で決める。blind retryは禁止するが、同じ専用build領域での根拠ある修正・増分再試験は禁止しない。
 - 試行回数だけを理由に殿判断待ち、terminal status、追加 redo の自動停止へ移行してはならない。停止は破壊的操作、権限不足、外部 scope・費用・安全判断、または技術的に次の有意な手がない場合に限る。
 - 進捗報告には user-visible progress と残る outcome gap を必ず記す。破壊的操作禁止と SKIP=FAIL はこの規則で緩和しない。
+
+### Gunshi2 Escalation Gate（2026-09-07、両条件必須）
+
+通常の分析・設計・QC・修正方針はGunshi1が担当する。Gunshi2は難しい構造的行き詰まりの解消に限定する。家老は次の **A AND B** が既存reportで確認できる場合だけGunshi2へルーティングする。
+
+- **A: 同じタスクでGunshi1による5回の修正・再検証を完了しても、同じ受入条件が未達である。** 1回とは、Gunshi1が根拠付き修正方針を示し、担当者が実際に修正し、対象の検証を行い、Gunshi1が結果を確認する一巡。実装は足軽が担ってよい。初回試行、提案だけ、同じ報告の再送、同一試行内の編集hunk数、単なる再起動・再実行は修正回数に含めない。検証未実施も完了一巡と数えない。
+- **B: Gunshi1が、局所修正の継続では解決が見込めず、根本的な方法変更が必要そうだと根拠付きで判断している。** 行き詰まった設計前提・方式・分解方法と、5回の結果からそう判断する理由、Gunshi2に求める具体的な判断を示す。「難しい」「時間がかかった」だけでは不足する。
+
+「同じタスク」は同じ成果・未達受入条件を追う明示された継続系列を指す。redoでtask_idが変わっても対応関係が確認できれば数えるが、同じparent_cmd/task family内の別成果・別問題を合算しない。証拠は既存task/report/logへの参照で足り、新しいカウンタ基盤やreceiptは作らない。
+
+**5回未満、または根本的な方法変更の根拠なしなら、Gunshi2へ送らない。** 5回を超えても局所的な次の修正が明確ならGunshi1で続ける。経過時間、120分、stall P0/P1、報告往復数、3回redo、Bloom L6、空きpane、Gunshi1多忙、外部待ちだけでは条件を満たさない。5回を満たすために無意味な修正・危険な実行を繰り返さない。安全・権限・凍結実験の停止条件は優先する。
+
+自動検出器の通知や旧ルールによる自動assignmentも、この分析開始条件を免除しない。条件のないGunshi2 assignmentを受けた場合、Gunshi2は本分析を開始せず、欠けている条件を短く家老へ返す。家老はGunshi1の通常経路で扱い、既存queue/historyを独断で削除・書換えしない。上奏後は具体策を足軽/Gunshi1へ戻し、同じ証拠でGunshi2への相談を繰り返さない。
+
+### 足軽向け作業票の明快さと根拠（2026-09-07）
+
+家老は足軽が未共有の背景を知らなくても実装に入れる作業票を作る。短さより誤解防止を優先し、必要な根拠と説明を十分に含める。ただし無関係な履歴全文で埋めない。
+
+- **目的と理由**: 何が困っていて、今回何を達成し、なぜその変更で解決する見込みなのかを書く。確認済み事実・原因仮説・提案を区別し、具体的なsource path/symbol、ログのerrorと場所、仕様の節など根拠を添える。根拠が未確認ならその確認を最初の作業にする。
+- **対象と入力**: 採用source/差分、読むファイル、変更箇所、許可path、既存機構、入力と出力先を具体化する。「前と同じ」「適切に修正」「いい感じに」だけで依頼しない。未実装flagや例示値は明記し、実行用の確定値と混ぜない。
+- **手順と判定**: 最初のcommand/CWD、変更の狙いと順序、期待する動作、実際の検証方法、合格条件、失敗時の分岐を示す。表現・行数ではなく、そのタスクが要求する実出力や動作で判定する。
+- **境界**: 今回しないこと、維持する挙動、禁止事項、依存、担当owner、判断を戻す条件を明記する。修正範囲を超える設計判断を足軽に暗黙委譲しない。
+- **差配前の確認**: 家老は「何を変えるか」「なぜか」「どこまでか」「どう成功を確かめるか」を本文と参照先だけで説明できるか確認する。曖昧なら差配前に補う。足軽は残る曖昧さを勝手に補わず、具体的な不明点と根拠を家老/Gunshi1へ返し、独立して安全な範囲だけ進める。
 
 ## Contract/Test Recursion Prevention（all agents）
 
@@ -607,7 +657,7 @@ contract・fixture・static gateを先に精緻化し続け、production成果�
 3. **有限状態は初回から全列挙**: contractから有限な状態直積が厳密に導け、Deletion Test上必要で、current environmentで安全・実行可能な場合は、single-caseを順次追加せず初回から全組合せを検証する。全列挙が不要または実行不能なら、contract由来の同値類・境界・property proofへ縮約し、縮約根拠を記録する。任意sampleは禁止する。
 4. **behaviorを検証しtoken shapeを設計しない**: 正当なaggregate、RAII、同義実装を拒むinvented symbol、固定window、代入形、token列をacceptanceにしない。構文解析が必要ならobservable ownership/dataflow/effectへ限定する。unsupported形はUNKNOWNとしfail-closed gateではGREENを許可しないが、同一criterionを証明する代替evidenceを認め、product defectとharness limitationを区別して報告する。
 5. **同一file redoのたびに成果gapを再評価**: 新しい反証を追加する前に、それを削除するとuser-visible Contractが未証明になるかDeletion Testを行う。ならないなら追加せず、権限・安全・前提の範囲で次の未達成果層（source/build/runtime等）へ戻る。
-6. **二回目redoで一括簡素化**: 同一contract/test fileの二回目QC NG時点で、既知の因果、positive path、有限state spaceを一括再設計する。一原因ずつのadversary追加を続けない。三回目のGunshi2上奏はこの一括案の最短化に使う。
+6. **二回目redoで一括簡素化**: 同一contract/test fileの二回目QC NG時点で、Gunshi1が既知の因果、positive path、有限state spaceを一括整理する。一原因ずつのadversary追加を続けない。これ自体はGunshi2上奏の条件ではなく、上記Gunshi2 Escalation Gateの両条件を必須とする。
 7. **固定点はtestの完全性ではなく成果で判定**: 「追加adversaryが思いつかない」ではなく、当該taskのrequested outcomeがContractで要求する成果層（docs/review/source/build/runtime等）のevidenceで証明され、残るclaimがDeletion Testを通らない時だけ当該taskをCLOSEDとする。delegated test stageを閉じてもparent requested outcomeを完了扱いしない。
 
 - BFVのMaximum Roundsは同一task execution内で同じClaimまたはcausal rootを反復するRoundだけに適用し、new task_idのredo/QC family回数とは別に数える。FUSE_STOPPEDは当該taskの未解決報告であり、parent outcomeのCOMPLETED判定またはnew evidenceによるfresh taskの禁止を意味しない。
@@ -651,8 +701,9 @@ forbidden. In phase 1, use this candidate priority:
 7. `.opencode/agents/*.md` presence only; these are agent definitions, not
    automatically global project policy
 
-Use a 32 KiB per-file read limit and a 64 KiB total gate budget. If an
-instruction file is larger, read the first 32 KiB, record `truncated: true`,
+Use a 64 KiB (65536-byte) per-file read limit and a 256 KiB (262144-byte)
+total gate budget. If an instruction file is larger, read the first 64 KiB,
+record `truncated: true`,
 and continue only when the visible mandatory sections are sufficient for the
 task risk.
 

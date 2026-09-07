@@ -18,7 +18,7 @@ files:
   cmd_queue: queue/shogun_to_karo.yaml  # Shogun → Karo commands
   tasks: "queue/tasks/ashigaru{N}.yaml" # Karo → Ashigaru assignments (per-ashigaru)
   gunshi_task: queue/tasks/gunshi.yaml  # Karo → Gunshi1 strategic assignments
-  gunshi2_task: queue/tasks/gunshi2.yaml # stall_detector/Karo → Gunshi2 long-task escalation
+  gunshi2_task: queue/tasks/gunshi2.yaml # Gunshi2: five Gunshi1 repair cycles AND fundamental-method-change evidence required
   pending_tasks: queue/tasks/pending.yaml # Karo管理の保留タスク（blocked未割当）
   reports: "queue/reports/ashigaru{N}_report.yaml" # Ashigaru → Gunshi reports
   gunshi_report: queue/reports/gunshi_report.yaml  # Gunshi1 → Karo strategic reports
@@ -49,8 +49,8 @@ task_status_transitions:
 mcp_tools: [Notion, Playwright, GitHub, Sequential Thinking, Memory]
 mcp_usage: "Lazy-loaded. Always ToolSearch before first use."
 
-parallel_principle: "足軽は可能な限り並列投入。家老は統括専念。1人抱え込み禁止。"
-parallel_roadmap_principle: "家老は着手前に現在タスクとロードマップ上の次工程を俯瞰し、依存関係・成果物境界・書込みownerを明示する。混線しない独立レーンは空き足軽へ最大限並列差配し、同一ファイル競合や未解放依存を伴う作業は分離・保留する。"
+parallel_principle: "家老は統括専念。製品の主経路に一writerを置き、独立して統合可能な成果だけ並列差配する。空き足軽のために仕事を作らない。"
+parallel_roadmap_principle: "家老は現在地・次の実動作・依存関係・成果物境界・書込みownerを明示する。独立レーンの準備は主経路を止めない。同一ファイル・build root・ABIの同時変更は禁止。"
 std_process: "Strategy→Spec→Test→Implement→Verify を全cmdの標準手順とする"
 critical_thinking_principle: "家老・足軽は盲目的に従わず前提を検証し、代替案を提案する。ただし過剰批判で停止せず、実行可能性とのバランスを保つ。"
 bloom_routing_rule: "config/settings.yamlのbloom_routing設定を確認せよ。autoなら家老はStep 6.5（Bloom Taxonomy L1-L6モデルルーティング）を必ず実行。スキップ厳禁。"
@@ -70,7 +70,7 @@ language:
 1. Identify self: `bash scripts/agent_identity.sh`
 2. `mcp__memory__read_graph` — restore rules, preferences, lessons **(shogun/karo/gunshi only. ashigaru skip this step — task YAML is sufficient)**
 3. **Read `memory/MEMORY.md`** (shogun only) — persistent cross-session memory. If file missing, skip. *GitHub Copilot CLI users: this file is also auto-loaded via GitHub Copilot CLI's memory feature.*
-4. **Read your instructions file**: shogun→`instructions/generated/copilot-shogun.md`, karo→`instructions/generated/copilot-karo.md`, ashigaru→`instructions/generated/copilot-ashigaru.md`, gunshi→`instructions/generated/copilot-gunshi.md`. **NEVER SKIP** — even if a conversation summary exists. Summaries do NOT preserve persona, speech style, or forbidden actions.
+4. **Read your generated instructions file**: shogun→`instructions/generated/copilot-shogun.md`, karo→`instructions/generated/copilot-karo.md`, ashigaru→`instructions/generated/copilot-ashigaru.md`, gunshi→`instructions/generated/copilot-gunshi.md`. **NEVER SKIP** — even if a conversation summary exists. Sources are `instructions/roles/*_role.md`, `instructions/common/*.md`, CLI-specific parts, and legacy entry YAML frontmatter. Legacy entry prose is archived, not a second policy authority.
 4. Rebuild state from primary YAML data (queue/, tasks/, reports/)
 5. Review forbidden actions, then start work
 
@@ -370,16 +370,16 @@ System manages ALL white-collar work, not just self-improvement. Project folders
 3. **家老は交通整理**: 家老はワークフローを回す管理職であり、実作業・品質レビュー・採否判断・RCAを抱え込まない。レビュー系は軍師、実行系は足軽へ委譲する。
 4. **E2Eテストは家老が統括**: 家老はE2Eの責任者として、実行計画レビュー・前提確認・最終判定を担当する。実行コマンドは原則として足軽へ委譲する。家老が直接実行してよいのは、全エージェント操作権限・秘密情報・VPS/本番接続・最終gateの一元管理が必要な場合に限る。その場合も理由をreport/dashboardに明記する。
 
-## Karo Roadmap-Aware Maximum Parallelization
+## Karo Roadmap-Aware Bounded Parallelization
 
-家老は高速化のため、個々の受信タスクだけでなく、親cmdの受入条件、現在地、後続工程、保留中の依存解除条件まで見通して差配する。足軽を遊休させず、混線しない範囲で最大限並列投入することを標準とする。
+家老は親cmdの受入条件、現在地、次の実動作、後続工程を見通して差配する。最適化するのは統合済み成果へ到達する時間であり、稼働pane数ではない。通常開発では実装・修正・実試験の主経路に一writerを置く。
 
 1. **差配前に全体図を作る**: 現在タスクとロードマップ上の直近後続を、`実行可能`・`依存待ち`・`独立preflight/QC準備`に分ける。各サブタスクは親cmdの受入条件または後続解放条件へ直接結び付ける。
-2. **最大並列を既定値とする**: 空き足軽が存在し、成果物・書込み先・実行資源が独立している作業は、調査、実装、環境preflight、再現、証拠収集などのレーンへ分割して同時差配する。一人にまとめて渡すのは、分割不能または調整費が利益を上回る根拠がある場合だけとする。
+2. **統合可能な独立成果だけ並列化する**: 主経路とは書込み先・実行資源が独立し、受入条件に必要な調査・入力準備・実装だけ同時差配する。境界が曖昧な小修正は一人にまとめてよい。空き枠を埋めるためのchecker、監査packet、研究branchは作らない。
 3. **混線防止境界を明記する**: 各task YAMLへ対象成果物、書込み可能なpath/owner、read-only領域、依存元、完了時に解放する後続を記す。同一ファイル、同一build root、同一生成物、同一外部資源を複数足軽が同時更新してはならない。
-4. **依存待ちは先行準備へ変換する**: 本実装がblockedでも、独立に実行できる環境確認、入力固定、owner衝突監査、テスト計画、fixture準備は先行並列化する。ただしblocked本体を足軽へ事前割当せず、`queue/tasks/pending.yaml`で保持する。
+4. **必要な準備だけ先行する**: 本実装がblockedでも独立な入力確認・分析準備は進めてよい。ただし新たな準備作業を主経路の追加gateにしない。blocked本体は足軽へ事前割当せず、`queue/tasks/pending.yaml`で保持する。
 5. **統合点を一つにする**: 並列成果はtask/report YAMLを介して集約し、採否・設計判断は軍師、最終受入と次段解放は家老が行う。足軽同士に暗黙の共有状態や口頭前提を持たせない。
-6. **毎報告で再充填する**: 一つのレーンが完了・失敗・blockedになった都度、ロードマップと空き足軽を再確認し、解放された後続または別の独立レーンを直ちに差配する。全レーン完了まで待ってから次を考える運用は禁止する。
+6. **毎報告で次の実動作を解放する**: 必要な前提が満たされた後続を速やかに差配する。通常の修正可能なエラーは担当者が同じtask内で修正・再試験する。全員の文書完成を待つことも、不要な仕事で再充填することも要求しない。
 7. **速度より衝突回避を優先する境界**: owner intersectionが不明、同一成果物へ書込み、前工程の仕様が未確定、または実行資源が排他的な場合は並列化しない。最小のdiscriminatorまたはread-only監査を先に割り当て、境界確定後に並列度を上げる。
 
 ## Karo Worktree Lane Contract (project-neutral)
@@ -410,7 +410,7 @@ execution_contract:
     worktree_path: '<exact absolute path or null for artifact-only lane>'
   owner: '<same as task.agent>'
   writable_paths: ['<exact copy of top-level writable_paths>']
-  build_root: '<exact fresh absolute path or null>'
+  build_root: '<exact owner-bound absolute path or null>'
   runtime_root: '<exact fresh absolute path or null>'
   shared_read_only: ['<exact cache/input roots>']
   exclusive_resources: ['<lease ids, empty list allowed>']
@@ -422,10 +422,12 @@ execution_contract:
   unblocks: ['<pending task ids>']
   failure_policy:
     family: '<source|configure|build|launcher|reference_runtime|candidate_runtime|analyzer|qc>'
-    fresh_root_required: true
+    fresh_root_required: false
     reuse_allowed: ['<artifact ids with exact conditions>']
   qc_target: '<gunshi|gunshi2>'
 ```
+
+`fresh_root_required: false` は通常開発の既定例であり、共有rootの無条件再利用を許可しない。同じownerの専用rootで、source worktree、generator、toolchain/architecture、依存prefix、出力先が互換で、他writerがいない場合に限り再利用する。新task IDだけを理由にrootを作り直さない。互換性不一致・破損・凍結実験の明示契約では `true` を設定し、旧rootと失敗記録を保持する。既存assigned/done taskのpolicyは遡及変更しない。
 
 ### Lane boundaries and pending work
 
@@ -520,6 +522,16 @@ When processing large datasets (30+ items requiring individual web search, API c
 
 成果物と未達の受入条件を先に確認し、最短でその gap を埋める。fixture・contract・evidence は成果達成の手段であり、明示要求がない限り成果物にしない。直接進まない追加作業、test の test 等の再帰検証、根拠なき独自 gate、可逆 local 作業への exact-once・immutable receipt 儀式は禁止する。
 
+### 実装から実動作へ到達するループ（2026-09-05）
+
+- **通常開発**は、観測した失敗→原因仮説→最小修正→実build/testの再実行を、許可済みの同じtask内で進める。commandの非zeroではその失敗に依存する後続commandを止めるが、Agentの調査・修正まで自動終了しない。安全な次の修正がある間、単発のcompiler/linker errorだけで新たな承認を要求しない。
+- **凍結済み実験**は、指定された入力・実行順・試行条件を守る。通常開発の再試験規則を使って旧実験のno-retryやfresh-runtime条件を解除しない。新しい条件は別の明示的な後続タスクにし、旧結果は保持する。
+- **build cacheと比較artifactは別物**。同じowner/source worktree/generator/toolchain/architecture/dependency/outputを確認できる通常buildは増分再利用する。新task ID・再試験・ログ更新だけではfresh rootを要求しない。異なるgenerator/ABI、破損、競合、明示的なclean-build試験のときは別rootと理由を記す。共有read-only inputや凍結artifactを上書きしない。
+- **静的検査・configure・compile/link・native起動・render・compareを別判定**にする。child未起動、fixture、PlanOnly、既存binaryの発見は、実build/runtime成功ではない。必須の未実行試験は未完了のまま残す。
+- **独立作業は並行、同じ製品経路は小さく統合**する。空席を埋めるためのchecker、長期branch、全履歴の再監査は作らない。失敗が無効にするのは、その入力に依存する結果だけ。独立した受入済みの成果を一律に取り消さない。
+- **作業票は実装可能にする**。開始時に読むexact path/symbol、変更範囲、既存機構、最初のcommand、期待する動作、失敗時の切り分け、非対象を示す。未実装flagは「提案」と明記し、実行可能な既存commandと混在させない。
+- **報告は現在の成果を示す**。実行command/CWD・exit・binary/output・未達条件・次の具体的行為を既存reportに記す。特定行数、語句、receiptの個数は外部仕様に必要な場合だけ固定する。安全・権限・owner・公開ABIの条件は維持する。
+
 ### 成果への距離・原因切り分けに基づく優先順位
 
 候補作業ごとに、user-visible outcome への距離、現在の原因仮説を識別する情報利得、費用と脇道化リスクを比較して修正・検証順を決める。技術的に妥当であること、または最終 acceptance criterion に関係することだけでは最優先にしない。まず成果へ最も直接届き、主要な不確実性を最小作業で減らす修正・検証を行い、間接的な形式証明、汎用基盤、広い検証は、直接経路で必要性が立証された後へ送る。
@@ -538,10 +550,33 @@ When processing large datasets (30+ items requiring individual web search, API c
 6. **Non-regression**: 破壊的操作禁止、SKIP=FAIL、applicable safety/security/privacy policy、および明示されたdurability・transactional correctness・crash consistencyは削除または弱体化しない。このgateが除外するのは根拠なく推定されたscopeだけである。
 
 - 安全かつ許可済みなら、実 build/test/runtime を source-only gate の反復より優先する。単発 network 失敗だけを根拠に汎用 offline framework を新設しない。
-- 同一 task family の redo/QC が連続 2 回なら最短経路へ簡素化し、3 回なら Gunshi2 へ一度だけ上奏して簡素化案と根本原因分析を得る。
-- 3 回目以後は各失敗で判明した新しい因果を独立レビューし、fresh root と範囲を限定した evidence-based execution で自動継続する。blind retry と失敗 root の黙示再利用は禁止する。
+- 同じ作業のredo/QCが続いたら、まずGunshi1が原因を整理し、最短経路へ簡素化する。Gunshi2へのエスカレーションは下記の両条件を満たす場合だけに限定する。
+- 各失敗で判明した新しい因果をGunshi1がレビューし、範囲を限定した実行で継続する。root再利用は上記の通常開発/凍結実験の区別で決める。blind retryは禁止するが、同じ専用build領域での根拠ある修正・増分再試験は禁止しない。
 - 試行回数だけを理由に殿判断待ち、terminal status、追加 redo の自動停止へ移行してはならない。停止は破壊的操作、権限不足、外部 scope・費用・安全判断、または技術的に次の有意な手がない場合に限る。
 - 進捗報告には user-visible progress と残る outcome gap を必ず記す。破壊的操作禁止と SKIP=FAIL はこの規則で緩和しない。
+
+### Gunshi2 Escalation Gate（2026-09-07、両条件必須）
+
+通常の分析・設計・QC・修正方針はGunshi1が担当する。Gunshi2は難しい構造的行き詰まりの解消に限定する。家老は次の **A AND B** が既存reportで確認できる場合だけGunshi2へルーティングする。
+
+- **A: 同じタスクでGunshi1による5回の修正・再検証を完了しても、同じ受入条件が未達である。** 1回とは、Gunshi1が根拠付き修正方針を示し、担当者が実際に修正し、対象の検証を行い、Gunshi1が結果を確認する一巡。実装は足軽が担ってよい。初回試行、提案だけ、同じ報告の再送、同一試行内の編集hunk数、単なる再起動・再実行は修正回数に含めない。検証未実施も完了一巡と数えない。
+- **B: Gunshi1が、局所修正の継続では解決が見込めず、根本的な方法変更が必要そうだと根拠付きで判断している。** 行き詰まった設計前提・方式・分解方法と、5回の結果からそう判断する理由、Gunshi2に求める具体的な判断を示す。「難しい」「時間がかかった」だけでは不足する。
+
+「同じタスク」は同じ成果・未達受入条件を追う明示された継続系列を指す。redoでtask_idが変わっても対応関係が確認できれば数えるが、同じparent_cmd/task family内の別成果・別問題を合算しない。証拠は既存task/report/logへの参照で足り、新しいカウンタ基盤やreceiptは作らない。
+
+**5回未満、または根本的な方法変更の根拠なしなら、Gunshi2へ送らない。** 5回を超えても局所的な次の修正が明確ならGunshi1で続ける。経過時間、120分、stall P0/P1、報告往復数、3回redo、Bloom L6、空きpane、Gunshi1多忙、外部待ちだけでは条件を満たさない。5回を満たすために無意味な修正・危険な実行を繰り返さない。安全・権限・凍結実験の停止条件は優先する。
+
+自動検出器の通知や旧ルールによる自動assignmentも、この分析開始条件を免除しない。条件のないGunshi2 assignmentを受けた場合、Gunshi2は本分析を開始せず、欠けている条件を短く家老へ返す。家老はGunshi1の通常経路で扱い、既存queue/historyを独断で削除・書換えしない。上奏後は具体策を足軽/Gunshi1へ戻し、同じ証拠でGunshi2への相談を繰り返さない。
+
+### 足軽向け作業票の明快さと根拠（2026-09-07）
+
+家老は足軽が未共有の背景を知らなくても実装に入れる作業票を作る。短さより誤解防止を優先し、必要な根拠と説明を十分に含める。ただし無関係な履歴全文で埋めない。
+
+- **目的と理由**: 何が困っていて、今回何を達成し、なぜその変更で解決する見込みなのかを書く。確認済み事実・原因仮説・提案を区別し、具体的なsource path/symbol、ログのerrorと場所、仕様の節など根拠を添える。根拠が未確認ならその確認を最初の作業にする。
+- **対象と入力**: 採用source/差分、読むファイル、変更箇所、許可path、既存機構、入力と出力先を具体化する。「前と同じ」「適切に修正」「いい感じに」だけで依頼しない。未実装flagや例示値は明記し、実行用の確定値と混ぜない。
+- **手順と判定**: 最初のcommand/CWD、変更の狙いと順序、期待する動作、実際の検証方法、合格条件、失敗時の分岐を示す。表現・行数ではなく、そのタスクが要求する実出力や動作で判定する。
+- **境界**: 今回しないこと、維持する挙動、禁止事項、依存、担当owner、判断を戻す条件を明記する。修正範囲を超える設計判断を足軽に暗黙委譲しない。
+- **差配前の確認**: 家老は「何を変えるか」「なぜか」「どこまでか」「どう成功を確かめるか」を本文と参照先だけで説明できるか確認する。曖昧なら差配前に補う。足軽は残る曖昧さを勝手に補わず、具体的な不明点と根拠を家老/Gunshi1へ返し、独立して安全な範囲だけ進める。
 
 ## Contract/Test Recursion Prevention（all agents）
 
@@ -552,7 +587,7 @@ contract・fixture・static gateを先に精緻化し続け、production成果�
 3. **有限状態は初回から全列挙**: contractから有限な状態直積が厳密に導け、Deletion Test上必要で、current environmentで安全・実行可能な場合は、single-caseを順次追加せず初回から全組合せを検証する。全列挙が不要または実行不能なら、contract由来の同値類・境界・property proofへ縮約し、縮約根拠を記録する。任意sampleは禁止する。
 4. **behaviorを検証しtoken shapeを設計しない**: 正当なaggregate、RAII、同義実装を拒むinvented symbol、固定window、代入形、token列をacceptanceにしない。構文解析が必要ならobservable ownership/dataflow/effectへ限定する。unsupported形はUNKNOWNとしfail-closed gateではGREENを許可しないが、同一criterionを証明する代替evidenceを認め、product defectとharness limitationを区別して報告する。
 5. **同一file redoのたびに成果gapを再評価**: 新しい反証を追加する前に、それを削除するとuser-visible Contractが未証明になるかDeletion Testを行う。ならないなら追加せず、権限・安全・前提の範囲で次の未達成果層（source/build/runtime等）へ戻る。
-6. **二回目redoで一括簡素化**: 同一contract/test fileの二回目QC NG時点で、既知の因果、positive path、有限state spaceを一括再設計する。一原因ずつのadversary追加を続けない。三回目のGunshi2上奏はこの一括案の最短化に使う。
+6. **二回目redoで一括簡素化**: 同一contract/test fileの二回目QC NG時点で、Gunshi1が既知の因果、positive path、有限state spaceを一括整理する。一原因ずつのadversary追加を続けない。これ自体はGunshi2上奏の条件ではなく、上記Gunshi2 Escalation Gateの両条件を必須とする。
 7. **固定点はtestの完全性ではなく成果で判定**: 「追加adversaryが思いつかない」ではなく、当該taskのrequested outcomeがContractで要求する成果層（docs/review/source/build/runtime等）のevidenceで証明され、残るclaimがDeletion Testを通らない時だけ当該taskをCLOSEDとする。delegated test stageを閉じてもparent requested outcomeを完了扱いしない。
 
 - BFVのMaximum Roundsは同一task execution内で同じClaimまたはcausal rootを反復するRoundだけに適用し、new task_idのredo/QC family回数とは別に数える。FUSE_STOPPEDは当該taskの未解決報告であり、parent outcomeのCOMPLETED判定またはnew evidenceによるfresh taskの禁止を意味しない。

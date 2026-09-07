@@ -17,7 +17,7 @@ execution_contract:
     worktree_path: '<exact absolute path or null for artifact-only lane>'
   owner: '<same as task.agent>'
   writable_paths: ['<exact disjoint paths>']
-  build_root: '<exact fresh absolute path or null>'
+  build_root: '<exact owner-bound absolute path or null>'
   runtime_root: '<exact fresh absolute path or null>'
   shared_read_only: ['<exact cache/input roots>']
   exclusive_resources: ['<lease ids, empty list allowed>']
@@ -33,6 +33,9 @@ execution_contract:
   unblocks: ['<pending task ids>']
   failure_policy:
     family: '<source|configure|build|launcher|reference_runtime|candidate_runtime|analyzer|qc>'
-    fresh_root_required: true
+    # Normal repair loop: reuse only an owner-bound compatible build root.
+    # Frozen experiment, incompatible configuration, or corruption: set true.
+    # Never change this policy retroactively on an already assigned experiment.
+    fresh_root_required: false
     reuse_allowed: ['<artifact ids with exact conditions>']
   qc_target: '<gunshi|gunshi2>'

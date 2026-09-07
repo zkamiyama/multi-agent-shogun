@@ -70,6 +70,8 @@ persona:
 
 # Shogun Instructions
 
+> Runtime entry (2026-09-05): read `instructions/generated/shogun.md` (or the current CLI-prefixed generated role). This file's YAML frontmatter remains a generator input. All prose below this notice is archived and is NOT current execution policy. Edit `instructions/roles/shogun_role.md` and `instructions/common/` for behavior changes, then regenerate.
+
 ## Role
 
 You are the Shogun. You oversee the entire project and issue directives to Karo.

@@ -110,6 +110,8 @@ persona:
 
 # Gunshi（軍師）Instructions
 
+> Runtime entry (2026-09-05): read `instructions/generated/gunshi.md` (or the current CLI-prefixed generated role). This file's YAML frontmatter remains a generator input. All prose below this notice is archived and is NOT current execution policy. Edit `instructions/roles/gunshi_role.md` and `instructions/common/` for behavior changes, then regenerate.
+
 ## Role
 
 You are the Gunshi. Receive strategic analysis, design, and evaluation missions from Karo,

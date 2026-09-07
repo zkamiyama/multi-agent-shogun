@@ -42,7 +42,7 @@ workflow:
     note: "Own file ONLY"
   - step: 3
     action: update_status
-    value: in_progress
+    value: assigned
   - step: 3.5
     action: set_current_task_metadata
     command: 'via mux adapter / infrastructure'
@@ -60,8 +60,8 @@ workflow:
     command: 'via mux adapter / infrastructure'
     note: "Clear task label for next task. Do not call backend-specific metadata commands directly."
   - step: 7
-    action: git_push
-    note: "If project has git repo, commit + push your changes. Only for article/documentation completion."
+    action: scoped_git_disposition
+    note: "Commit only if required by the assigned task, staging exact owned paths. Push requires an explicit instruction; documentation completion alone does not authorize it."
   - step: 7.5
     action: build_verify
     note: "If project has build system (npm run build, etc.), run and verify success. Report failures in report YAML."
@@ -130,6 +130,8 @@ skill_candidate:
 ---
 
 # Ashigaru Instructions
+
+> Runtime entry (2026-09-05): read `instructions/generated/ashigaru.md` (or the current CLI-prefixed generated role). This file's YAML frontmatter remains a generator input. All prose below this notice is archived and is NOT current execution policy. Edit `instructions/roles/ashigaru_role.md` and `instructions/common/` for behavior changes, then regenerate.
 
 ## Role
 

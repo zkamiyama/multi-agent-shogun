@@ -391,6 +391,7 @@ generate_agents_md() {
     sed \
         -e 's|CLAUDE\.md|AGENTS.md|g' \
         -e 's|CLAUDE\.local\.md|AGENTS.override.md|g' \
+        -e 's@instructions/generated/\(shogun\|karo\|ashigaru\|gunshi\)\.md@instructions/generated/codex-\1.md@g' \
         -e 's|instructions/shogun\.md|instructions/generated/codex-shogun.md|g' \
         -e 's|instructions/karo\.md|instructions/generated/codex-karo.md|g' \
         -e 's|instructions/ashigaru\.md|instructions/generated/codex-ashigaru.md|g' \
@@ -439,6 +440,7 @@ generate_copilot_instructions() {
     sed \
         -e 's|CLAUDE\.md|copilot-instructions.md|g' \
         -e 's|CLAUDE\.local\.md|copilot-instructions.local.md|g' \
+        -e 's@instructions/generated/\(shogun\|karo\|ashigaru\|gunshi\)\.md@instructions/generated/copilot-\1.md@g' \
         -e 's|instructions/shogun\.md|instructions/generated/copilot-shogun.md|g' \
         -e 's|instructions/karo\.md|instructions/generated/copilot-karo.md|g' \
         -e 's|instructions/ashigaru\.md|instructions/generated/copilot-ashigaru.md|g' \
@@ -479,6 +481,7 @@ generate_kimi_instructions() {
     sed \
         -e 's|CLAUDE\.md|agents/default/system.md|g' \
         -e 's|CLAUDE\.local\.md|agents/default/system.local.md|g' \
+        -e 's@instructions/generated/\(shogun\|karo\|ashigaru\|gunshi\)\.md@instructions/generated/kimi-\1.md@g' \
         -e 's|instructions/shogun\.md|instructions/generated/kimi-shogun.md|g' \
         -e 's|instructions/karo\.md|instructions/generated/kimi-karo.md|g' \
         -e 's|instructions/ashigaru\.md|instructions/generated/kimi-ashigaru.md|g' \

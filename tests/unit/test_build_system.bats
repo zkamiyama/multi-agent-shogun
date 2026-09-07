@@ -356,6 +356,37 @@ for path in targets:
 PYEOF
 }
 
+@test "delivery: current role entrypoints and ordinary repair policy propagate" {
+    PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
+from pathlib import Path
+import os
+import yaml
+
+root = Path(os.environ["PROJECT_ROOT"])
+for filename, prefix in (
+    ("CLAUDE.md", ""), ("AGENTS.md", "codex-"),
+    (".github/copilot-instructions.md", "copilot-"),
+    ("agents/default/system.md", "kimi-"),
+):
+    content = (root / filename).read_text(encoding="utf-8")
+    for role in ("shogun", "karo", "ashigaru", "gunshi"):
+        target = f"instructions/generated/{prefix}{role}.md"
+        assert f"`{target}`" in content, (filename, target)
+        assert (root / target).is_file(), target
+    assert "fresh_root_required: false" in content, filename
+    assert "実装から実動作へ到達するループ" in content, filename
+
+for prompt in (root / "instructions/generated").glob("*.md"):
+    content = prompt.read_text(encoding="utf-8")
+    assert "実装から実動作へ到達するループ" in content, prompt
+    assert "通常開発" in content and "凍結" in content, prompt
+entry = (root / "instructions/ashigaru.md").read_text(encoding="utf-8")
+workflow = yaml.safe_load(entry.split("---", 2)[1])["workflow"]
+assert next(x for x in workflow if x["step"] == 3)["value"] == "assigned"
+assert next(x for x in workflow if x["step"] == 7)["action"] == "scoped_git_disposition"
+PYEOF
+}
+
 @test "content: project-neutral worktree lane section is full-section byte-identical at H1/H2 boundary [cmd_039]" {
     PROJECT_ROOT="$PROJECT_ROOT" "$PROJECT_ROOT/.venv/bin/python3" - <<'PYEOF'
 from pathlib import Path
@@ -491,7 +522,7 @@ placeholder_options(
     {"source", "configure", "build", "launcher", "reference_runtime", "candidate_runtime", "analyzer", "qc"},
     "failure_policy.family",
 )
-assert failure_policy["fresh_root_required"] is True
+assert failure_policy["fresh_root_required"] is False
 string_list(failure_policy["reuse_allowed"], "failure_policy.reuse_allowed")
 placeholder_options(contract["qc_target"], {"gunshi", "gunshi2"}, "qc_target")
 PYEOF
