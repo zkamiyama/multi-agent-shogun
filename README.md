@@ -8,14 +8,20 @@ Run 10 AI coding agents in parallel — **Claude Code, OpenAI Codex, GitHub Copi
 
 **Talk Coding, not Vibe Coding. Speak to your phone, AI executes.**
 
-[![GitHub Stars](https://img.shields.io/github/stars/yohey-w/multi-agent-shogun?style=social)](https://github.com/yohey-w/multi-agent-shogun)
+[![Fork Stars](https://img.shields.io/github/stars/zkamiyama/multi-agent-shogun?style=social)](https://github.com/zkamiyama/multi-agent-shogun)
+[![Upstream Stars](https://img.shields.io/github/stars/yohey-w/multi-agent-shogun?style=social)](https://github.com/yohey-w/multi-agent-shogun)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![v5.1.0 Karo Traffic Control](https://img.shields.io/badge/v5.1.0-Karo%20Traffic%20Control-ff6600?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHRleHQgeD0iMCIgeT0iMTIiIGZvbnQtc2l6ZT0iMTIiPuKalTwvdGV4dD48L3N2Zz4=)](https://github.com/yohey-w/multi-agent-shogun/releases/tag/v5.1.0)
+[![Maintained fork](https://img.shields.io/badge/status-maintained%20fork-2ea44f)](https://github.com/zkamiyama/multi-agent-shogun)
 [![Shell](https://img.shields.io/badge/Shell%2FBash-100%25-green)]()
 
 [English](README.md) | [日本語](README_ja.md)
 
 </div>
+
+> [!NOTE]
+> **Maintained fork.** This repository is an actively maintained fork of [yohey-w/multi-agent-shogun](https://github.com/yohey-w/multi-agent-shogun). In August 2026, the upstream maintainer introduced [kagemusha](https://github.com/yohey-w/kagemusha) as the successor and stated that `multi-agent-shogun` would remain available as-is. This fork continues maintenance of the existing multi-agent harness for users who still rely on it.
+>
+> Fork-specific work continues on OpenAI Codex and other coding-CLI compatibility, Zellij orchestration, stall detection/recovery, worktree safety, automated tests, and execution policies. Original project history and attribution remain available in the [upstream repository](https://github.com/yohey-w/multi-agent-shogun).
 
 <p align="center">
   <img src="images/screenshots/hero/latest-translucent-20260210-190453.png" alt="Latest translucent command session in the Shogun pane" width="940">
@@ -35,7 +41,7 @@ Run 10 AI coding agents in parallel — **Claude Code, OpenAI Codex, GitHub Copi
 **Requirements:** Zellij, bash 4+, at least one of: [Claude Code](https://claude.ai/code) / Codex / Copilot / Kimi / OpenCode / Antigravity
 
 ```bash
-git clone https://github.com/yohey-w/multi-agent-shogun
+git clone https://github.com/zkamiyama/multi-agent-shogun
 cd multi-agent-shogun
 bash first_setup.sh                        # one-time setup: config, dependencies, MCP
 source ~/.bashrc                           # reload PATH
@@ -201,9 +207,9 @@ Skills grow organically from real work — not from a predefined template librar
 
 📥 **Download the repository**
 
-[Download ZIP](https://github.com/yohey-w/multi-agent-shogun/archive/refs/heads/main.zip) and extract to `C:\tools\multi-agent-shogun`
+[Download ZIP](https://github.com/zkamiyama/multi-agent-shogun/archive/refs/heads/main.zip) and extract to `C:\tools\multi-agent-shogun`
 
-*Or use git:* `git clone https://github.com/yohey-w/multi-agent-shogun.git C:\tools\multi-agent-shogun`
+*Or use git:* `git clone https://github.com/zkamiyama/multi-agent-shogun.git C:\tools\multi-agent-shogun`
 
 </td>
 </tr>
@@ -354,7 +360,7 @@ Monitor and command 10 AI agents from your phone with the dedicated Android comp
 | **Voice Input** | Japanese continuous recognition via Google Speech API — higher accuracy than phone keyboard voice |
 | **Screenshot Share** | Share images via Android share menu → SFTP transfer to server |
 
-> **Note:** Android only for now. No iOS version — the developer doesn't own an iPhone. If there's demand, please open an [Issue](https://github.com/yohey-w/multi-agent-shogun/issues). PRs welcome!
+> **Note:** Android only for now. No iOS version — the developer doesn't own an iPhone. Pull requests are welcome on this maintained fork.
 
 #### Setup
 
@@ -452,7 +458,7 @@ SSH via Termux also works. More limited than the dedicated app, but requires no 
 
 ```bash
 # 1. Clone
-git clone https://github.com/yohey-w/multi-agent-shogun.git ~/multi-agent-shogun
+git clone https://github.com/zkamiyama/multi-agent-shogun.git ~/multi-agent-shogun
 cd ~/multi-agent-shogun
 
 # 2. Make scripts executable
@@ -2031,29 +2037,21 @@ Even if you're not comfortable with keyboard shortcuts, you can switch, scroll, 
 
 ---
 
-## Sponsors
+## Upstream project & sponsorship
 
-This project is funded by sponsors. Your support keeps it free and actively maintained.
+This fork preserves the MIT-licensed work of the original [yohey-w/multi-agent-shogun](https://github.com/yohey-w/multi-agent-shogun) project. Sponsorship below supports the original upstream maintainer, not this fork.
 
 <a href="https://github.com/sponsors/yohey-w">
-  <img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa?style=for-the-badge&logo=github-sponsors" alt="Sponsor">
+  <img src="https://img.shields.io/badge/Support%20upstream-%E2%9D%A4-ea4aaa?style=for-the-badge&logo=github-sponsors" alt="Support upstream maintainer">
 </a>
-
-| Tier | Perks |
-|------|-------|
-| ☕ $5/mo | Name in sponsors section |
-| 🏯 $25/mo | Early access to new releases |
-| ⚔️ $100/mo | Priority issue/PR response (48h) |
-| 🎖️ $500/mo | Monthly 1:1 consultation |
-| 🏛️ $1,000/mo | Logo in README + quarterly strategy session |
 
 ## Contributing
 
-Issues and pull requests are welcome.
+Pull requests are welcome on this maintained fork.
 
-- **Bug reports**: Open an issue with reproduction steps
-- **Feature ideas**: Open a discussion first
-- **Skills**: Skills are personal by design and not included in this repo
+- **Bug fixes**: Include reproduction steps and tests when practical
+- **Feature changes**: Explain the use case and compatibility impact in the PR description
+- **Skills**: Skills are personal by design and are not included in this repo
 
 ## Credits
 
@@ -2071,6 +2069,6 @@ Based on [Claude-Code-Communication](https://github.com/Akira-Papa/Claude-Code-C
 
 ⭐ Star this repo if you find it useful — it helps others discover it.
 
-💖 [Sponsor this project](https://github.com/sponsors/yohey-w) to keep it free.
+💖 [Support the original upstream maintainer](https://github.com/sponsors/yohey-w).
 
 </div>
