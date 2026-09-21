@@ -8,14 +8,20 @@
 
 **Talk Coding — Vibe Codingではなく、スマホに話すだけでAIが実行**
 
-[![GitHub Stars](https://img.shields.io/github/stars/yohey-w/multi-agent-shogun?style=social)](https://github.com/yohey-w/multi-agent-shogun)
+[![Fork Stars](https://img.shields.io/github/stars/zkamiyama/multi-agent-shogun?style=social)](https://github.com/zkamiyama/multi-agent-shogun)
+[![Upstream Stars](https://img.shields.io/github/stars/yohey-w/multi-agent-shogun?style=social)](https://github.com/yohey-w/multi-agent-shogun)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![v5.1.0 Karo Traffic Control](https://img.shields.io/badge/v5.1.0-Karo%20Traffic%20Control-ff6600?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHRleHQgeD0iMCIgeT0iMTIiIGZvbnQtc2l6ZT0iMTIiPuKalTwvdGV4dD48L3N2Zz4=)](https://github.com/yohey-w/multi-agent-shogun/releases/tag/v5.1.0)
+[![Maintained fork](https://img.shields.io/badge/status-maintained%20fork-2ea44f)](https://github.com/zkamiyama/multi-agent-shogun)
 [![Shell](https://img.shields.io/badge/Shell%2FBash-100%25-green)]()
 
 [English](README.md) | [日本語](README_ja.md)
 
 </div>
+
+> [!NOTE]
+> **継続保守forkです。** このリポジトリは [yohey-w/multi-agent-shogun](https://github.com/yohey-w/multi-agent-shogun) のforkを継続保守しているものです。2026年8月、上流では後継プロジェクト [kagemusha](https://github.com/yohey-w/kagemusha) が案内され、従来の `multi-agent-shogun` は現状のまま利用可能な状態で残されました。このforkでは、従来のマルチエージェント・ハーネスを引き続き使う利用者向けに保守を継続しています。
+>
+> fork固有の更新として、OpenAI Codexを含む各coding CLIとの互換性、Zellijオーケストレーション、stall detection/recovery、worktree安全性、自動テスト、エージェント実行ポリシーなどを継続改善しています。元プロジェクトの履歴と帰属は [上流リポジトリ](https://github.com/yohey-w/multi-agent-shogun) を参照してください。
 
 <p align="center">
   <img src="images/screenshots/hero/latest-translucent-20260210-190453.png" alt="将軍ペインでの最新半透過セッションキャプチャ" width="940">
@@ -35,7 +41,7 @@
 **必要なもの:** Zellij、bash 4+、以下のいずれか: [Claude Code](https://claude.ai/code) / Codex / Copilot / Kimi / OpenCode
 
 ```bash
-git clone https://github.com/yohey-w/multi-agent-shogun
+git clone https://github.com/zkamiyama/multi-agent-shogun
 cd multi-agent-shogun
 bash first_setup.sh                        # 初回セットアップ: 設定・依存関係・MCP
 source ~/.bashrc                           # PATH反映
@@ -199,9 +205,9 @@ dashboard.md に掲載 → 殿が承認 → .claude/commands/ にスキル作成
 
 📥 **リポジトリをダウンロード**
 
-[ZIPダウンロード](https://github.com/yohey-w/multi-agent-shogun/archive/refs/heads/main.zip) して `C:\tools\multi-agent-shogun` に展開
+[ZIPダウンロード](https://github.com/zkamiyama/multi-agent-shogun/archive/refs/heads/main.zip) して `C:\tools\multi-agent-shogun` に展開
 
-*または git を使用:* `git clone https://github.com/yohey-w/multi-agent-shogun.git C:\tools\multi-agent-shogun`
+*または git を使用:* `git clone https://github.com/zkamiyama/multi-agent-shogun.git C:\tools\multi-agent-shogun`
 
 </td>
 </tr>
@@ -343,7 +349,7 @@ zellij web --revoke-all-tokens
 | **音声入力** | Google Speech APIによる日本語連続認識。キーボード音声入力より高精度 |
 | **スクショ共有** | 共有メニューから画像をSFTP転送 |
 
-> **Note:** 現在Androidのみ対応。iOS版は開発者にテスト端末がないため未対応。ニーズがあれば [Issue](https://github.com/yohey-w/multi-agent-shogun/issues) で教えてください。PRも歓迎！
+> **Note:** 現在Androidのみ対応。iOS版は開発者にテスト端末がないため未対応。この継続保守forkへのPull Requestを歓迎します。
 
 #### セットアップ手順
 
@@ -445,7 +451,7 @@ Termuxを使ったSSH接続でも操作できる。専用アプリと比べて�
 
 ```bash
 # 1. リポジトリをクローン
-git clone https://github.com/yohey-w/multi-agent-shogun.git ~/multi-agent-shogun
+git clone https://github.com/zkamiyama/multi-agent-shogun.git ~/multi-agent-shogun
 cd ~/multi-agent-shogun
 
 # 2. スクリプトに実行権限を付与
@@ -1957,28 +1963,20 @@ tmux respawn-pane -t shogun:0.0 -k 'claude --model opus --dangerously-skip-permi
 
 ---
 
-## スポンサー
+## 上流プロジェクトとスポンサー
 
-このプロジェクトはスポンサーによって支えられています。
+このforkは、元の [yohey-w/multi-agent-shogun](https://github.com/yohey-w/multi-agent-shogun) のMITライセンス成果物と帰属を保持しています。下記のスポンサーリンクは、このforkではなく元の上流メンテナーを支援するものです。
 
 <a href="https://github.com/sponsors/yohey-w">
-  <img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa?style=for-the-badge&logo=github-sponsors" alt="Sponsor">
+  <img src="https://img.shields.io/badge/Support%20upstream-%E2%9D%A4-ea4aaa?style=for-the-badge&logo=github-sponsors" alt="Support upstream maintainer">
 </a>
-
-| Tier | 特典 |
-|------|------|
-| ☕ $5/月 | スポンサーセクションに名前掲載 |
-| 🏯 $25/月 | 新リリースへの早期アクセス |
-| ⚔️ $100/月 | Issue/PRの優先対応（48h以内） |
-| 🎖️ $500/月 | 月1回の1on1コンサルテーション |
-| 🏛️ $1,000/月 | READMEにロゴ掲載 + 四半期戦略コンサル |
 
 ## コントリビューション
 
-Issue、Pull Requestを歓迎します。
+この継続保守forkへのPull Requestを歓迎します。
 
-- **バグ報告**: 再現手順を添えてIssueを作成してください
-- **機能アイデア**: まずDiscussionで提案してください
+- **バグ修正**: 可能な範囲で再現手順とテストを含めてください
+- **機能変更**: PR本文にユースケースと互換性への影響を記載してください
 - **スキル**: スキルは個人のワークフローに最適化されるものであり、このリポジトリには含めません
 
 ## 🙏 クレジット
@@ -1999,6 +1997,6 @@ MIT License - 詳細は [LICENSE](LICENSE) を参照。
 
 ⭐ 役に立ったらスターをお願いします — 他の人にも見つけてもらえます。
 
-💖 [このプロジェクトをスポンサーする](https://github.com/sponsors/yohey-w)
+💖 [元の上流メンテナーを支援する](https://github.com/sponsors/yohey-w)
 
 </div>
